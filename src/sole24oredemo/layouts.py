@@ -49,9 +49,9 @@ def configure_sidebar(model_list):
 
 def init_prediction_visualization_layout():
     with st.container():
-        row1 = st.columns([3, 0.3, 3, 3, 0.4], vertical_alignment='center')
-        row2 = st.columns([3, 0.3, 3, 3, 0.4], vertical_alignment='center')
-        row3 = st.columns([3, 0.3, 3, 3, 0.4], vertical_alignment='center')
+        row1 = st.columns([3, 0.3, 3, 3, 0.4, 3], vertical_alignment='center')
+        row2 = st.columns([3, 0.3, 3, 3, 0.4, 3], vertical_alignment='center')
+        row3 = st.columns([3, 0.3, 3, 3, 0.4, 3], vertical_alignment='center')
 
         with row1[0]:
             st.markdown("<h3 style='text-align: center;'>Current Time</h3>", unsafe_allow_html=True)
@@ -59,6 +59,8 @@ def init_prediction_visualization_layout():
             st.markdown("<h3 style='text-align: center;'>Groundtruths</h3>", unsafe_allow_html=True)
         with row1[3]:
             st.markdown("<h3 style='text-align: center;'>Predictions</h3>", unsafe_allow_html=True)
+        with row1[5]:
+            st.markdown("<h3 style='text-align: center;'>Differences</h3>", unsafe_allow_html=True)
 
         with row2[0]:
             gt_current = st.empty()
@@ -106,7 +108,12 @@ def init_prediction_visualization_layout():
         with row3[4]:
             colorbar60 = st.empty()
 
-    return gt_current, pred_current, gt_plus_30, pred_plus_30, gt_plus_60, pred_plus_60, colorbar30, colorbar60
+        with row2[5]:
+            diff_plus_30 = st.empty()  # Added difference container for +30min
+        with row3[5]:
+            diff_plus_60 = st.empty()  # Added difference container for +60min
+
+    return gt_current, pred_current, gt_plus_30, pred_plus_30, gt_plus_60, pred_plus_60, colorbar30, colorbar60, diff_plus_30, diff_plus_60
 
 
 def precompute_images(frame_dict):

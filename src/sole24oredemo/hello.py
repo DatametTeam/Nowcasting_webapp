@@ -29,6 +29,8 @@ from sole24oredemo.utils import get_latest_file_once_test
 
 from sole24oredemo.utils import get_latest_file_once_test_2
 
+from sole24oredemo.parallel_code import create_diff_dict_in_parallel
+
 st.set_page_config(page_title="Weather prediction", page_icon=":flag-eu:", layout="wide")
 
 # if is_pbs_available():
@@ -39,9 +41,10 @@ from pbs import submit_inference, get_job_status
 #     from mock import inference_mock as submit_inference, get_job_status
 
 
-def update_prediction_visualization(gt0_gif, gt6_gif, gt12_gif, pred_gif_6, pred_gif_12):
-    gt_current, pred_current, gt_plus_30, pred_plus_30, gt_plus_60, pred_plus_60, colorbar30, colorbar60 = \
+def update_prediction_visualization(gt0_gif, gt6_gif, gt12_gif, pred_gif_6, pred_gif_12, diff_gif_6, diff_gif_12):
+    gt_current, pred_current, gt_plus_30, pred_plus_30, gt_plus_60, pred_plus_60, colorbar30, colorbar60, diff_plus_30, diff_plus_60 = \
         init_prediction_visualization_layout()
+
     # Display the GIF using Streamlit
     gt_current.image(gt0_gif, caption="Current data", use_container_width=True)
     pred_current.image(gt0_gif, caption="Current data", use_container_width=True)
@@ -51,6 +54,8 @@ def update_prediction_visualization(gt0_gif, gt6_gif, gt12_gif, pred_gif_6, pred
     pred_plus_60.image(pred_gif_12, caption="Prediction +60 minutes", use_container_width=True)
     colorbar30.image(create_colorbar_fig(top_adj=0.96, bot_adj=0.12))
     colorbar60.image(create_colorbar_fig(top_adj=0.96, bot_adj=0.12))
+    diff_plus_30.image(diff_gif_6, caption="Differences +30 minutes", use_container_width=True)
+    diff_plus_60.image(diff_gif_12, caption="Differences +60 minutes", use_container_width=True)
 
 
 def submit_prediction_job(sidebar_args):
@@ -173,9 +178,12 @@ def compute_prediction_results_test(sidebar_args, folder_path):
 
             gt_array, pred_array = get_prediction_results_test(folder_path, sidebar_args)
 
+            diff_array = np.abs(gt_array - pred_array)
+
             status.update(label="🔄 Creating dictionaries...", state="running", expanded=True)
 
             gt_dict, pred_dict = create_fig_dict_in_parallel(gt_array, pred_array, sidebar_args)
+            diff_dict = create_diff_dict_in_parallel(diff_array, sidebar_args)
 
             if not gt_gif_ok:
                 status.update(label="🔄 Creating GT GIFs...", state="running", expanded=True)
@@ -184,13 +192,15 @@ def compute_prediction_results_test(sidebar_args, folder_path):
 
             status.update(label="🔄 Creating Pred GIFs...", state="running", expanded=True)
 
-            # TODO: questa sembra ritornare immagini vuote
             pred_gifs = create_sliding_window_gifs_for_predictions(pred_dict, sidebar_args,
                                                                    fps_gif=3, save_on_disk=True)
 
+            diff_gifs = create_sliding_window_gifs(diff_dict, sidebar_args, fps_gif=3,
+                                                   save_on_disk=True)
+
             status.update(label=f"Done!", state="complete", expanded=True)
 
-            display_results(gt_gifs, pred_gifs)
+            display_results(gt_gifs, pred_gifs, diff_gifs)
 
 
 def compute_prediction_results(sidebar_args):
@@ -227,12 +237,14 @@ def compute_prediction_results(sidebar_args):
         st.error(error)
 
 
-def display_results(gt_gifs, pred_gifs):
+def display_results(gt_gifs, pred_gifs, diff_gifs):
     gt0_gif = gt_gifs[0]  # Full sequence
     gt_gif_6 = gt_gifs[1]  # Starts from frame 6
     gt_gif_12 = gt_gifs[2]  # Starts from frame 12
     pred_gif_6 = pred_gifs[0]
     pred_gif_12 = pred_gifs[1]
+    diff_gif_6 = diff_gifs[1]
+    diff_gif_12 = diff_gifs[2]
 
     # Store results in session state
     st.session_state.prediction_result = {
@@ -241,9 +253,11 @@ def display_results(gt_gifs, pred_gifs):
         'gt12_gif': gt_gif_12,
         'pred6_gif': pred_gif_6,
         'pred12_gif': pred_gif_12,
+        'diff6_gif': diff_gif_6,
+        'diff12_gif': diff_gif_12,
     }
     st.session_state.tab1_gif = gt0_gif.getvalue()
-    update_prediction_visualization(gt0_gif, gt_gif_6, gt_gif_12, pred_gif_6, pred_gif_12)
+    update_prediction_visualization(gt0_gif, gt_gif_6, gt_gif_12, pred_gif_6, pred_gif_12, diff_gif_6, diff_gif_12)
 
 
 def main_page(sidebar_args) -> None:
@@ -255,7 +269,9 @@ def main_page(sidebar_args) -> None:
                 st.session_state.submitted = True
         if 'submitted' in st.session_state and st.session_state.submitted:
 
-            gt_gif_ok, pred_gif_ok, gt_paths, pred_paths = check_if_gif_present(sidebar_args)
+            # updated
+            # fino a questo punto okay
+            gt_gif_ok, pred_gif_ok, diff_gif_ok, gt_paths, pred_paths, diff_paths = check_if_gif_present(sidebar_args)
 
             if gt_gif_ok and pred_gif_ok:
                 st.warning("Prediction data already present. Do you want to recompute?")

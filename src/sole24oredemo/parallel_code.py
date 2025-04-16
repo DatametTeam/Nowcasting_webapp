@@ -14,6 +14,37 @@ from sole24oredemo.utils import compute_figure_gpd
 from PIL import Image
 
 
+def create_diff_dict_in_parallel(diff_array, sidebar_args, save_on_disk=False):
+    diff_img_out_dir = os.path.join(Path(__file__).resolve().parent.parent.parent,
+                                  Path(f"data/output/imgs/{sidebar_args['model_name']}/diff"))
+    start_date = sidebar_args['start_date']
+    start_time = sidebar_args['start_time']
+    combined_start = datetime.combine(start_date, start_time)
+    print(combined_start)
+    time_step = timedelta(minutes=5)
+
+    max_workers = os.cpu_count()
+
+    progress_container = st.container()
+    with progress_container:
+        diff_progress = st.progress(0)
+        diff_status = st.text("Processing Differences")
+
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        diff_results = []
+        for i, result in enumerate(executor.map(
+                partial(save_figure, base_date=combined_start, time_step=time_step, out_dir=diff_img_out_dir,
+                        save_on_disk=save_on_disk),
+                diff_array[:, 0], range(diff_array.shape[0])
+        )):
+            diff_results.append(result)
+            diff_progress.progress((i + 1) / len(diff_array[:, 0]))
+            diff_status.text(f"Processed {i + 1}/{len(diff_array[:, 0])} Diff images")
+
+    diff_figures = {key: value for result in diff_results for key, value in result.items()}
+    return diff_figures
+
+
 def create_fig_dict_in_parallel(gt_data, pred_data, sidebar_args, save_on_disk=False):
 
     # gt_img_out_dir = Path(f"/davinci-1/home/guidim/demo_sole/data/output/imgs/{sidebar_args['model_name']}/gt")
@@ -261,6 +292,10 @@ def create_single_gif(queue, figures, gif_type, process_idx, start_key, end_key,
         save_path = os.path.join(save_path, file_name + '.gif')
         imageio.mimsave(save_path, frames, format='GIF', fps=fps_gif, loop=0)
         print(f"GIF save @ path {save_path}")
+
+
+def create_sliding_window_gifs_for_differences(diff_dict, sidebar_args, fps_gif=3, save_on_disk=True):
+    pass
 
 
 def create_sliding_window_gifs_for_predictions(prediction_dict, sidebar_args, save_on_disk=True, fps_gif=3):
