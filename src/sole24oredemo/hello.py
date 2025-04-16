@@ -24,12 +24,8 @@ from streamlit_folium import st_folium
 import branca.colormap as cm
 
 from sole24oredemo.utils import load_prediction_thread
-
-from sole24oredemo.utils import get_latest_file_once_test
-
-from sole24oredemo.utils import get_latest_file_once_test_2
-
 from sole24oredemo.parallel_code import create_diff_dict_in_parallel
+from sole24oredemo.utils import get_latest_file_once_1, get_latest_file_once_2
 
 st.set_page_config(page_title="Weather prediction", page_icon=":flag-eu:", layout="wide")
 
@@ -96,7 +92,7 @@ def get_prediction_results_test(folder_path, sidebar_args, get_only_pred=False):
         print("Loading GT data")
 
         # NEW for test
-        gt_array = get_latest_file_once_test()
+        gt_array = get_latest_file_once_1()
         print("GT data loaded")
 
         gt_array = np.array(gt_array)
@@ -105,10 +101,10 @@ def get_prediction_results_test(folder_path, sidebar_args, get_only_pred=False):
     print("Loading pred data")
 
     # NEW for test
-    pred_array = get_latest_file_once_test_2()
+    pred_array = get_latest_file_once_2()
     if model_name == 'Test':  # TODO: sistemare
         # NEW for test
-        pred_array = get_latest_file_once_test_2()
+        pred_array = get_latest_file_once_2()
     pred_array = np.array(pred_array)
     pred_array[pred_array < 0] = 0
     print("Loaded pred data")
@@ -163,47 +159,7 @@ def get_prediction_results(out_dir, sidebar_args, get_only_pred=False):
     return gt_array, pred_array
 
 
-def compute_prediction_results_test(sidebar_args, folder_path):
-    # questa funzione lancia la predizione e successivamente la visualizzazione
-    with st.status(f':hammer_and_wrench: **Loading results...**', expanded=True) as status:
-
-        prediction_placeholder = st.empty()
-
-        with prediction_placeholder:
-            status.update(label="🔄 Loading results...", state="running", expanded=True)
-
-            gt_gif_ok, pred_gif_ok, gt_paths, pred_paths = check_if_gif_present(sidebar_args)
-            if gt_gif_ok:
-                gt_gifs = load_gif_as_bytesio(gt_paths)
-
-            gt_array, pred_array = get_prediction_results_test(folder_path, sidebar_args)
-
-            diff_array = np.abs(gt_array - pred_array)
-
-            status.update(label="🔄 Creating dictionaries...", state="running", expanded=True)
-
-            gt_dict, pred_dict = create_fig_dict_in_parallel(gt_array, pred_array, sidebar_args)
-            diff_dict = create_diff_dict_in_parallel(diff_array, sidebar_args)
-
-            if not gt_gif_ok:
-                status.update(label="🔄 Creating GT GIFs...", state="running", expanded=True)
-                gt_gifs = create_sliding_window_gifs(gt_dict, sidebar_args, fps_gif=3,
-                                                     save_on_disk=True)
-
-            status.update(label="🔄 Creating Pred GIFs...", state="running", expanded=True)
-
-            pred_gifs = create_sliding_window_gifs_for_predictions(pred_dict, sidebar_args,
-                                                                   fps_gif=3, save_on_disk=True)
-
-            diff_gifs = create_sliding_window_gifs(diff_dict, sidebar_args, fps_gif=3,
-                                                   save_on_disk=True)
-
-            status.update(label=f"Done!", state="complete", expanded=True)
-
-            display_results(gt_gifs, pred_gifs, diff_gifs)
-
-
-def compute_prediction_results(sidebar_args):
+def compute_prediction_results(sidebar_args, folder_path):
     error, out_dir = submit_prediction_job(sidebar_args)
     if not error:
         with st.status(f':hammer_and_wrench: **Loading results...**', expanded=True) as status:
@@ -213,14 +169,19 @@ def compute_prediction_results(sidebar_args):
             with prediction_placeholder:
                 status.update(label="🔄 Loading results...", state="running", expanded=True)
 
-                gt_gif_ok, pred_gif_ok, gt_paths, pred_paths = check_if_gif_present(sidebar_args)
+                gt_gif_ok, pred_gif_ok, _, gt_paths, pred_paths, _ = check_if_gif_present(sidebar_args)
                 if gt_gif_ok:
                     gt_gifs = load_gif_as_bytesio(gt_paths)
 
-                gt_array, pred_array = get_prediction_results(out_dir, sidebar_args)
+                gt_array, pred_array = get_prediction_results_test(folder_path, sidebar_args)
+
+                # calcolo differenza
+                diff_array = gt_array - pred_array
 
                 status.update(label="🔄 Creating dictionaries...", state="running", expanded=True)
+
                 gt_dict, pred_dict = create_fig_dict_in_parallel(gt_array, pred_array, sidebar_args)
+                diff_dict = create_diff_dict_in_parallel(diff_array, sidebar_args)
 
                 if not gt_gif_ok:
                     status.update(label="🔄 Creating GT GIFs...", state="running", expanded=True)
@@ -228,23 +189,28 @@ def compute_prediction_results(sidebar_args):
                                                          save_on_disk=True)
 
                 status.update(label="🔄 Creating Pred GIFs...", state="running", expanded=True)
+
                 pred_gifs = create_sliding_window_gifs_for_predictions(pred_dict, sidebar_args,
                                                                        fps_gif=3, save_on_disk=True)
 
+                diff_gifs = create_sliding_window_gifs(diff_dict, sidebar_args, fps_gif=3,
+                                                       save_on_disk=True)
+
                 status.update(label=f"Done!", state="complete", expanded=True)
-                display_results(gt_gifs, pred_gifs)
+
+                display_results(gt_gifs, pred_gifs, diff_gifs)
     else:
         st.error(error)
 
 
 def display_results(gt_gifs, pred_gifs, diff_gifs):
-    gt0_gif = gt_gifs[0]  # Full sequence
-    gt_gif_6 = gt_gifs[1]  # Starts from frame 6
-    gt_gif_12 = gt_gifs[2]  # Starts from frame 12
+    gt0_gif = gt_gifs[0]        # Full sequence
+    gt_gif_6 = gt_gifs[1]       # Starts from frame 6
+    gt_gif_12 = gt_gifs[2]      # Starts from frame 12
     pred_gif_6 = pred_gifs[0]
     pred_gif_12 = pred_gifs[1]
-    diff_gif_6 = diff_gifs[1]
-    diff_gif_12 = diff_gifs[2]
+    diff_gif_6 = diff_gifs[1]   # diff from frame 6
+    diff_gif_12 = diff_gifs[2]  # diff from frame 12
 
     # Store results in session state
     st.session_state.prediction_result = {
@@ -281,7 +247,7 @@ def main_page(sidebar_args) -> None:
                     if st.button("YES", use_container_width=True):
                         compute_ok = True
                 if compute_ok:
-                    compute_prediction_results_test(sidebar_args, SRI_FOLDER_DIR)
+                    compute_prediction_results(sidebar_args, SRI_FOLDER_DIR)
 
                 with col2:
                     compute_nok = False
@@ -290,10 +256,11 @@ def main_page(sidebar_args) -> None:
                 if compute_nok:
                     gt_gifs = load_gif_as_bytesio(gt_paths)
                     pred_gifs = load_gif_as_bytesio(pred_paths)
-                    display_results(gt_gifs, pred_gifs)
+                    diff_gifs = load_gif_as_bytesio(diff_paths)
+                    display_results(gt_gifs, pred_gifs, diff_gifs)
 
             else:
-                compute_prediction_results_test(sidebar_args, SRI_FOLDER_DIR)
+                compute_prediction_results(sidebar_args, SRI_FOLDER_DIR)
             return
     else:
         # If prediction results already exist, reuse them
@@ -302,7 +269,9 @@ def main_page(sidebar_args) -> None:
         gt_gif_12 = st.session_state.prediction_result['gt12_gif']
         pred_gif_6 = st.session_state.prediction_result['pred6_gif']
         pred_gif_12 = st.session_state.prediction_result['pred12_gif']
-        update_prediction_visualization(gt0_gif, gt_gif_6, gt_gif_12, pred_gif_6, pred_gif_12)
+        diff_gif_6 = st.session_state.prediction_result['diff6_gif']
+        diff_gif_12 = st.session_state.prediction_result['diff12_gif']
+        update_prediction_visualization(gt0_gif, gt_gif_6, gt_gif_12, pred_gif_6, pred_gif_12, diff_gif_6, diff_gif_12)
 
 
 def show_prediction_page():

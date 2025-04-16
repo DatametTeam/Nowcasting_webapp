@@ -572,15 +572,15 @@ def load_config(config_path):
     return config
 
 
-def get_latest_file_once_test():
+def get_latest_file_once_1():
     print("GENERAZIONE randomica IMMAGINE 1")
-    img = generate_splotchy_image_new()
+    img = generate_splotchy_image_main()
     return img
 
 
-def get_latest_file_once_test_2():
+def get_latest_file_once_2():
     print("GENERAZIONE randomica IMMAGINE 2")
-    img = generate_splotchy_image_new_2()
+    img = generate_splotchy_image_main_2()
     return img
 
 
@@ -641,7 +641,7 @@ def get_latest_file(folder_path):
         session_info.session.request_rerun(None)
 
 
-def generate_splotchy_image_new(batch_size=24, channels=12, height=1400, width=1200,
+def generate_splotchy_image_main(batch_size=24, channels=12, height=1400, width=1200,
                                 num_clusters=5, cluster_radius=100,
                                 min_value=0, max_value=100):
     # Calcoliamo la scala di intensità in base al range desiderato
@@ -671,7 +671,7 @@ def generate_splotchy_image_new(batch_size=24, channels=12, height=1400, width=1
     return images
 
 
-def generate_splotchy_image_new_2(batch_size=24, channels=12, height=1400, width=1200,
+def generate_splotchy_image_main_2(batch_size=24, channels=12, height=1400, width=1200,
                                 num_clusters=5, cluster_radius=100,
                                 min_value=0, max_value=100):
     # Initialize the 4D array
@@ -703,7 +703,7 @@ def generate_splotchy_image_new_2(batch_size=24, channels=12, height=1400, width
     return images
 
 
-def generate_splotchy_image(height, width, num_clusters, cluster_radius):
+def generate_splotchy_image_realTime(height, width, num_clusters, cluster_radius):
     # test function for generate predicted data
     intensity_scale = 5
     image = np.zeros((height, width))
@@ -737,7 +737,7 @@ def load_prediction_data(st, time_options, latest_file):
             width = 1200
             num_clusters = 10
             cluster_radius = 100
-            img1 = generate_splotchy_image(height, width, num_clusters, cluster_radius)
+            img1 = generate_splotchy_image_realTime(height, width, num_clusters, cluster_radius)
             img1 = np.array(img1)
 
         img1[img1 < 0] = 0

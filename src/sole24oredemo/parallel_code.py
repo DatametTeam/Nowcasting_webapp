@@ -294,10 +294,6 @@ def create_single_gif(queue, figures, gif_type, process_idx, start_key, end_key,
         print(f"GIF save @ path {save_path}")
 
 
-def create_sliding_window_gifs_for_differences(diff_dict, sidebar_args, fps_gif=3, save_on_disk=True):
-    pass
-
-
 def create_sliding_window_gifs_for_predictions(prediction_dict, sidebar_args, save_on_disk=True, fps_gif=3):
     """
     Create GIFs for the predictions dictionary. Each GIF corresponds to:
