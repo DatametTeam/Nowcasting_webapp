@@ -1,10 +1,8 @@
-import functools
 import os
 import threading
+
 import h5py
-import pyproj
 import streamlit as st
-from streamlit.components.v1 import html
 from pathlib import Path
 import time
 import numpy as np
@@ -12,12 +10,10 @@ from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_r
 
 from layouts import configure_sidebar, init_prediction_visualization_layout, init_second_tab_layout, \
     precompute_images, \
-    show_metrics_page, display_map_layout
-from pbs import is_pbs_available
+    show_metrics_page
 
 from sole24oredemo.parallel_code import create_fig_dict_in_parallel, create_sliding_window_gifs, \
     create_sliding_window_gifs_for_predictions
-from sole24oredemo.sou_py import dpg
 from sole24oredemo.utils import check_if_gif_present, load_gif_as_bytesio, create_colorbar_fig, \
     get_closest_5_minute_time, read_groundtruth_and_target_data, lincol_2_yx, yx_2_latlon, cmap, norm, load_config, \
     get_latest_file, load_prediction_data, launch_thread_execution
@@ -26,10 +22,12 @@ from datetime import datetime, timedelta
 import folium
 from streamlit_folium import st_folium
 import branca.colormap as cm
-from threading import Event
-from streamlit_autorefresh import st_autorefresh
 
 from sole24oredemo.utils import load_prediction_thread
+
+from sole24oredemo.utils import get_latest_file_once_test
+
+from sole24oredemo.utils import get_latest_file_once_test_2
 
 st.set_page_config(page_title="Weather prediction", page_icon=":flag-eu:", layout="wide")
 
@@ -84,6 +82,45 @@ def submit_prediction_job(sidebar_args):
     return error, out_dir
 
 
+def get_prediction_results_test(folder_path, sidebar_args, get_only_pred=False):
+    model_name = sidebar_args['model_name']
+    gt_array = None
+    pred_array = None
+
+    if not get_only_pred:
+        print("Loading GT data")
+
+        # NEW for test
+        gt_array = get_latest_file_once_test()
+        print("GT data loaded")
+
+        gt_array = np.array(gt_array)
+        gt_array[gt_array < 0] = 0
+
+    print("Loading pred data")
+
+    # NEW for test
+    pred_array = get_latest_file_once_test_2()
+    if model_name == 'Test':  # TODO: sistemare
+        # NEW for test
+        pred_array = get_latest_file_once_test_2()
+    pred_array = np.array(pred_array)
+    pred_array[pred_array < 0] = 0
+    print("Loaded pred data")
+
+    print("Loading radar mask")
+    src_fold = Path(__file__).resolve().parent.parent
+    with h5py.File(os.path.join(src_fold, "mask/radar_mask.hdf"), "r") as f:
+        radar_mask = f["mask"][()]
+    print("Radar mask loaded")
+
+    pred_array = pred_array * radar_mask
+
+    print("*** LOADED DATA ***")
+
+    return gt_array, pred_array
+
+
 def get_prediction_results(out_dir, sidebar_args, get_only_pred=False):
     # TODO: da fixare
     model_name = sidebar_args['model_name']
@@ -119,6 +156,41 @@ def get_prediction_results(out_dir, sidebar_args, get_only_pred=False):
     print("*** LOADED DATA ***")
 
     return gt_array, pred_array
+
+
+def compute_prediction_results_test(sidebar_args, folder_path):
+    # questa funzione lancia la predizione e successivamente la visualizzazione
+    with st.status(f':hammer_and_wrench: **Loading results...**', expanded=True) as status:
+
+        prediction_placeholder = st.empty()
+
+        with prediction_placeholder:
+            status.update(label="🔄 Loading results...", state="running", expanded=True)
+
+            gt_gif_ok, pred_gif_ok, gt_paths, pred_paths = check_if_gif_present(sidebar_args)
+            if gt_gif_ok:
+                gt_gifs = load_gif_as_bytesio(gt_paths)
+
+            gt_array, pred_array = get_prediction_results_test(folder_path, sidebar_args)
+
+            status.update(label="🔄 Creating dictionaries...", state="running", expanded=True)
+
+            gt_dict, pred_dict = create_fig_dict_in_parallel(gt_array, pred_array, sidebar_args)
+
+            if not gt_gif_ok:
+                status.update(label="🔄 Creating GT GIFs...", state="running", expanded=True)
+                gt_gifs = create_sliding_window_gifs(gt_dict, sidebar_args, fps_gif=3,
+                                                     save_on_disk=True)
+
+            status.update(label="🔄 Creating Pred GIFs...", state="running", expanded=True)
+
+            # TODO: questa sembra ritornare immagini vuote
+            pred_gifs = create_sliding_window_gifs_for_predictions(pred_dict, sidebar_args,
+                                                                   fps_gif=3, save_on_disk=True)
+
+            status.update(label=f"Done!", state="complete", expanded=True)
+
+            display_results(gt_gifs, pred_gifs)
 
 
 def compute_prediction_results(sidebar_args):
@@ -193,7 +265,7 @@ def main_page(sidebar_args) -> None:
                     if st.button("YES", use_container_width=True):
                         compute_ok = True
                 if compute_ok:
-                    compute_prediction_results(sidebar_args)
+                    compute_prediction_results_test(sidebar_args, SRI_FOLDER_DIR)
 
                 with col2:
                     compute_nok = False
@@ -205,7 +277,7 @@ def main_page(sidebar_args) -> None:
                     display_results(gt_gifs, pred_gifs)
 
             else:
-                compute_prediction_results(sidebar_args)
+                compute_prediction_results_test(sidebar_args, SRI_FOLDER_DIR)
             return
     else:
         # If prediction results already exist, reuse them
@@ -556,17 +628,20 @@ def show_real_time_prediction():
     # Spinner section
     # --------------------------------------------------------------------------------------------
     if "load_prediction_thread" in st.session_state and st.session_state["load_prediction_thread"]:
-        background_prediction_loader_spinner(columns)
+        # background_prediction_loader_spinner(columns)
+        pass
     # --------------------------------------------------------------------------------------------
 
     # ---------------------------------------------
     if st.session_state["launch_prediction_thread"]:
-        background_prediction_calculator_spinner(columns)
+        # background_prediction_calculator_spinner(columns)
+        pass
     # ---------------------------------------------
 
     # ----------------------------------------
     if st.session_state["run_get_latest_file"]:
-        background_checker_spinner(columns)
+        # background_checker_spinner(columns)
+        pass
     # ----------------------------------------
 
 
@@ -626,7 +701,7 @@ model_list = config.get("models", [])
 
 # tampone locale, da non pushare!
 # root_dir = src_dir.parent
-SRI_FOLDER_DIR = "/davinci-1/work/protezionecivile/data1/SRI_adj"
+SRI_FOLDER_DIR = os.path.join(Path(__file__).resolve().parent.parent.parent, "SRI_adj")
 
 if __name__ == "__main__":
     print(f"***NEWRUN @ {datetime.now()}***")

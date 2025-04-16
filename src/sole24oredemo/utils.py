@@ -1,6 +1,5 @@
 import io
 import os
-import random
 import threading
 import time
 from pathlib import Path
@@ -19,7 +18,6 @@ from streamlit.runtime import get_instance
 from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
 
 import sou_py.dpg as dpg
-import streamlit as st
 from sole24oredemo.pbs import start_prediction_job
 
 ROOT_PATH = Path(__file__).parent.parent.absolute()
@@ -562,6 +560,18 @@ def load_config(config_path):
     return config
 
 
+def get_latest_file_once_test():
+    print("GENERAZIONE randomica IMMAGINE 1")
+    img = generate_splotchy_image_new()
+    return img
+
+
+def get_latest_file_once_test_2():
+    print("GENERAZIONE randomica IMMAGINE 2")
+    img = generate_splotchy_image_new_2()
+    return img
+
+
 def get_latest_file(folder_path):
     # questo qua gira su un thread e simula la comparsa di un nuovo file di dati
     ctx = get_script_run_ctx()
@@ -619,8 +629,71 @@ def get_latest_file(folder_path):
         session_info.session.request_rerun(None)
 
 
+def generate_splotchy_image_new(batch_size=24, channels=12, height=1400, width=1200,
+                                num_clusters=5, cluster_radius=100,
+                                min_value=0, max_value=100):
+    # Calcoliamo la scala di intensità in base al range desiderato
+    intensity_scale = max_value  # Usiamo il valore massimo come scala
+
+    images = np.zeros((batch_size, channels, height, width), dtype=np.float32)
+
+    for b in range(batch_size):
+        image = np.zeros((height, width), dtype=np.float32)
+        cluster_centers = np.random.randint(0, [height, width], size=(num_clusters, 2))
+
+        for cx, cy in cluster_centers:
+            y_grid, x_grid = np.ogrid[:height, :width]
+            dist = np.sqrt((x_grid - cy) ** 2 + (y_grid - cx) ** 2)
+            mask = dist < cluster_radius
+            noise = np.random.rand(height, width).astype(np.float32)
+            blob = intensity_scale * noise * (1 - dist / cluster_radius)
+            blob *= mask  # apply mask
+            image += blob
+
+        # Invece di clippare a [0,1], possiamo clippare a [min_value, max_value] o rimuovere
+        # il clipping del tutto se vuoi consentire qualsiasi valore risultante
+        # image = np.clip(image, min_value, max_value)  # Clipping opzionale
+
+        images[b, 0] = image
+
+    return images
+
+
+def generate_splotchy_image_new_2(batch_size=24, channels=12, height=1400, width=1200,
+                                num_clusters=5, cluster_radius=100,
+                                min_value=0, max_value=100):
+    # Initialize the 4D array
+    images = np.zeros((batch_size, channels, height, width), dtype=np.float32)
+    intensity_scale = max_value
+
+    for b in range(batch_size):
+        for c in range(channels):
+            # Create a unique image for each channel
+            image = np.zeros((height, width), dtype=np.float32)
+
+            # Generate different cluster centers for each channel for variety
+            cluster_centers = np.random.randint(0, [height, width], size=(num_clusters, 2))
+
+            for cx, cy in cluster_centers:
+                y_grid, x_grid = np.ogrid[:height, :width]
+                dist = np.sqrt((x_grid - cy) ** 2 + (y_grid - cx) ** 2)
+                mask = dist < cluster_radius
+                noise = np.random.rand(height, width).astype(np.float32)
+
+                # Create blob with intensity that decreases with distance
+                blob = intensity_scale * noise * (1 - dist / cluster_radius)
+                blob *= mask  # apply mask
+                image += blob
+
+            # Assign the generated image to this batch and channel
+            images[b, c] = image
+
+    return images
+
+
 def generate_splotchy_image(height, width, num_clusters, cluster_radius):
     # test function for generate predicted data
+    intensity_scale = 5
     image = np.zeros((height, width))
     cluster_centers = np.random.randint(0, min(height, width), size=(num_clusters, 2))
 
@@ -630,7 +703,7 @@ def generate_splotchy_image(height, width, num_clusters, cluster_radius):
             for j in range(width):
                 dist = np.sqrt((i - cluster_x) ** 2 + (j - cluster_y) ** 2)
                 if dist < cluster_radius:
-                    image[i, j] += np.random.random() * (1 - dist / cluster_radius)
+                    image[i, j] += intensity_scale * np.random.random() * (1 - dist / cluster_radius)
 
     image = np.clip(image, 0, 1)
     return image
@@ -741,7 +814,10 @@ def launch_thread_execution(st, latest_file, columns):
         print(f"prima dell'if stato thread_started: {st.session_state.thread_started}")
         print("Starting thread")
         # Start the worker thread only if no thread is running
-        thread = threading.Thread(target=worker_thread, args=(event, latest_file))
+
+        # thread = threading.Thread(target=worker_thread, args=(event, latest_file))
+        thread = threading.Thread(target=worker_thread_test, args=(event,))
+
         st.session_state.thread_started = True
         thread.start()
 
