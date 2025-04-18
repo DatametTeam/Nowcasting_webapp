@@ -14,6 +14,7 @@ import warnings
 import geopandas as gpd
 from datetime import datetime, timedelta
 import yaml
+import streamlit as st
 from streamlit.runtime import get_instance
 from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
 
@@ -38,11 +39,8 @@ def compute_figure_gpd(img1, timestamp):
     fig, ax = plt.subplots(figsize=(10, 10))
     italy_shape.plot(ax=ax, edgecolor='black', color='white')
 
-    print("ax pcolormesh")
-    print(img1.shape)
     mesh = ax.pcolormesh(x, y, img1, shading="auto", cmap=cmap, norm=norm, vmin=None if norm else vmin,
                          vmax=None if norm else vmax, snap=True, linewidths=0, )
-    print("ax pcolormesh DONE")
 
     # Remove the axis
     plt.axis("off")
@@ -526,54 +524,41 @@ def read_groundtruth_and_target_data(selected_key, selected_model):
     # out_dir = Path(f"/davinci-1/work/protezionecivile/sole24/pred_teo/{selected_model}")
     # gt_array = np.load(Path(f"/davinci-1/work/protezionecivile/sole24/pred_teo/Test") / "predictions.npy",
     #                   mmap_mode='r')[0:12, 0]
-    gt_array = generate_splotchy_image_main_(
-        batch_size=12,
-        channels=1,  # Set channels to 1
-        height=1400,
-        width=1200,
-        num_clusters=5,
-        cluster_radius=100,
-        min_value=0,
-        max_value=100
-    )
-    gt_array = np.squeeze(gt_array, axis=1)
-    print("gt array:")
-    print(gt_array.shape)
+    with st.spinner("🔄 Loading GT vector..", show_time=True):
+        gt_array = generate_splotchy_image_main_(
+            batch_size=12,
+            channels=1,  # Set channels to 1
+            height=1400,
+            width=1200,
+            num_clusters=5,
+            cluster_radius=100,
+            min_value=0,
+            max_value=100
+        )
+        gt_array = np.squeeze(gt_array, axis=1)
+        print("gt array:")
+        print(gt_array.shape)
 
     # target_array = np.load(
     #     Path(f"/davinci-1/work/protezionecivile/sole24/pred_teo/Test") / "predictions.npy",
     #     mmap_mode='r')[12:24, 0]
-    target_array = generate_splotchy_image_main_(
-        batch_size=12,
-        channels=1,  # Set channels to 1
-        height=1400,
-        width=1200,
-        num_clusters=5,
-        cluster_radius=100,
-        min_value=0,
-        max_value=100
-    )
-    target_array = np.squeeze(target_array, axis=1)
-    print("target array:")
-    print(target_array.shape)
+    with st.spinner("🔄 Loading TARGET vector..", show_time=True):
+        target_array = generate_splotchy_image_main_(
+            batch_size=12,
+            channels=1,  # Set channels to 1
+            height=1400,
+            width=1200,
+            num_clusters=5,
+            cluster_radius=100,
+            min_value=0,
+            max_value=100
+        )
+        target_array = np.squeeze(target_array, axis=1)
+        print("target array:")
+        print(target_array.shape)
 
     # pred_array = np.load(out_dir / "predictions.npy", mmap_mode='r')[12]
-    pred_array = generate_splotchy_image_main_(
-        batch_size=12,
-        channels=1,  # Set channels to 1
-        height=1400,
-        width=1200,
-        num_clusters=5,
-        cluster_radius=100,
-        min_value=0,
-        max_value=100
-    )
-    pred_array = np.squeeze(pred_array, axis=1)
-    print("pred array:")
-    print(pred_array.shape)
-
-    if selected_model == 'Test':
-        # pred_array = np.load(out_dir / "predictions.npy", mmap_mode='r')[12:24, 0]
+    with st.spinner("🔄 Loading PREDICTION vector..", show_time=True):
         pred_array = generate_splotchy_image_main_(
             batch_size=12,
             channels=1,  # Set channels to 1
@@ -588,6 +573,23 @@ def read_groundtruth_and_target_data(selected_key, selected_model):
         print("pred array:")
         print(pred_array.shape)
 
+    if selected_model == 'Test':
+        # pred_array = np.load(out_dir / "predictions.npy", mmap_mode='r')[12:24, 0]
+        with st.spinner("🔄 Loading PREDICTION vector..", show_time=True):
+            pred_array = generate_splotchy_image_main_(
+                batch_size=12,
+                channels=1,  # Set channels to 1
+                height=1400,
+                width=1200,
+                num_clusters=5,
+                cluster_radius=100,
+                min_value=0,
+                max_value=100
+            )
+            pred_array = np.squeeze(pred_array, axis=1)
+            print("pred array:")
+            print(pred_array.shape)
+
     # with h5py.File("/archive/SSD/home/guidim/demo_sole/src/mask/radar_mask.hdf", "r") as f:
     #     radar_mask = f["mask"][()]
     src_dir = Path(__file__).resolve().parent.parent
@@ -597,9 +599,10 @@ def read_groundtruth_and_target_data(selected_key, selected_model):
     print("read mask DONE")
 
     print("multiplication")
-    pred_array = pred_array * radar_mask
-    target_array = target_array * radar_mask
-    gt_array = gt_array * radar_mask
+    with st.spinner("🔄 Applying MASK to vectors..", show_time=True):
+        pred_array = pred_array * radar_mask
+        target_array = target_array * radar_mask
+        gt_array = gt_array * radar_mask
     print("multiplication DONE")
 
     # Clean and normalize arrays

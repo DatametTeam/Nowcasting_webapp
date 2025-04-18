@@ -177,7 +177,7 @@ def compute_prediction_results(sidebar_args, folder_path):
                 gt_array, pred_array = get_prediction_results_test(folder_path, sidebar_args)
 
                 # calcolo differenza
-                diff_array = gt_array - pred_array
+                diff_array = np.abs(gt_array - pred_array)
 
                 status.update(label="🔄 Creating dictionaries...", state="running", expanded=True)
 

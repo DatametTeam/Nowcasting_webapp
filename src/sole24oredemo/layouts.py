@@ -2,6 +2,7 @@ import io
 import os.path
 from pathlib import Path
 
+import numpy as np
 import streamlit as st
 from datetime import datetime, time, timedelta
 
@@ -143,40 +144,41 @@ def precompute_images(frame_dict):
 
 
 def init_second_tab_layout(groundtruth_images, target_frames, pred_frames):
-    # Define the layout with 5 columns (1 for the label and 4 for images)
-    groundtruth_rows = st.columns([0.2] + [1] * 4 + [0.2], vertical_alignment='center')
+    with st.spinner("🔄 Loading layout..", show_time=True):
+        # Define the layout with 5 columns (1 for the label and 4 for images)
+        groundtruth_rows = st.columns([0.2] + [1] * 4 + [0.2], vertical_alignment='center')
 
-    # First column spanning all 3 rows (label column)
-    with groundtruth_rows[0]:
-        st.markdown(
-            """
-            <div style="position: relative; height: 100%; width: 100%;">
-                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(270deg);
-                font-weight: bold; font-size: 1.5em; white-space: nowrap;">
-                    Groundtruths
+        # First column spanning all 3 rows (label column)
+        with groundtruth_rows[0]:
+            st.markdown(
+                """
+                <div style="position: relative; height: 100%; width: 100%;">
+                    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(270deg);
+                    font-weight: bold; font-size: 1.5em; white-space: nowrap;">
+                        Groundtruths
+                    </div>
                 </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with groundtruth_rows[-1]:
-        st.image(create_colorbar_fig())
+                """,
+                unsafe_allow_html=True,
+            )
+        with groundtruth_rows[-1]:
+            st.image(create_colorbar_fig())
 
-    # Loop through the 4 columns for the images
-    for row_idx in range(3):  # Loop through rows 1 to 3
-        row_offset = row_idx * 4  # 4 frames per row
-        for col_idx in range(1, 5):  # Columns 1 to 4 (skip index 0)
-            with groundtruth_rows[col_idx]:
-                timestamp_idx = col_idx - 1 + row_offset
-                if timestamp_idx < len(groundtruth_images):
-                    timestamp, image = groundtruth_images[timestamp_idx]
-                    st.image(image, caption=timestamp, use_container_width=True)
+        # Loop through the 4 columns for the images
+        for row_idx in range(3):  # Loop through rows 1 to 3
+            row_offset = row_idx * 4  # 4 frames per row
+            for col_idx in range(1, 5):  # Columns 1 to 4 (skip index 0)
+                with groundtruth_rows[col_idx]:
+                    timestamp_idx = col_idx - 1 + row_offset
+                    if timestamp_idx < len(groundtruth_images):
+                        timestamp, image = groundtruth_images[timestamp_idx]
+                        st.image(image, caption=timestamp, use_container_width=True)
 
-    # Additional layout for TARGET and PREDICTION columns
-    target_pred_rows = []
+        # Additional layout for TARGET and PREDICTION columns
+        target_pred_rows = []
 
-    for i in range(13):
-        target_pred_rows.append(st.columns([0.5, 0.2, 1.5, 1.5, 0.2, 0.5], vertical_alignment='center'))
+        for i in range(13):
+            target_pred_rows.append(st.columns([0.5, 0.2, 1.5, 1.5, 1.5, 0.2, 0.5], vertical_alignment='center'))
 
     # Titles for TARGET and PREDICTION
     with target_pred_rows[0][2]:
@@ -185,52 +187,78 @@ def init_second_tab_layout(groundtruth_images, target_frames, pred_frames):
             unsafe_allow_html=True,
         )
 
-    with target_pred_rows[0][3]:
-        st.markdown(
-            """<div style="text-align: center; font-weight: bold; font-size: 2em;">Prediction</div>""",
-            unsafe_allow_html=True,
-        )
-
-    # Fill TARGET and PREDICTION frames row by row
-    for row_idx in range(1, 13):  # Skip the title row
-        # Left empty column with +Xmins labels
-        with target_pred_rows[row_idx][1]:
+        with target_pred_rows[0][3]:
             st.markdown(
-                f"""<div style="position: relative; height: 100%; width: 100%;">
-                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(270deg);
-                font-size: 1em; font-weight: bold;">+{row_idx * 5}mins</div>
-                </div>""",
+                """<div style="text-align: center; font-weight: bold; font-size: 2em;">Prediction</div>""",
                 unsafe_allow_html=True,
             )
 
-        # TARGET frames
-        with target_pred_rows[row_idx][2]:
-            if row_idx - 1 < len(target_frames):
-                timestamp = list(target_frames.keys())[row_idx - 1]
-                frame = target_frames.get(timestamp, None)
-                if frame is not None:
-                    fig = compute_figure_gpd(frame, timestamp)
-                    buf = io.BytesIO()
-                    fig.savefig(buf, format="png", bbox_inches="tight")
-                    buf.seek(0)
-                    image = Image.open(buf)
-                    st.image(image, use_container_width=True)
+        # Titles for DIFFERENCES
+        with target_pred_rows[0][4]:
+            st.markdown(
+                """<div style="text-align: center; font-weight: bold; font-size: 2em;">Differences</div>""",
+                unsafe_allow_html=True,
+            )
 
-        # PREDICTION frames
-        with target_pred_rows[row_idx][3]:
-            if row_idx - 1 < len(pred_frames):
-                timestamp = list(pred_frames.keys())[row_idx - 1]
-                frame = pred_frames.get(timestamp, None)
-                if frame is not None:
-                    fig = compute_figure_gpd(frame, 'PRED @ ' + timestamp)
-                    buf = io.BytesIO()
-                    fig.savefig(buf, format="png", bbox_inches="tight")
-                    buf.seek(0)
-                    image = Image.open(buf)
-                    st.image(image, use_container_width=True)
+        # Fill TARGET and PREDICTION frames row by row
+        for row_idx in range(1, 13):  # Skip the title row
+            # Left empty column with +Xmins labels
+            with target_pred_rows[row_idx][1]:
+                st.markdown(
+                    f"""<div style="position: relative; height: 100%; width: 100%;">
+                    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(270deg);
+                    font-size: 1em; font-weight: bold;">+{row_idx * 5}mins</div>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
 
-        with target_pred_rows[row_idx][-2]:
-            st.image(create_colorbar_fig(top_adj=0.85, bot_adj=0.07))
+            # TARGET frames
+            with target_pred_rows[row_idx][2]:
+                if row_idx - 1 < len(target_frames):
+                    timestamp = list(target_frames.keys())[row_idx - 1]
+                    frame = target_frames.get(timestamp, None)
+                    if frame is not None:
+                        fig = compute_figure_gpd(frame, timestamp)
+                        buf = io.BytesIO()
+                        fig.savefig(buf, format="png", bbox_inches="tight")
+                        buf.seek(0)
+                        image = Image.open(buf)
+                        st.image(image, use_container_width=True)
+
+            # PREDICTION frames
+            with target_pred_rows[row_idx][3]:
+                if row_idx - 1 < len(pred_frames):
+                    timestamp = list(pred_frames.keys())[row_idx - 1]
+                    frame = pred_frames.get(timestamp, None)
+                    if frame is not None:
+                        fig = compute_figure_gpd(frame, 'PRED @ ' + timestamp)
+                        buf = io.BytesIO()
+                        fig.savefig(buf, format="png", bbox_inches="tight")
+                        buf.seek(0)
+                        image = Image.open(buf)
+                        st.image(image, use_container_width=True)
+
+            # DIFFERENCE frames
+            with target_pred_rows[row_idx][4]:
+                if row_idx - 1 < len(pred_frames) and row_idx - 1 < len(target_frames):
+                    timestamp_pred = list(pred_frames.keys())[row_idx - 1]
+                    timestamp_target = list(target_frames.keys())[row_idx - 1]
+                    frame_pred = pred_frames.get(timestamp_pred, None)
+                    frame_target = target_frames.get(timestamp_target, None)
+
+                    if frame_pred is not None and frame_target is not None:
+                        frame_diff = np.abs(frame_target - frame_pred)
+
+                        if frame_diff is not None:
+                            fig_diff = compute_figure_gpd(frame_diff, 'DIFF @ ' + timestamp_pred)
+                            buf = io.BytesIO()
+                            fig_diff.savefig(buf, format="png", bbox_inches="tight")
+                            buf.seek(0)
+                            image = Image.open(buf)
+                            st.image(image, use_container_width=True)
+
+            with target_pred_rows[row_idx][-2]:
+                st.image(create_colorbar_fig(top_adj=0.85, bot_adj=0.07))
 
     return
 
