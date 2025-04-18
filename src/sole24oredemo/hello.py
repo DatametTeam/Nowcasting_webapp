@@ -8,6 +8,8 @@ import time
 import numpy as np
 from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx, add_script_run_ctx
 
+from geopy.geocoders import Nominatim
+
 from layouts import configure_sidebar, init_prediction_visualization_layout, init_second_tab_layout, \
     precompute_images, \
     show_metrics_page
@@ -382,6 +384,7 @@ def initial_state_management():
 
 
 def create_only_map(rgba_img, prediction: bool = False):
+    print("creating map")
     if st.session_state.selected_model and st.session_state.selected_time:
         if "display_prediction" in st.session_state:
             if st.session_state["display_prediction"]:
@@ -411,8 +414,13 @@ def create_only_map(rgba_img, prediction: bool = False):
             center = {'lat': 42.5, 'lng': 12.5}
             zoom = 5
     else:
-        center = {'lat': 42.5, 'lng': 12.5}
-        zoom = 5
+        if ("old_center" in st.session_state and "old_zoom" in st.session_state
+                and st.session_state["old_center"] and st.session_state["old_zoom"]):
+            center = st.session_state["old_center"]
+            zoom = st.session_state["old_zoom"]
+        else:
+            center = {'lat': 42.5, 'lng': 12.5}
+            zoom = 5
 
     map = folium.Map(location=[center['lat'], center['lng']],
                      zoom_start=zoom,
@@ -480,27 +488,41 @@ def load_prediction(time_options, latest_file, prediction_num):
 def background_checker_spinner(columns):
     print("BACKGROUND checker spinner")
     with columns[1]:
-        with st.spinner("🔄 Running background file **CHECKER**..", show_time=False):
-            while True:
-                time.sleep(5)
+        # with st.spinner("🔄 Running background file **CHECKER**..", show_time=False):
+        #     while True:
+        #         time.sleep(5)
+        st.write("🔄 Running background file **CHECKER**..")
 
 
 def background_prediction_calculator_spinner(columns):
     with columns[1]:
         st.write("🚀 new data file **FOUND**..")
-        with st.spinner("🛠️ Running background prediction **CALCULATOR**..", show_time=False):
-            while True:
-                time.sleep(5)
+        # with st.spinner("🛠️ Running background prediction **CALCULATOR**..", show_time=False):
+        #     while True:
+        #         time.sleep(5)
+        st.write("🛠️ Running background prediction **CALCULATOR**..")
 
 
 def background_prediction_loader_spinner(columns):
     with columns[1]:
-        with st.spinner("⚙️ Running background prediction **LOADER**..", show_time=False):
-            while True:
-                time.sleep(5)
+        # with st.spinner("⚙️ Running background prediction **LOADER**..", show_time=False):
+        #     while True:
+        #         time.sleep(5)
+        st.write("⚙️ Running background prediction **LOADER**..")
+
+
+@st.cache_data
+def geocode_city(city):
+    geolocator = Nominatim(user_agent="streamlit_folium_app")
+    try:
+        location = geolocator.geocode(f"{city}, Italy", timeout=10)
+        return location
+    except Exception as e:
+        return -1
 
 
 def show_real_time_prediction():
+    columns = st.columns([0.5, 0.5])
     st.session_state["sync_end"] = 1
 
     # Initial state management
@@ -511,7 +533,6 @@ def show_real_time_prediction():
                     "+30min", "+35min", "+40min", "+45min", "+50min",
                     "+55min", "+60min"]
 
-    columns = st.columns([0.5, 0.5])
     with (columns[0]):
         internal_columns = st.columns([0.3, 0.1, 0.3])
         with internal_columns[0]:
@@ -529,6 +550,39 @@ def show_real_time_prediction():
                 options=time_options,
                 key="selected_time",
             )
+
+        # city geolocator
+        with columns[0]:
+            city = st.text_input("-- **Enter CITY name** --", key="input_city")
+            lat, lon = None, None
+            if (city and "city_searched" not in st.session_state) or (city and "city_searched" in st.session_state and st.session_state["city_searched"] != city):
+                print("City --> " + str(city))
+
+                location = geocode_city(city)
+                if location == -1:
+                    st.session_state["old_center"] = {'lat': 42.5, 'lng': 12.5}
+                    st.session_state["old_zoom"] = 5
+                elif location:
+                    lat, lon = location.latitude, location.longitude
+                    print("Result of city research")
+                    print("lat --> " + str(lat))
+                    print("lon --> " + str(lon))
+
+                    # si aggiorna il centro
+                    st.session_state["old_center"] = {'lat': lat, 'lng': lon}
+                    st.session_state["old_zoom"] = 10
+
+                    # salvo lo stato
+                    st.session_state["display_prediction"] = False
+                    st.session_state["city_added"] = True
+                    st.session_state["city_searched"] = city
+                else:
+                    st.error("🌐 Can't found the city!")
+            else:
+                if "city_added" not in st.session_state:
+                    # si aggiorna il centro
+                    st.session_state["old_center"] = {'lat': 42.5, 'lng': 12.5}
+                    st.session_state["old_zoom"] = 5
 
         # THREAD per l'ottenimento automatico di nuovi file di input
         if "get_latest_file_thread" not in st.session_state:
@@ -621,20 +675,17 @@ def show_real_time_prediction():
     # Spinner section
     # --------------------------------------------------------------------------------------------
     if "load_prediction_thread" in st.session_state and st.session_state["load_prediction_thread"]:
-        # background_prediction_loader_spinner(columns)
-        pass
+        background_prediction_loader_spinner(columns)
     # --------------------------------------------------------------------------------------------
 
     # ---------------------------------------------
     if st.session_state["launch_prediction_thread"]:
-        # background_prediction_calculator_spinner(columns)
-        pass
+        background_prediction_calculator_spinner(columns)
     # ---------------------------------------------
 
     # ----------------------------------------
     if st.session_state["run_get_latest_file"]:
-        # background_checker_spinner(columns)
-        pass
+        background_checker_spinner(columns)
     # ----------------------------------------
 
 
