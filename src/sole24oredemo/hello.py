@@ -25,7 +25,8 @@ import branca.colormap as cm
 
 from sole24oredemo.utils import load_prediction_thread
 from sole24oredemo.parallel_code import create_diff_dict_in_parallel
-from sole24oredemo.utils import get_latest_file_once_1, get_latest_file_once_2
+
+from sole24oredemo.utils import get_latest_file_once
 
 st.set_page_config(page_title="Weather prediction", page_icon=":flag-eu:", layout="wide")
 
@@ -92,7 +93,7 @@ def get_prediction_results_test(folder_path, sidebar_args, get_only_pred=False):
         print("Loading GT data")
 
         # NEW for test
-        gt_array = get_latest_file_once_1()
+        gt_array = get_latest_file_once()
         print("GT data loaded")
 
         gt_array = np.array(gt_array)
@@ -101,10 +102,10 @@ def get_prediction_results_test(folder_path, sidebar_args, get_only_pred=False):
     print("Loading pred data")
 
     # NEW for test
-    pred_array = get_latest_file_once_2()
+    pred_array = get_latest_file_once()
     if model_name == 'Test':  # TODO: sistemare
         # NEW for test
-        pred_array = get_latest_file_once_2()
+        pred_array = get_latest_file_once()
     pred_array = np.array(pred_array)
     pred_array[pred_array < 0] = 0
     print("Loaded pred data")
@@ -293,11 +294,17 @@ def show_prediction_page():
         args = {'start_date': selected_datetime, 'start_time': prediction_start_datetime, 'model_name': selected_model,
                 'submitted': True}
 
+        print("submit prediction")
         submit_prediction_job(args)
+        print("submit prediction DONE")
 
         # Check if groundtruths are already in session state
         if selected_key not in st.session_state:
+            print("read ground thruth and target data")
+            print("selected key --> " + str(selected_key))
+            print("selected model --> " + str(selected_model))
             groundtruth_dict, target_dict, pred_dict = read_groundtruth_and_target_data(selected_key, selected_model)
+            print("read ground thruth and target data DONE")
 
             # Precompute and cache images for groundtruths
             st.session_state[selected_key] = {
@@ -317,6 +324,7 @@ def show_prediction_page():
         pred_dict = st.session_state[selected_key]["pred_dict"]
 
         # Initialize the second tab layout with precomputed images
+        print("init second tab layout")
         init_second_tab_layout(groundtruth_images, target_dict, pred_dict)
 
 

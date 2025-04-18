@@ -37,8 +37,12 @@ def compute_figure_gpd(img1, timestamp):
     # gdf = gdf.to_crs(crs="EPSG:4326")
     fig, ax = plt.subplots(figsize=(10, 10))
     italy_shape.plot(ax=ax, edgecolor='black', color='white')
+
+    print("ax pcolormesh")
+    print(img1.shape)
     mesh = ax.pcolormesh(x, y, img1, shading="auto", cmap=cmap, norm=norm, vmin=None if norm else vmin,
                          vmax=None if norm else vmax, snap=True, linewidths=0, )
+    print("ax pcolormesh DONE")
 
     # Remove the axis
     plt.axis("off")
@@ -518,22 +522,85 @@ def get_closest_5_minute_time():
 def read_groundtruth_and_target_data(selected_key, selected_model):
     # Define output directory and load arrays
     # TODO: da sistemare
-    out_dir = Path(f"/davinci-1/work/protezionecivile/sole24/pred_teo/{selected_model}")
-    gt_array = np.load(Path(f"/davinci-1/work/protezionecivile/sole24/pred_teo/Test") / "predictions.npy",
-                       mmap_mode='r')[0:12, 0]
-    target_array = np.load(
-        Path(f"/davinci-1/work/protezionecivile/sole24/pred_teo/Test") / "predictions.npy",
-        mmap_mode='r')[12:24, 0]
-    pred_array = np.load(out_dir / "predictions.npy", mmap_mode='r')[12]
+
+    # out_dir = Path(f"/davinci-1/work/protezionecivile/sole24/pred_teo/{selected_model}")
+    # gt_array = np.load(Path(f"/davinci-1/work/protezionecivile/sole24/pred_teo/Test") / "predictions.npy",
+    #                   mmap_mode='r')[0:12, 0]
+    gt_array = generate_splotchy_image_main_(
+        batch_size=12,
+        channels=1,  # Set channels to 1
+        height=1400,
+        width=1200,
+        num_clusters=5,
+        cluster_radius=100,
+        min_value=0,
+        max_value=100
+    )
+    gt_array = np.squeeze(gt_array, axis=1)
+    print("gt array:")
+    print(gt_array.shape)
+
+    # target_array = np.load(
+    #     Path(f"/davinci-1/work/protezionecivile/sole24/pred_teo/Test") / "predictions.npy",
+    #     mmap_mode='r')[12:24, 0]
+    target_array = generate_splotchy_image_main_(
+        batch_size=12,
+        channels=1,  # Set channels to 1
+        height=1400,
+        width=1200,
+        num_clusters=5,
+        cluster_radius=100,
+        min_value=0,
+        max_value=100
+    )
+    target_array = np.squeeze(target_array, axis=1)
+    print("target array:")
+    print(target_array.shape)
+
+    # pred_array = np.load(out_dir / "predictions.npy", mmap_mode='r')[12]
+    pred_array = generate_splotchy_image_main_(
+        batch_size=12,
+        channels=1,  # Set channels to 1
+        height=1400,
+        width=1200,
+        num_clusters=5,
+        cluster_radius=100,
+        min_value=0,
+        max_value=100
+    )
+    pred_array = np.squeeze(pred_array, axis=1)
+    print("pred array:")
+    print(pred_array.shape)
+
     if selected_model == 'Test':
-        pred_array = np.load(out_dir / "predictions.npy", mmap_mode='r')[12:24, 0]
+        # pred_array = np.load(out_dir / "predictions.npy", mmap_mode='r')[12:24, 0]
+        pred_array = generate_splotchy_image_main_(
+            batch_size=12,
+            channels=1,  # Set channels to 1
+            height=1400,
+            width=1200,
+            num_clusters=5,
+            cluster_radius=100,
+            min_value=0,
+            max_value=100
+        )
+        pred_array = np.squeeze(pred_array, axis=1)
+        print("pred array:")
+        print(pred_array.shape)
 
-    with h5py.File("/archive/SSD/home/guidim/demo_sole/src/mask/radar_mask.hdf", "r") as f:
+    # with h5py.File("/archive/SSD/home/guidim/demo_sole/src/mask/radar_mask.hdf", "r") as f:
+    #     radar_mask = f["mask"][()]
+    src_dir = Path(__file__).resolve().parent.parent
+    print("read mask")
+    with h5py.File(os.path.join(src_dir, "mask/radar_mask.hdf"), "r") as f:
         radar_mask = f["mask"][()]
+    print("read mask DONE")
 
+    print("multiplication")
     pred_array = pred_array * radar_mask
     target_array = target_array * radar_mask
     gt_array = gt_array * radar_mask
+    print("multiplication DONE")
 
     # Clean and normalize arrays
     gt_array = np.clip(gt_array, 0, 200)
@@ -572,15 +639,9 @@ def load_config(config_path):
     return config
 
 
-def get_latest_file_once_1():
-    print("GENERAZIONE randomica IMMAGINE 1")
-    img = generate_splotchy_image_main()
-    return img
-
-
-def get_latest_file_once_2():
-    print("GENERAZIONE randomica IMMAGINE 2")
-    img = generate_splotchy_image_main_2()
+def get_latest_file_once():
+    print("GENERAZIONE randomica IMMAGINE")
+    img = generate_splotchy_image_main_()
     return img
 
 
@@ -641,37 +702,7 @@ def get_latest_file(folder_path):
         session_info.session.request_rerun(None)
 
 
-def generate_splotchy_image_main(batch_size=24, channels=12, height=1400, width=1200,
-                                num_clusters=5, cluster_radius=100,
-                                min_value=0, max_value=100):
-    # Calcoliamo la scala di intensità in base al range desiderato
-    intensity_scale = max_value  # Usiamo il valore massimo come scala
-
-    images = np.zeros((batch_size, channels, height, width), dtype=np.float32)
-
-    for b in range(batch_size):
-        image = np.zeros((height, width), dtype=np.float32)
-        cluster_centers = np.random.randint(0, [height, width], size=(num_clusters, 2))
-
-        for cx, cy in cluster_centers:
-            y_grid, x_grid = np.ogrid[:height, :width]
-            dist = np.sqrt((x_grid - cy) ** 2 + (y_grid - cx) ** 2)
-            mask = dist < cluster_radius
-            noise = np.random.rand(height, width).astype(np.float32)
-            blob = intensity_scale * noise * (1 - dist / cluster_radius)
-            blob *= mask  # apply mask
-            image += blob
-
-        # Invece di clippare a [0,1], possiamo clippare a [min_value, max_value] o rimuovere
-        # il clipping del tutto se vuoi consentire qualsiasi valore risultante
-        # image = np.clip(image, min_value, max_value)  # Clipping opzionale
-
-        images[b, 0] = image
-
-    return images
-
-
-def generate_splotchy_image_main_2(batch_size=24, channels=12, height=1400, width=1200,
+def generate_splotchy_image_main_(batch_size=24, channels=12, height=1400, width=1200,
                                 num_clusters=5, cluster_radius=100,
                                 min_value=0, max_value=100):
     # Initialize the 4D array
@@ -741,6 +772,7 @@ def load_prediction_data(st, time_options, latest_file):
             img1 = np.array(img1)
 
         img1[img1 < 0] = 0
+
         src_dir = Path(__file__).resolve().parent.parent
         with h5py.File(os.path.join(src_dir, "mask/radar_mask.hdf"), "r") as f:
             radar_mask = f["mask"][()]
