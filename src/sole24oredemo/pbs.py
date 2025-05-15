@@ -134,17 +134,18 @@ def start_prediction_job(model, latest_data):
     if model == 'ED_ConvLSTM':
 
         cmd_string = f"""
-    python "/archive/SSD/home/guidim/protezione_civile/nowcasting/nwc_test_webapp.py" \
+    python "/davinci-1/work/protezionecivile/nowcasting_OLD_TEO_CODE/nwc_test_webapp.py" \
         start_date={str(latest_data)}
         """
-    else:
+    else: # TODO: da fixare
         cmd_string = f"""
     python "/archive/SSD/home/guidim/demo_sole/src/sole24oredemo/inference_scripts/run_{model}_inference.py" \
         --start_date={str(latest_data)}
         """
 
     print(f"cmd_string: \n > {cmd_string}")
-    pbs_logs = Path("/davinci-1/home/guidim/pbs_logs")
+    home_dir = Path.home()
+    pbs_logs = home_dir / "pbs_logs"
     pbs_logs.mkdir(parents=True, exist_ok=True)
 
     pbs_script = "#!/bin/bash"

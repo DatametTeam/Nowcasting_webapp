@@ -745,7 +745,7 @@ model_list = config.get("models", [])
 
 # tampone locale, da non pushare!
 # root_dir = src_dir.parent
-SRI_FOLDER_DIR = os.path.join(Path(__file__).resolve().parent.parent.parent, "SRI_adj")
+SRI_FOLDER_DIR = "/davinci-1/work/protezionecivile/data1/SRI_adj"
 
 if __name__ == "__main__":
     print(f"***NEWRUN @ {datetime.now()}***")

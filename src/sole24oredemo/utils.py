@@ -823,7 +823,9 @@ def worker_thread(event, latest_file, models_list=None):
     model = 'ED_ConvLSTM'
 
     jobs_ids = []
+    print("sono dopo job id")
     new_file = Path(latest_file).stem + '.npy'
+    print(f"new_file: {new_file}")
     if not os.path.exists(os.path.join(output_dir, model, new_file)):
         print(f"File {os.path.join(output_dir, model, new_file)} does not exists. Starting prediction")
         job_id = start_prediction_job(model, latest_file)
