@@ -33,12 +33,14 @@ warnings.filterwarnings('ignore', category=UserWarning,
                         message='The input coordinates to pcolormesh are interpreted as cell centers.*')
 
 
-def compute_figure_gpd(img1, timestamp):
+def compute_figure_gpd(img1,
+                       timestamp,):
     global x, y
     # gdf = gdf.to_crs(crs="EPSG:4326")
     fig, ax = plt.subplots(figsize=(10, 10))
     italy_shape.plot(ax=ax, edgecolor='black', color='white')
 
+    # Pcolormesh con i valori corretti
     mesh = ax.pcolormesh(x, y, img1, shading="auto", cmap=cmap, norm=norm, vmin=None if norm else vmin,
                          vmax=None if norm else vmax, snap=True, linewidths=0, )
 
@@ -864,8 +866,8 @@ def launch_thread_execution(st, latest_file, columns):
         print("Starting thread")
         # Start the worker thread only if no thread is running
 
-        # thread = threading.Thread(target=worker_thread, args=(event, latest_file))
-        thread = threading.Thread(target=worker_thread_test, args=(event,))
+        thread = threading.Thread(target=worker_thread, args=(event, latest_file))
+        # thread = threading.Thread(target=worker_thread_test, args=(event,))
 
         st.session_state.thread_started = True
         thread.start()

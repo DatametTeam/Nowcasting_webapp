@@ -15,8 +15,8 @@ from PIL import Image
 
 
 def create_diff_dict_in_parallel(diff_array, sidebar_args, save_on_disk=False):
-    diff_img_out_dir = os.path.join(Path(__file__).resolve().parent.parent.parent,
-                                  Path(f"data/output/imgs/{sidebar_args['model_name']}/diff"))
+    home_dir = home_dir = Path.home()
+    diff_img_out_dir = Path(f"{home_dir}/demo_sole/data/output/imgs/{sidebar_args['model_name']}/diff")
     start_date = sidebar_args['start_date']
     start_time = sidebar_args['start_time']
     combined_start = datetime.combine(start_date, start_time)
@@ -28,10 +28,11 @@ def create_diff_dict_in_parallel(diff_array, sidebar_args, save_on_disk=False):
     progress_container = st.container()
     with progress_container:
         diff_progress = st.progress(0)
-        diff_status = st.text("Processing Differences")
+        diff_status = st.text("Processing DIFF")
 
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         diff_results = []
+
         for i, result in enumerate(executor.map(
                 partial(save_figure, base_date=combined_start, time_step=time_step, out_dir=diff_img_out_dir,
                         save_on_disk=save_on_disk),
@@ -46,14 +47,9 @@ def create_diff_dict_in_parallel(diff_array, sidebar_args, save_on_disk=False):
 
 
 def create_fig_dict_in_parallel(gt_data, pred_data, sidebar_args, save_on_disk=False):
-
-    # gt_img_out_dir = Path(f"/davinci-1/home/guidim/demo_sole/data/output/imgs/{sidebar_args['model_name']}/gt")
-    # pred_img_out_dir = Path(f"/davinci-1/home/guidim/demo_sole/data/output/imgs/{sidebar_args['model_name']}/pred")
-
-    gt_img_out_dir = os.path.join(Path(__file__).resolve().parent.parent.parent,
-                                  Path(f"data/output/imgs/{sidebar_args['model_name']}/gt"))
-    pred_img_out_dir = os.path.join(Path(__file__).resolve().parent.parent.parent,
-                                    Path(f"data/output/imgs/{sidebar_args['model_name']}/pred"))
+    home_dir = home_dir = Path.home()
+    gt_img_out_dir = Path(f"{home_dir}/demo_sole/data/output/imgs/{sidebar_args['model_name']}/gt")
+    pred_img_out_dir = Path(f"{home_dir}/demo_sole/data/output/imgs/{sidebar_args['model_name']}/pred")
 
     start_date = sidebar_args['start_date']
     start_time = sidebar_args['start_time']
@@ -107,7 +103,12 @@ def create_fig_dict_in_parallel(gt_data, pred_data, sidebar_args, save_on_disk=F
     return gt_figures, pred_figures
 
 
-def save_figure(data_slice, index, base_date, time_step, out_dir, save_on_disk):
+def save_figure(data_slice,
+                index,
+                base_date,
+                time_step,
+                out_dir,
+                save_on_disk):
     actual_date = base_date + index * time_step
     fig = compute_figure_gpd(data_slice, actual_date.strftime('%d-%m-%Y %H:%M'))
 
@@ -179,7 +180,8 @@ def create_single_gif_for_parallel(queue, start_pos, figures_dict, window_size, 
     queue.put(('complete', process_idx, buf.getvalue()))
 
     if save_on_disk:
-        save_path = f"/davinci-1/home/guidim/demo_sole/data/output/gifs/{sidebar_args['model_name']}/gt"
+        home_dir = Path.home()
+        save_path = f"{home_dir}/demo_sole/data/output/gifs/{sidebar_args['model_name']}/gt"
         os.makedirs(save_path, exist_ok=True)
         file_name = f"{window_keys[0]}_{window_keys[-1]}"
         save_path = os.path.join(save_path, file_name + '.gif')
@@ -286,7 +288,8 @@ def create_single_gif(queue, figures, gif_type, process_idx, start_key, end_key,
     queue.put(('complete', process_idx, buf.getvalue()))
 
     if save_on_disk:
-        save_path = f"/davinci-1/home/guidim/demo_sole/data/output/gifs/{sidebar_args['model_name']}/pred"
+        home_dir = Path.home()
+        save_path = f"{home_dir}/demo_sole/data/output/gifs/{sidebar_args['model_name']}/pred"
         os.makedirs(save_path, exist_ok=True)
         file_name = f"{start_key}_{end_key}_{gif_type}"
         save_path = os.path.join(save_path, file_name + '.gif')

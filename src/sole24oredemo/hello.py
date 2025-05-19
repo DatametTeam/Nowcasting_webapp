@@ -51,10 +51,10 @@ def update_prediction_visualization(gt0_gif, gt6_gif, gt12_gif, pred_gif_6, pred
     pred_plus_30.image(pred_gif_6, caption="Prediction +30 minutes", use_container_width=True)
     gt_plus_60.image(gt12_gif, caption="Data +60 minutes", use_container_width=True)
     pred_plus_60.image(pred_gif_12, caption="Prediction +60 minutes", use_container_width=True)
-    colorbar30.image(create_colorbar_fig(top_adj=0.96, bot_adj=0.12))
-    colorbar60.image(create_colorbar_fig(top_adj=0.96, bot_adj=0.12))
     diff_plus_30.image(diff_gif_6, caption="Differences +30 minutes", use_container_width=True)
     diff_plus_60.image(diff_gif_12, caption="Differences +60 minutes", use_container_width=True)
+    colorbar30.image(create_colorbar_fig(top_adj=0.96, bot_adj=0.12))
+    colorbar60.image(create_colorbar_fig(top_adj=0.96, bot_adj=0.12))
 
 
 def submit_prediction_job(sidebar_args):
@@ -176,15 +176,20 @@ def compute_prediction_results(sidebar_args, folder_path):
                 if gt_gif_ok:
                     gt_gifs = load_gif_as_bytesio(gt_paths)
 
-                gt_array, pred_array = get_prediction_results_test(folder_path, sidebar_args)
+                gt_array, pred_array = get_prediction_results(folder_path, sidebar_args)
 
-                # calcolo differenza
-                diff_array = np.abs(gt_array - pred_array)
+                # calculating differences
+                diff_array = gt_array[:, :, :, :] - pred_array[:, :, :, :]
+
+                # only for test --> amplification
+                # diff_array = np.clip(diff_array * 10, -1, 1)
 
                 status.update(label="🔄 Creating dictionaries...", state="running", expanded=True)
 
                 gt_dict, pred_dict = create_fig_dict_in_parallel(gt_array, pred_array, sidebar_args)
-                diff_dict = create_diff_dict_in_parallel(diff_array, sidebar_args)
+
+                print("CREATING DIFF DICT")
+                diff_dict = create_diff_dict_in_parallel(np.abs(diff_array), sidebar_args)
 
                 if not gt_gif_ok:
                     status.update(label="🔄 Creating GT GIFs...", state="running", expanded=True)
@@ -237,9 +242,6 @@ def main_page(sidebar_args) -> None:
             if submitted:
                 st.session_state.submitted = True
         if 'submitted' in st.session_state and st.session_state.submitted:
-
-            # updated
-            # fino a questo punto okay
             gt_gif_ok, pred_gif_ok, diff_gif_ok, gt_paths, pred_paths, diff_paths = check_if_gif_present(sidebar_args)
 
             if gt_gif_ok and pred_gif_ok:
