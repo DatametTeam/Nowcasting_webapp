@@ -520,92 +520,23 @@ def get_closest_5_minute_time():
 
 
 def read_groundtruth_and_target_data(selected_key, selected_model):
-    # Define output directory and load arrays
-    # TODO: da sistemare
-
-    # out_dir = Path(f"/davinci-1/work/protezionecivile/sole24/pred_teo/{selected_model}")
-    # gt_array = np.load(Path(f"/davinci-1/work/protezionecivile/sole24/pred_teo/Test") / "predictions.npy",
-    #                   mmap_mode='r')[0:12, 0]
-    with st.spinner("🔄 Loading GT vector..", show_time=True):
-        gt_array = generate_splotchy_image_main_(
-            batch_size=12,
-            channels=1,  # Set channels to 1
-            height=1400,
-            width=1200,
-            num_clusters=5,
-            cluster_radius=100,
-            min_value=0,
-            max_value=100
-        )
-        gt_array = np.squeeze(gt_array, axis=1)
-        print("gt array:")
-        print(gt_array.shape)
-
-    # target_array = np.load(
-    #     Path(f"/davinci-1/work/protezionecivile/sole24/pred_teo/Test") / "predictions.npy",
-    #     mmap_mode='r')[12:24, 0]
-    with st.spinner("🔄 Loading TARGET vector..", show_time=True):
-        target_array = generate_splotchy_image_main_(
-            batch_size=12,
-            channels=1,  # Set channels to 1
-            height=1400,
-            width=1200,
-            num_clusters=5,
-            cluster_radius=100,
-            min_value=0,
-            max_value=100
-        )
-        target_array = np.squeeze(target_array, axis=1)
-        print("target array:")
-        print(target_array.shape)
-
-    # pred_array = np.load(out_dir / "predictions.npy", mmap_mode='r')[12]
-    with st.spinner("🔄 Loading PREDICTION vector..", show_time=True):
-        pred_array = generate_splotchy_image_main_(
-            batch_size=12,
-            channels=1,  # Set channels to 1
-            height=1400,
-            width=1200,
-            num_clusters=5,
-            cluster_radius=100,
-            min_value=0,
-            max_value=100
-        )
-        pred_array = np.squeeze(pred_array, axis=1)
-        print("pred array:")
-        print(pred_array.shape)
-
+    home_dir = Path.home()
+    out_dir = Path(f"/davinci-1/work/protezionecivile/sole24/pred_teo/{selected_model}")
+    gt_array = np.load(Path(f"/davinci-1/work/protezionecivile/sole24/pred_teo/Test") / "predictions.npy",
+                       mmap_mode='r')[0:12, 0]
+    target_array = np.load(
+        Path(f"/davinci-1/work/protezionecivile/sole24/pred_teo/Test") / "predictions.npy",
+        mmap_mode='r')[12:24, 0]
+    pred_array = np.load(out_dir / "predictions.npy", mmap_mode='r')[12]
     if selected_model == 'Test':
-        # pred_array = np.load(out_dir / "predictions.npy", mmap_mode='r')[12:24, 0]
-        with st.spinner("🔄 Loading PREDICTION vector..", show_time=True):
-            pred_array = generate_splotchy_image_main_(
-                batch_size=12,
-                channels=1,  # Set channels to 1
-                height=1400,
-                width=1200,
-                num_clusters=5,
-                cluster_radius=100,
-                min_value=0,
-                max_value=100
-            )
-            pred_array = np.squeeze(pred_array, axis=1)
-            print("pred array:")
-            print(pred_array.shape)
+        pred_array = np.load(out_dir / "predictions.npy", mmap_mode='r')[12:24, 0]
 
-    # with h5py.File("/archive/SSD/home/guidim/demo_sole/src/mask/radar_mask.hdf", "r") as f:
-    #     radar_mask = f["mask"][()]
-    src_dir = Path(__file__).resolve().parent.parent
-    print("read mask")
-    with h5py.File(os.path.join(src_dir, "mask/radar_mask.hdf"), "r") as f:
+    with h5py.File(f"{home_dir}/demo_sole/src/mask/radar_mask.hdf", "r") as f:
         radar_mask = f["mask"][()]
-    print("read mask DONE")
 
-    print("multiplication")
-    with st.spinner("🔄 Applying MASK to vectors..", show_time=True):
-        pred_array = pred_array * radar_mask
-        target_array = target_array * radar_mask
-        gt_array = gt_array * radar_mask
-    print("multiplication DONE")
+    pred_array = pred_array * radar_mask
+    target_array = target_array * radar_mask
+    gt_array = gt_array * radar_mask
 
     # Clean and normalize arrays
     gt_array = np.clip(gt_array, 0, 200)
