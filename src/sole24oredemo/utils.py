@@ -582,7 +582,8 @@ def get_latest_file_once():
 
 
 def get_latest_file(folder_path):
-    # questo qua gira su un thread e simula la comparsa di un nuovo file di dati
+    # questo qua gira su un thread e si accorge quando un nuovo file di input è presente
+    print("AUTO SCAN --> " + str(folder_path))
     ctx = get_script_run_ctx()
     runtime = get_instance()
 
@@ -798,7 +799,6 @@ def launch_thread_execution(st, latest_file, columns):
         # Start the worker thread only if no thread is running
 
         thread = threading.Thread(target=worker_thread, args=(event, latest_file))
-        # thread = threading.Thread(target=worker_thread_test, args=(event,))
 
         st.session_state.thread_started = True
         thread.start()

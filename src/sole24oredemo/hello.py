@@ -8,8 +8,6 @@ import time
 import numpy as np
 from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx, add_script_run_ctx
 
-from geopy.geocoders import Nominatim
-
 from layouts import configure_sidebar, init_prediction_visualization_layout, init_second_tab_layout, \
     precompute_images, \
     show_metrics_page
@@ -442,6 +440,8 @@ def create_only_map(rgba_img, prediction: bool = False):
         control=True
     ).add_to(map)
 
+    folium.plugins.Geocoder(collapsed=False).add_to(map)
+
     if prediction:
         # ricreazione totale della mappa + predizione
         folium.raster_layers.ImageOverlay(
@@ -513,16 +513,6 @@ def background_prediction_loader_spinner(columns):
         st.write("⚙️ Running background prediction **LOADER**..")
 
 
-@st.cache_data
-def geocode_city(city):
-    geolocator = Nominatim(user_agent="streamlit_folium_app")
-    try:
-        location = geolocator.geocode(f"{city}, Italy", timeout=10)
-        return location
-    except Exception as e:
-        return -1
-
-
 def show_real_time_prediction():
     columns = st.columns([0.5, 0.5])
     st.session_state["sync_end"] = 1
@@ -552,39 +542,6 @@ def show_real_time_prediction():
                 options=time_options,
                 key="selected_time",
             )
-
-        # city geolocator
-        with columns[0]:
-            city = st.text_input("-- **Enter CITY name** --", key="input_city")
-            lat, lon = None, None
-            if (city and "city_searched" not in st.session_state) or (city and "city_searched" in st.session_state and st.session_state["city_searched"] != city):
-                print("City --> " + str(city))
-
-                location = geocode_city(city)
-                if location == -1:
-                    st.session_state["old_center"] = {'lat': 42.5, 'lng': 12.5}
-                    st.session_state["old_zoom"] = 5
-                elif location:
-                    lat, lon = location.latitude, location.longitude
-                    print("Result of city research")
-                    print("lat --> " + str(lat))
-                    print("lon --> " + str(lon))
-
-                    # si aggiorna il centro
-                    st.session_state["old_center"] = {'lat': lat, 'lng': lon}
-                    st.session_state["old_zoom"] = 10
-
-                    # salvo lo stato
-                    st.session_state["display_prediction"] = False
-                    st.session_state["city_added"] = True
-                    st.session_state["city_searched"] = city
-                else:
-                    st.error("🌐 Can't found the city!")
-            else:
-                if "city_added" not in st.session_state:
-                    # si aggiorna il centro
-                    st.session_state["old_center"] = {'lat': 42.5, 'lng': 12.5}
-                    st.session_state["old_zoom"] = 5
 
         # THREAD per l'ottenimento automatico di nuovi file di input
         if "get_latest_file_thread" not in st.session_state:
