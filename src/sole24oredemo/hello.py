@@ -1,3 +1,4 @@
+import multiprocessing
 import os
 import threading
 
@@ -544,19 +545,34 @@ def show_real_time_prediction():
             )
 
         # THREAD per l'ottenimento automatico di nuovi file di input
-        if "get_latest_file_thread" not in st.session_state:
-            print("Sto entrando in get_latest_file_thread")
-            st.session_state["get_latest_file_thread"] = True
-            ctx = get_script_run_ctx()
+        print("Sto entrando in get_latest_file_thread")
+        st.session_state["run_get_latest_file"] = True
+        ctx = get_script_run_ctx()
 
-            # lanciato una volta sola questo thread gira autonomamente
-            st.session_state["run_get_latest_file"] = True
-            obtain_input_th = threading.Thread(target=get_latest_file, args=(SRI_FOLDER_DIR,), daemon=True)
-            add_script_run_ctx(obtain_input_th, ctx)
-            obtain_input_th.start()
+        if "prev_thread_ID_get_latest_file" in st.session_state:
+            thread_ID = st.session_state["prev_thread_ID_get_latest_file"]
+            print(f"NEWRUN --> main process {os.getpid()}")
+            print(f"NEWRUN --> KILLING {thread_ID} thread")
+            terminate_event = st.session_state["terminate_event"]
+            terminate_event.set()
+            time.sleep(0.5)
+            del(st.session_state["prev_thread_ID_get_latest_file"])
+            del(st.session_state["terminate_event"])
 
-            # per dare tempo al thread di settare in sessione un nuovo file se esiste
-            time.sleep(0.4)
+        # lanciato una volta sola questo thread gira autonomamente
+        terminate_event = threading.Event()
+        st.session_state["terminate_event"] = terminate_event
+        obtain_input_th = threading.Thread(target=get_latest_file, args=(SRI_FOLDER_DIR, terminate_event), daemon=True)
+        add_script_run_ctx(obtain_input_th, ctx)
+        obtain_input_th.start()
+
+        # per dare tempo al thread di settare in sessione un nuovo file se esiste
+        time.sleep(0.4)
+        if "thread_ID_get_latest_file" in st.session_state:
+            thread_ID = st.session_state["thread_ID_get_latest_file"]
+            print("thread_ID in main --> " + str(thread_ID))
+            del(st.session_state["thread_ID_get_latest_file"])
+            st.session_state["prev_thread_ID_get_latest_file"] = thread_ID
 
         st.markdown("<div style='text-align: center; font-size: 18px;'>"
                     f"<b>Current Date: {st.session_state.latest_file}</b>"
@@ -594,7 +610,6 @@ def show_real_time_prediction():
                 st.session_state.previous_time = st.session_state.selected_time
                 st.session_state.previous_model = st.session_state.selected_model
 
-                print("Sono dentro il primo IF")
                 if "prediction_data_thread" not in st.session_state:
                     st.session_state["prediction_data_thread"] = None
 

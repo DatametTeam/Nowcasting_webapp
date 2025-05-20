@@ -581,15 +581,19 @@ def get_latest_file_once():
     return img
 
 
-def get_latest_file(folder_path):
+def get_latest_file(folder_path, terminate_event):
     # questo qua gira su un thread e si accorge quando un nuovo file di input è presente
     print("AUTO SCAN --> " + str(folder_path))
     ctx = get_script_run_ctx()
     runtime = get_instance()
+    thread_id = threading.get_ident()
+    ctx.session_state["thread_ID_get_latest_file"] = thread_id
+    print("thread_ID in thread --> " + str(thread_id))
 
     latest_file = None
 
-    while True:
+    while not terminate_event.is_set():
+        print("start global cycle thread serching file")
         files = [f for f in os.listdir(folder_path) if f.endswith(".hdf")]
         if not files:
             return None
@@ -636,7 +640,9 @@ def get_latest_file(folder_path):
         # reatart the application to force the refresh of the main loop
         print("Rerun main")
         session_info = runtime._session_mgr.get_active_session_info(ctx.session_id)
+        time.sleep(0.2)
         session_info.session.request_rerun(None)
+    print("TERMINATE event is_set().")
 
 
 def generate_splotchy_image_main_(batch_size=24, channels=12, height=1400, width=1200,
@@ -701,12 +707,10 @@ def load_prediction_data(st, time_options, latest_file):
                 0, time_options.index(st.session_state.selected_time)]
 
         else:
-            height = 1400
-            width = 1200
-            num_clusters = 10
-            cluster_radius = 100
-            img1 = generate_splotchy_image_realTime(height, width, num_clusters, cluster_radius)
-            img1 = np.array(img1)
+            img1 = np.load(
+                Path(
+                    f"/davinci-1/work/protezionecivile/sole24/pred_teo/{st.session_state.selected_model}") /
+                "predictions.npy", mmap_mode='r')[0, time_options.index(st.session_state.selected_time)]
 
         img1[img1 < 0] = 0
 
