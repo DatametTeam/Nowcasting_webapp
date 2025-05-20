@@ -247,6 +247,7 @@ def init_second_tab_layout(groundtruth_images, target_frames, pred_frames):
                     frame_target = target_frames.get(timestamp_target, None)
 
                     if frame_pred is not None and frame_target is not None:
+                        # calculate differences
                         frame_diff = np.abs(frame_target - frame_pred)
 
                         if frame_diff is not None:

@@ -703,8 +703,12 @@ def load_prediction_data(st, time_options, latest_file):
     if st.session_state.selected_model and st.session_state.selected_time:
         if st.session_state.selected_model == 'ED_ConvLSTM':
             latest_npy = Path(latest_file).stem + '.npy'
-            img1 = np.load(f"/davinci-1/work/protezionecivile/sole24/pred_teo/real_time_pred/ED_ConvLSTM/{latest_npy}")[
-                0, time_options.index(st.session_state.selected_time)]
+            try:
+                img1 = \
+                np.load(f"/davinci-1/work/protezionecivile/sole24/pred_teo/real_time_pred/ED_ConvLSTM/{latest_npy}")[
+                    0, time_options.index(st.session_state.selected_time)]
+            except FileNotFoundError:
+                print("File not present yet.")
 
         else:
             img1 = np.load(
