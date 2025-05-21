@@ -15,7 +15,7 @@ from PIL import Image
 
 
 def create_diff_dict_in_parallel(diff_array, sidebar_args, save_on_disk=False):
-    home_dir = home_dir = Path.home()
+    home_dir = Path.home()
     diff_img_out_dir = Path(f"{home_dir}/demo_sole/data/output/imgs/{sidebar_args['model_name']}/diff")
     start_date = sidebar_args['start_date']
     start_time = sidebar_args['start_time']
@@ -35,7 +35,7 @@ def create_diff_dict_in_parallel(diff_array, sidebar_args, save_on_disk=False):
 
         for i, result in enumerate(executor.map(
                 partial(save_figure, base_date=combined_start, time_step=time_step, out_dir=diff_img_out_dir,
-                        save_on_disk=save_on_disk),
+                        save_on_disk=save_on_disk, name="diff"),
                 diff_array[:, 0], range(diff_array.shape[0])
         )):
             diff_results.append(result)
@@ -68,7 +68,7 @@ def create_fig_dict_in_parallel(gt_data, pred_data, sidebar_args, save_on_disk=F
         gt_results = []
         for i, result in enumerate(executor.map(
                 partial(save_figure, base_date=combined_start, time_step=time_step, out_dir=gt_img_out_dir,
-                        save_on_disk=save_on_disk),
+                        save_on_disk=save_on_disk, name=""),
                 gt_data[:, 0], range(gt_data.shape[0])
         )):
             gt_results.append(result)
@@ -108,9 +108,10 @@ def save_figure(data_slice,
                 base_date,
                 time_step,
                 out_dir,
-                save_on_disk):
+                save_on_disk,
+                name=""):
     actual_date = base_date + index * time_step
-    fig = compute_figure_gpd(data_slice, actual_date.strftime('%d-%m-%Y %H:%M'))
+    fig = compute_figure_gpd(data_slice, actual_date.strftime('%d-%m-%Y %H:%M'), name=name)
 
     if save_on_disk:
         file_name = f"{actual_date.strftime('%d%m%Y_%H%M')}.png"
@@ -152,7 +153,7 @@ def save_prediction_sequence(data_series, element_index, base_date, time_step, o
 
 
 def create_single_gif_for_parallel(queue, start_pos, figures_dict, window_size, sorted_keys, process_idx, sidebar_args,
-                                   save_on_disk=True, fps_gif=3):
+                                   save_on_disk=True, fps_gif=3, name="gt"):
     """
     Create a single GIF and send progress updates through a queue.
     """
@@ -181,7 +182,7 @@ def create_single_gif_for_parallel(queue, start_pos, figures_dict, window_size, 
 
     if save_on_disk:
         home_dir = Path.home()
-        save_path = f"{home_dir}/demo_sole/data/output/gifs/{sidebar_args['model_name']}/gt"
+        save_path = f"{home_dir}/demo_sole/data/output/gifs/{sidebar_args['model_name']}/{name}"
         os.makedirs(save_path, exist_ok=True)
         file_name = f"{window_keys[0]}_{window_keys[-1]}"
         save_path = os.path.join(save_path, file_name + '.gif')
@@ -190,7 +191,7 @@ def create_single_gif_for_parallel(queue, start_pos, figures_dict, window_size, 
 
 
 def create_sliding_window_gifs(figures_dict, sidebar_args, start_positions=[0, 6, 12], save_on_disk=True,
-                               fps_gif=3):
+                               fps_gif=3, name="gt"):
     """
     Create multiple GIFs in parallel with progress tracking.
     """
@@ -212,7 +213,7 @@ def create_sliding_window_gifs(figures_dict, sidebar_args, start_positions=[0, 6
     for idx, start_pos in enumerate(start_positions):
         p = Process(
             target=create_single_gif_for_parallel,
-            args=(queue, start_pos, figures_dict, window_size, sorted_keys, idx, sidebar_args, save_on_disk, fps_gif)
+            args=(queue, start_pos, figures_dict, window_size, sorted_keys, idx, sidebar_args, save_on_disk, fps_gif, name)
         )
         processes.append(p)
 

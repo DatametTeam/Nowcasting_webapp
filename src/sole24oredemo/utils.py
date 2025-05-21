@@ -34,14 +34,19 @@ warnings.filterwarnings('ignore', category=UserWarning,
 
 
 def compute_figure_gpd(img1,
-                       timestamp,):
+                       timestamp,
+                       name=""):
     global x, y
     # gdf = gdf.to_crs(crs="EPSG:4326")
     fig, ax = plt.subplots(figsize=(10, 10))
     italy_shape.plot(ax=ax, edgecolor='black', color='white')
 
     # Pcolormesh con i valori corretti
-    mesh = ax.pcolormesh(x, y, img1, shading="auto", cmap=cmap, norm=norm, vmin=None if norm else vmin,
+    if name == "diff":
+        cmap_ = plt.get_cmap("jet")
+    else:
+        cmap_ = cmap
+    mesh = ax.pcolormesh(x, y, img1, shading="auto", cmap=cmap_, norm=norm, vmin=None if norm else vmin,
                          vmax=None if norm else vmax, snap=True, linewidths=0, )
 
     # Remove the axis
@@ -418,7 +423,8 @@ def get_italian_region_shapefile() -> Path:
 
 def check_if_gif_present(sidebar_args):
     model = sidebar_args['model_name']
-    gif_dir = f"/davinci-1/home/guidim/demo_sole/data/output/gifs/{model}"
+    home_path = Path.home()
+    gif_dir = home_path / f"demo_sole/data/output/gifs/{model}"
     start_date = sidebar_args['start_date']
     start_time = sidebar_args['start_time']
 
@@ -446,11 +452,12 @@ def check_if_gif_present(sidebar_args):
     ]
 
     # File names for differences
+    # charged like gt gifs
     difference_files = [
         f"{start_datetime.strftime('%d%m%Y_%H%M')}_"
-        f"{(start_datetime + timedelta(minutes=55)).strftime('%d%m%Y_%H%M')}_diff_+30 mins.gif",
+        f"{(start_datetime + timedelta(minutes=55)).strftime('%d%m%Y_%H%M')}.gif",
         f"{start_datetime.strftime('%d%m%Y_%H%M')}_"
-        f"{(start_datetime + timedelta(minutes=55)).strftime('%d%m%Y_%H%M')}_diff_+60 mins.gif"
+        f"{(start_datetime + timedelta(minutes=55)).strftime('%d%m%Y_%H%M')}.gif"
     ]
 
     groundtruth_paths = [os.path.join(gif_dir, 'gt', file) for file in groundtruth_files]

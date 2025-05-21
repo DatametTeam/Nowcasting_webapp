@@ -201,7 +201,7 @@ def compute_prediction_results(sidebar_args, folder_path):
                                                                        fps_gif=3, save_on_disk=True)
 
                 diff_gifs = create_sliding_window_gifs(diff_dict, sidebar_args, fps_gif=3,
-                                                       save_on_disk=True)
+                                                       save_on_disk=True, name="diff")
 
                 status.update(label=f"Done!", state="complete", expanded=True)
 
@@ -216,8 +216,8 @@ def display_results(gt_gifs, pred_gifs, diff_gifs):
     gt_gif_12 = gt_gifs[2]      # Starts from frame 12
     pred_gif_6 = pred_gifs[0]
     pred_gif_12 = pred_gifs[1]
-    diff_gif_6 = diff_gifs[1]   # diff from frame 6
-    diff_gif_12 = diff_gifs[2]  # diff from frame 12
+    diff_gif_6 = diff_gifs[0]   # diff from frame 6
+    diff_gif_12 = diff_gifs[1]  # diff from frame 12
 
     # Store results in session state
     st.session_state.prediction_result = {

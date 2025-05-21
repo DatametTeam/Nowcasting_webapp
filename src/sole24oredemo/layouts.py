@@ -251,7 +251,7 @@ def init_second_tab_layout(groundtruth_images, target_frames, pred_frames):
                         frame_diff = np.abs(frame_target - frame_pred)
 
                         if frame_diff is not None:
-                            fig_diff = compute_figure_gpd(frame_diff, 'DIFF @ ' + timestamp_pred)
+                            fig_diff = compute_figure_gpd(frame_diff, 'DIFF @ ' + timestamp_pred, name="diff")
                             buf = io.BytesIO()
                             fig_diff.savefig(buf, format="png", bbox_inches="tight")
                             buf.seek(0)
