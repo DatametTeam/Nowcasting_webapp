@@ -1,19 +1,20 @@
+import multiprocessing
 import os
 import threading
+
 import h5py
-import pyproj
 import streamlit as st
 from pathlib import Path
 import time
 import numpy as np
+from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx, add_script_run_ctx
+
 from layouts import configure_sidebar, init_prediction_visualization_layout, init_second_tab_layout, \
     precompute_images, \
-    show_metrics_page, display_map_layout
-from pbs import is_pbs_available
+    show_metrics_page
 
 from sole24oredemo.parallel_code import create_fig_dict_in_parallel, create_sliding_window_gifs, \
     create_sliding_window_gifs_for_predictions
-from sole24oredemo.sou_py import dpg
 from sole24oredemo.utils import check_if_gif_present, load_gif_as_bytesio, create_colorbar_fig, \
     get_closest_5_minute_time, read_groundtruth_and_target_data, lincol_2_yx, yx_2_latlon, cmap, norm, load_config, \
     get_latest_file, load_prediction_data, launch_thread_execution
@@ -22,8 +23,11 @@ from datetime import datetime, timedelta
 import folium
 from streamlit_folium import st_folium
 import branca.colormap as cm
-from threading import Event
-from streamlit_autorefresh import st_autorefresh
+
+from sole24oredemo.utils import load_prediction_thread
+from sole24oredemo.parallel_code import create_diff_dict_in_parallel
+
+from sole24oredemo.utils import get_latest_file_once
 
 st.set_page_config(page_title="Weather prediction", page_icon=":flag-eu:", layout="wide")
 
@@ -35,9 +39,10 @@ from pbs import submit_inference, get_job_status
 #     from mock import inference_mock as submit_inference, get_job_status
 
 
-def update_prediction_visualization(gt0_gif, gt6_gif, gt12_gif, pred_gif_6, pred_gif_12):
-    gt_current, pred_current, gt_plus_30, pred_plus_30, gt_plus_60, pred_plus_60, colorbar30, colorbar60 = \
+def update_prediction_visualization(gt0_gif, gt6_gif, gt12_gif, pred_gif_6, pred_gif_12, diff_gif_6, diff_gif_12):
+    gt_current, pred_current, gt_plus_30, pred_plus_30, gt_plus_60, pred_plus_60, colorbar30, colorbar60, diff_plus_30, diff_plus_60 = \
         init_prediction_visualization_layout()
+
     # Display the GIF using Streamlit
     gt_current.image(gt0_gif, caption="Current data", use_container_width=True)
     pred_current.image(gt0_gif, caption="Current data", use_container_width=True)
@@ -45,6 +50,8 @@ def update_prediction_visualization(gt0_gif, gt6_gif, gt12_gif, pred_gif_6, pred
     pred_plus_30.image(pred_gif_6, caption="Prediction +30 minutes", use_container_width=True)
     gt_plus_60.image(gt12_gif, caption="Data +60 minutes", use_container_width=True)
     pred_plus_60.image(pred_gif_12, caption="Prediction +60 minutes", use_container_width=True)
+    diff_plus_30.image(diff_gif_6, caption="Differences +30 minutes", use_container_width=True)
+    diff_plus_60.image(diff_gif_12, caption="Differences +60 minutes", use_container_width=True)
     colorbar30.image(create_colorbar_fig(top_adj=0.96, bot_adj=0.12))
     colorbar60.image(create_colorbar_fig(top_adj=0.96, bot_adj=0.12))
 
@@ -76,6 +83,45 @@ def submit_prediction_job(sidebar_args):
 
         status.update(label="✅ Prediction completed!", state="complete", expanded=False)
     return error, out_dir
+
+
+def get_prediction_results_test(folder_path, sidebar_args, get_only_pred=False):
+    model_name = sidebar_args['model_name']
+    gt_array = None
+    pred_array = None
+
+    if not get_only_pred:
+        print("Loading GT data")
+
+        # NEW for test
+        gt_array = get_latest_file_once()
+        print("GT data loaded")
+
+        gt_array = np.array(gt_array)
+        gt_array[gt_array < 0] = 0
+
+    print("Loading pred data")
+
+    # NEW for test
+    pred_array = get_latest_file_once()
+    if model_name == 'Test':  # TODO: sistemare
+        # NEW for test
+        pred_array = get_latest_file_once()
+    pred_array = np.array(pred_array)
+    pred_array[pred_array < 0] = 0
+    print("Loaded pred data")
+
+    print("Loading radar mask")
+    src_fold = Path(__file__).resolve().parent.parent
+    with h5py.File(os.path.join(src_fold, "mask/radar_mask.hdf"), "r") as f:
+        radar_mask = f["mask"][()]
+    print("Radar mask loaded")
+
+    pred_array = pred_array * radar_mask
+
+    print("*** LOADED DATA ***")
+
+    return gt_array, pred_array
 
 
 def get_prediction_results(out_dir, sidebar_args, get_only_pred=False):
@@ -115,7 +161,7 @@ def get_prediction_results(out_dir, sidebar_args, get_only_pred=False):
     return gt_array, pred_array
 
 
-def compute_prediction_results(sidebar_args):
+def compute_prediction_results(sidebar_args, folder_path):
     error, out_dir = submit_prediction_job(sidebar_args)
     if not error:
         with st.status(f':hammer_and_wrench: **Loading results...**', expanded=True) as status:
@@ -125,14 +171,24 @@ def compute_prediction_results(sidebar_args):
             with prediction_placeholder:
                 status.update(label="🔄 Loading results...", state="running", expanded=True)
 
-                gt_gif_ok, pred_gif_ok, gt_paths, pred_paths = check_if_gif_present(sidebar_args)
+                gt_gif_ok, pred_gif_ok, _, gt_paths, pred_paths, _ = check_if_gif_present(sidebar_args)
                 if gt_gif_ok:
                     gt_gifs = load_gif_as_bytesio(gt_paths)
 
-                gt_array, pred_array = get_prediction_results(out_dir, sidebar_args)
+                gt_array, pred_array = get_prediction_results(folder_path, sidebar_args)
+
+                # calculating differences
+                diff_array = gt_array[:, :, :, :] - pred_array[:, :, :, :]
+
+                # only for test --> amplification
+                # diff_array = np.clip(diff_array * 10, -1, 1)
 
                 status.update(label="🔄 Creating dictionaries...", state="running", expanded=True)
+
                 gt_dict, pred_dict = create_fig_dict_in_parallel(gt_array, pred_array, sidebar_args)
+
+                print("CREATING DIFF DICT")
+                diff_dict = create_diff_dict_in_parallel(np.abs(diff_array), sidebar_args)
 
                 if not gt_gif_ok:
                     status.update(label="🔄 Creating GT GIFs...", state="running", expanded=True)
@@ -140,21 +196,28 @@ def compute_prediction_results(sidebar_args):
                                                          save_on_disk=True)
 
                 status.update(label="🔄 Creating Pred GIFs...", state="running", expanded=True)
+
                 pred_gifs = create_sliding_window_gifs_for_predictions(pred_dict, sidebar_args,
                                                                        fps_gif=3, save_on_disk=True)
 
+                diff_gifs = create_sliding_window_gifs(diff_dict, sidebar_args, fps_gif=3,
+                                                       save_on_disk=True, name="diff")
+
                 status.update(label=f"Done!", state="complete", expanded=True)
-                display_results(gt_gifs, pred_gifs)
+
+                display_results(gt_gifs, pred_gifs, diff_gifs)
     else:
         st.error(error)
 
 
-def display_results(gt_gifs, pred_gifs):
-    gt0_gif = gt_gifs[0]  # Full sequence
-    gt_gif_6 = gt_gifs[1]  # Starts from frame 6
-    gt_gif_12 = gt_gifs[2]  # Starts from frame 12
+def display_results(gt_gifs, pred_gifs, diff_gifs):
+    gt0_gif = gt_gifs[0]        # Full sequence
+    gt_gif_6 = gt_gifs[1]       # Starts from frame 6
+    gt_gif_12 = gt_gifs[2]      # Starts from frame 12
     pred_gif_6 = pred_gifs[0]
     pred_gif_12 = pred_gifs[1]
+    diff_gif_6 = diff_gifs[0]   # diff from frame 6
+    diff_gif_12 = diff_gifs[1]  # diff from frame 12
 
     # Store results in session state
     st.session_state.prediction_result = {
@@ -163,9 +226,11 @@ def display_results(gt_gifs, pred_gifs):
         'gt12_gif': gt_gif_12,
         'pred6_gif': pred_gif_6,
         'pred12_gif': pred_gif_12,
+        'diff6_gif': diff_gif_6,
+        'diff12_gif': diff_gif_12,
     }
     st.session_state.tab1_gif = gt0_gif.getvalue()
-    update_prediction_visualization(gt0_gif, gt_gif_6, gt_gif_12, pred_gif_6, pred_gif_12)
+    update_prediction_visualization(gt0_gif, gt_gif_6, gt_gif_12, pred_gif_6, pred_gif_12, diff_gif_6, diff_gif_12)
 
 
 def main_page(sidebar_args) -> None:
@@ -176,8 +241,7 @@ def main_page(sidebar_args) -> None:
             if submitted:
                 st.session_state.submitted = True
         if 'submitted' in st.session_state and st.session_state.submitted:
-
-            gt_gif_ok, pred_gif_ok, gt_paths, pred_paths = check_if_gif_present(sidebar_args)
+            gt_gif_ok, pred_gif_ok, diff_gif_ok, gt_paths, pred_paths, diff_paths = check_if_gif_present(sidebar_args)
 
             if gt_gif_ok and pred_gif_ok:
                 st.warning("Prediction data already present. Do you want to recompute?")
@@ -187,7 +251,7 @@ def main_page(sidebar_args) -> None:
                     if st.button("YES", use_container_width=True):
                         compute_ok = True
                 if compute_ok:
-                    compute_prediction_results(sidebar_args)
+                    compute_prediction_results(sidebar_args, SRI_FOLDER_DIR)
 
                 with col2:
                     compute_nok = False
@@ -196,10 +260,11 @@ def main_page(sidebar_args) -> None:
                 if compute_nok:
                     gt_gifs = load_gif_as_bytesio(gt_paths)
                     pred_gifs = load_gif_as_bytesio(pred_paths)
-                    display_results(gt_gifs, pred_gifs)
+                    diff_gifs = load_gif_as_bytesio(diff_paths)
+                    display_results(gt_gifs, pred_gifs, diff_gifs)
 
             else:
-                compute_prediction_results(sidebar_args)
+                compute_prediction_results(sidebar_args, SRI_FOLDER_DIR)
             return
     else:
         # If prediction results already exist, reuse them
@@ -208,7 +273,9 @@ def main_page(sidebar_args) -> None:
         gt_gif_12 = st.session_state.prediction_result['gt12_gif']
         pred_gif_6 = st.session_state.prediction_result['pred6_gif']
         pred_gif_12 = st.session_state.prediction_result['pred12_gif']
-        update_prediction_visualization(gt0_gif, gt_gif_6, gt_gif_12, pred_gif_6, pred_gif_12)
+        diff_gif_6 = st.session_state.prediction_result['diff6_gif']
+        diff_gif_12 = st.session_state.prediction_result['diff12_gif']
+        update_prediction_visualization(gt0_gif, gt_gif_6, gt_gif_12, pred_gif_6, pred_gif_12, diff_gif_6, diff_gif_12)
 
 
 def show_prediction_page():
@@ -230,11 +297,17 @@ def show_prediction_page():
         args = {'start_date': selected_datetime, 'start_time': prediction_start_datetime, 'model_name': selected_model,
                 'submitted': True}
 
+        print("submit prediction")
         submit_prediction_job(args)
+        print("submit prediction DONE")
 
         # Check if groundtruths are already in session state
         if selected_key not in st.session_state:
+            print("read ground thruth and target data")
+            print("selected key --> " + str(selected_key))
+            print("selected model --> " + str(selected_model))
             groundtruth_dict, target_dict, pred_dict = read_groundtruth_and_target_data(selected_key, selected_model)
+            print("read ground thruth and target data DONE")
 
             # Precompute and cache images for groundtruths
             st.session_state[selected_key] = {
@@ -254,6 +327,7 @@ def show_prediction_page():
         pred_dict = st.session_state[selected_key]["pred_dict"]
 
         # Initialize the second tab layout with precomputed images
+        print("init second tab layout")
         init_second_tab_layout(groundtruth_images, target_dict, pred_dict)
 
 
@@ -268,8 +342,26 @@ def show_home_page():
         st.write("No GIFs available yet.")
 
 
-def show_real_time_prediction():
-    # Initial state management
+def thread_for_position():
+    thread_id = threading.get_ident()
+    print(f"Worker thread (ID: {thread_id}) is starting...")
+    while True:
+        if "st_map" in st.session_state:
+            st_map = st.session_state["st_map"]
+            if 'center' in st_map.keys() and 'zoom' in st_map.keys():
+                # print("THREAD - " + str(st_map['center']) + " -- " + str(st_map['zoom']))
+                st.session_state["center"] = st_map['center']
+                st.session_state["zoom"] = st_map['zoom']
+            else:
+                # print("THREAD - center / zoom not available..")
+                pass
+        else:
+            # print("THREAD - st_map not available..")
+            pass
+        time.sleep(0.4)
+
+
+def initial_state_management():
     if 'selected_model' not in st.session_state:
         st.session_state.selected_model = None
     if 'selected_time' not in st.session_state:
@@ -282,18 +374,159 @@ def show_real_time_prediction():
         st.session_state.thread_started = None
     if 'old_count' not in st.session_state:
         st.session_state.old_count = COUNT
+    if 'previous_model' not in st.session_state:
+        st.session_state.previous_model = None
+    if 'previous_time' not in st.session_state:
+        st.session_state.previous_time = None
+    if not "latest_thread" in st.session_state:
+        st.session_state["latest_thread"] = None
+    if "launch_prediction_thread" not in st.session_state:
+        st.session_state["launch_prediction_thread"] = None
 
-    if COUNT != st.session_state.old_count:
-        st.session_state.thread_started = None
-        st.session_state.old_count = COUNT
+
+def create_only_map(rgba_img, prediction: bool = False):
+    print("creating map")
+    if st.session_state.selected_model and st.session_state.selected_time:
+        if "display_prediction" in st.session_state:
+            if st.session_state["display_prediction"]:
+                # 3 --> nuova predizione da caricare, si aggiorna il centro
+                center = st.session_state["center"]
+                zoom = st.session_state["zoom"]
+
+                st.session_state["old_center"] = center
+                st.session_state["old_zoom"] = zoom
+
+                st.session_state["display_prediction"] = False
+            else:
+                center = st.session_state["old_center"]
+                zoom = st.session_state["old_zoom"]
+        elif "old_center" in st.session_state and "old_zoom" in st.session_state:
+            center = st.session_state["old_center"]
+            zoom = st.session_state["old_zoom"]
+        elif "center" in st.session_state and "zoom" in st.session_state:
+            # 1 --> direttamente sull'overlay
+            center = st.session_state["center"]
+            zoom = st.session_state["zoom"]
+
+            # 2 --> salvataggio come valori precedenti
+            st.session_state["old_center"] = center
+            st.session_state["old_zoom"] = zoom
+        else:
+            center = {'lat': 42.5, 'lng': 12.5}
+            zoom = 5
+    else:
+        if ("old_center" in st.session_state and "old_zoom" in st.session_state
+                and st.session_state["old_center"] and st.session_state["old_zoom"]):
+            center = st.session_state["old_center"]
+            zoom = st.session_state["old_zoom"]
+        else:
+            center = {'lat': 42.5, 'lng': 12.5}
+            zoom = 5
+
+    map = folium.Map(location=[center['lat'], center['lng']],
+                     zoom_start=zoom,
+                     control_scale=False,  # Disable control scale
+                     tiles='Esri.WorldGrayCanvas',  # Watercolor map style
+                     name="WorldGray",
+                     )
+    folium.TileLayer(
+        tiles='Esri.WorldImagery',  # Satellite imagery
+        name="Satellite",
+        control=True
+    ).add_to(map)
+
+    folium.TileLayer(
+        tiles='OpenStreetMap.Mapnik',  # Satellite imagery
+        name="OSM",
+        control=True
+    ).add_to(map)
+
+    folium.plugins.Geocoder(collapsed=False).add_to(map)
+
+    if prediction:
+        # ricreazione totale della mappa + predizione
+        folium.raster_layers.ImageOverlay(
+            image=rgba_img,
+            bounds=[[35.0623, 4.51987], [47.5730, 20.4801]],
+            mercator_project=False,
+            origin="lower",
+            name="NWC_pred"
+            # opacity=0.5
+        ).add_to(map)
+
+        data_min = 0  # Minimum value in your data
+        data_max = 100  # Maximum value in your data
+
+        data_values = [0, 1, 2, 5, 10, 20, 30, 50, 75, 100]
+        normalized_values = norm(data_values)
+
+        colormap = cm.LinearColormap(
+            colors=[cmap(n) for n in normalized_values],  # Generate 10 colors
+            index=data_values,  # Map to actual data values
+            vmin=data_min,
+            vmax=data_max
+        )
+
+        colormap.caption = "Prediction Intensity (mm/h)"
+        map.add_child(colormap)
+
+    folium.LayerControl().add_to(map)
+    st_map = st_folium(map, width=800, height=600, use_container_width=True)
+    st.session_state["st_map"] = st_map
+    if "center" in st_map.keys():
+        st.session_state["center"] = st_map["center"]
+        st.session_state["zoom"] = st_map["zoom"]
+
+
+def load_prediction(time_options, latest_file, prediction_num):
+    ctx = get_script_run_ctx()
+    load_pred_thread = threading.Thread(target=load_prediction_thread,
+                                        args=(st, time_options, latest_file), daemon=True)
+    add_script_run_ctx(load_pred_thread, ctx)
+    print("LOAD PREDICTION -- " + str(prediction_num) + " --..")
+    st.session_state['load_prediction_thread'] = True
+    load_pred_thread.start()
+
+
+def background_checker_spinner(columns):
+    print("BACKGROUND checker spinner")
+    with columns[1]:
+        # with st.spinner("🔄 Running background file **CHECKER**..", show_time=False):
+        #     while True:
+        #         time.sleep(5)
+        st.write("🔄 Running background file **CHECKER**..")
+
+
+def background_prediction_calculator_spinner(columns):
+    with columns[1]:
+        st.write("🚀 new data file **FOUND**..")
+        # with st.spinner("🛠️ Running background prediction **CALCULATOR**..", show_time=False):
+        #     while True:
+        #         time.sleep(5)
+        st.write("🛠️ Running background prediction **CALCULATOR**..")
+
+
+def background_prediction_loader_spinner(columns):
+    with columns[1]:
+        # with st.spinner("⚙️ Running background prediction **LOADER**..", show_time=False):
+        #     while True:
+        #         time.sleep(5)
+        st.write("⚙️ Running background prediction **LOADER**..")
+
+
+def show_real_time_prediction():
+    columns = st.columns([0.5, 0.5])
+    st.session_state["sync_end"] = 1
+
+    # Initial state management
+    initial_state_management()
 
     model_options = model_list
     time_options = ["+5min", "+10min", "+15min", "+20min", "+25min",
                     "+30min", "+35min", "+40min", "+45min", "+50min",
                     "+55min", "+60min"]
 
-    columns = st.columns([0.5, 0.5])
-    with columns[0]:
+    with (columns[0]):
         internal_columns = st.columns([0.3, 0.1, 0.3])
         with internal_columns[0]:
             # Select model, bound to session state
@@ -311,72 +544,123 @@ def show_real_time_prediction():
                 key="selected_time",
             )
 
-        latest_file = get_latest_file(SRI_FOLDER_DIR)
+        # THREAD per l'ottenimento automatico di nuovi file di input
+        print("Sto entrando in get_latest_file_thread")
+        st.session_state["run_get_latest_file"] = True
+        ctx = get_script_run_ctx()
+
+        if "prev_thread_ID_get_latest_file" in st.session_state:
+            thread_ID = st.session_state["prev_thread_ID_get_latest_file"]
+            print(f"NEWRUN --> main process {os.getpid()}")
+            print(f"NEWRUN --> KILLING {thread_ID} thread")
+            terminate_event = st.session_state["terminate_event"]
+            terminate_event.set()
+            time.sleep(0.5)
+            del(st.session_state["prev_thread_ID_get_latest_file"])
+            del(st.session_state["terminate_event"])
+
+        # lanciato una volta sola questo thread gira autonomamente
+        terminate_event = threading.Event()
+        st.session_state["terminate_event"] = terminate_event
+        obtain_input_th = threading.Thread(target=get_latest_file, args=(SRI_FOLDER_DIR, terminate_event), daemon=True)
+        add_script_run_ctx(obtain_input_th, ctx)
+        obtain_input_th.start()
+
+        # per dare tempo al thread di settare in sessione un nuovo file se esiste
+        time.sleep(0.4)
+        if "thread_ID_get_latest_file" in st.session_state:
+            thread_ID = st.session_state["thread_ID_get_latest_file"]
+            print("thread_ID in main --> " + str(thread_ID))
+            del(st.session_state["thread_ID_get_latest_file"])
+            st.session_state["prev_thread_ID_get_latest_file"] = thread_ID
 
         st.markdown("<div style='text-align: center; font-size: 18px;'>"
                     f"<b>Current Date: {st.session_state.latest_file}</b>"
                     "</div>",
                     unsafe_allow_html=True)
 
-        map = folium.Map(location=[42.5, 12.5],
-                         zoom_start=5,
-                         control_scale=False,  # Disable control scale
-                         tiles='Esri.WorldGrayCanvas',  # Watercolor map style
-                         name="WorldGray",
-                         )
-        folium.TileLayer(
-            tiles='Esri.WorldImagery',  # Satellite imagery
-            name="Satellite",
-            control=True
-        ).add_to(map)
-
-        folium.TileLayer(
-            tiles='OpenStreetMap.Mapnik',  # Satellite imagery
-            name="OSM",
-            control=True
-        ).add_to(map)
-
+        latest_file = st.session_state["latest_thread"]
         if latest_file != st.session_state.latest_file:
-            launch_thread_execution(st, latest_file, columns)
-            st.session_state.selection = None
+            # calcolo della previsione in background
+            if st.session_state["launch_prediction_thread"] is None:
+                print("LAUNCH PREDICTION..")
+
+                st.session_state["launch_prediction_thread"] = True
+
+                ctx = get_script_run_ctx()
+                launch_thread = threading.Thread(target=launch_thread_execution, args=(st, latest_file, columns),
+                                                 daemon=True)
+                add_script_run_ctx(launch_thread, ctx)
+                launch_thread.start()
         else:
             print(f"Current SRI == Latest file processed! {latest_file}. Skipped prediction")
 
-            with columns[1]:
-                st.write("")
-                st.write("")
-                st.status(label="✅ Using latest data available", state="complete", expanded=False)
-
         if st.session_state.selected_model and st.session_state.selected_time:
-            rgba_img = load_prediction_data(st, time_options, latest_file)
+            # carico di default l'ultima previsione disponibile solo la prima volta
+            if "first_prediction_visualization" not in st.session_state:
+                st.session_state["first_prediction_visualization"] = True
+                if latest_file is not None:
+                    pass
+                load_prediction(time_options, latest_file, 3)
 
-            folium.raster_layers.ImageOverlay(
-                image=rgba_img,
-                bounds=[[35.0623, 4.51987], [47.5730, 20.4801]],
-                mercator_project=False,
-                origin="lower",
-                name="NWC_pred"
-                # opacity=0.5
-            ).add_to(map)
+            # se st.session_state["new_prediction"] == True allora posso fare il caricamente di una nuova previsione
+            if "new_prediction" in st.session_state and st.session_state["new_prediction"] or \
+                    (st.session_state['previous_time'] != st.session_state['selected_time'] or
+                     st.session_state['previous_model'] != st.session_state['selected_model']):
+                st.session_state.previous_time = st.session_state.selected_time
+                st.session_state.previous_model = st.session_state.selected_model
 
-            data_min = 0  # Minimum value in your data
-            data_max = 100  # Maximum value in your data
+                if "prediction_data_thread" not in st.session_state:
+                    st.session_state["prediction_data_thread"] = None
 
-            data_values = [0, 1, 2, 5, 10, 20, 30, 50, 75, 100]
-            normalized_values = norm(data_values)
+                if "load_prediction_thread" in st.session_state:
+                    if st.session_state["load_prediction_thread"] is False:
+                        load_prediction(time_options, latest_file, 1)
+                else:
+                    print("LATEST FILE")
+                    print(str(latest_file))
+                    load_prediction(time_options, latest_file, 2)
 
-            colormap = cm.LinearColormap(
-                colors=[cmap(n) for n in normalized_values],  # Generate 10 colors
-                index=data_values,  # Map to actual data values
-                vmin=data_min,
-                vmax=data_max
-            )
+                if "prediction_data_thread" in st.session_state:
+                    rgba_img = st.session_state["prediction_data_thread"]
+                    if rgba_img is not None:
+                        st.session_state['display_prediction'] = True
+                        with st.spinner("Loading **DATA**..", show_time=True):
+                            create_only_map(rgba_img, prediction=True)
+                    else:
+                        create_only_map(None)
+                else:
+                    create_only_map(None)
+            else:
+                # se st.session_state["new_prediction"] == False allora posso semplicemente applicare la predizione
+                # alla mappa
+                if "prediction_data_thread" in st.session_state:
+                    rgba_img = st.session_state["prediction_data_thread"]
+                    if rgba_img is not None:
+                        with st.spinner("Loading **DATA**..", show_time=True):
+                            create_only_map(rgba_img, prediction=True)
+                    else:
+                        create_only_map(None)
+                else:
+                    create_only_map(None)
+        else:
+            create_only_map(None)
 
-            colormap.caption = "Prediction Intensity (mm/h)"
-            map.add_child(colormap)
+    # Spinner section
+    # --------------------------------------------------------------------------------------------
+    if "load_prediction_thread" in st.session_state and st.session_state["load_prediction_thread"]:
+        background_prediction_loader_spinner(columns)
+    # --------------------------------------------------------------------------------------------
 
-        folium.LayerControl().add_to(map)
-        st_map = st_folium(map, width=800, height=600, use_container_width=True)
+    # ---------------------------------------------
+    if st.session_state["launch_prediction_thread"]:
+        background_prediction_calculator_spinner(columns)
+    # ---------------------------------------------
+
+    # ----------------------------------------
+    if st.session_state["run_get_latest_file"]:
+        background_checker_spinner(columns)
+    # ----------------------------------------
 
 
 def main(model_list):
@@ -397,12 +681,12 @@ def main(model_list):
         show_metrics_page(config)
 
     with tab4:
+        st.session_state["sync_end"] = 1
         show_real_time_prediction()
 
 
 # Initial auto-refresh interval (in seconds)
-seconds_for_autorefresh = 100
-COUNT = st_autorefresh(interval=seconds_for_autorefresh * 1000)
+COUNT = None
 
 
 # Function to monitor time and adjust the refresh interval
@@ -425,12 +709,16 @@ if "autorefresh_thread_started" not in st.session_state:
     st.session_state["autorefresh_thread_started"] = False
 
 if not st.session_state["autorefresh_thread_started"]:
-    thread = threading.Thread(target=monitor_time, daemon=True)
-    thread.start()
+    # thread = threading.Thread(target=monitor_time, daemon=True)
+    # thread.start()
     st.session_state["autorefresh_thread_started"] = True
 
-config = load_config("src/sole24oredemo/cfg/cfg.yaml")
+src_dir = Path(__file__).resolve().parent.parent
+config = load_config(os.path.join(src_dir, "sole24oredemo/cfg/cfg.yaml"))
 model_list = config.get("models", [])
+
+# tampone locale, da non pushare!
+# root_dir = src_dir.parent
 SRI_FOLDER_DIR = "/davinci-1/work/protezionecivile/data1/SRI_adj"
 
 if __name__ == "__main__":

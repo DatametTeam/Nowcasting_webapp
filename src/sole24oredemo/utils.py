@@ -14,6 +14,10 @@ import warnings
 import geopandas as gpd
 from datetime import datetime, timedelta
 import yaml
+import streamlit as st
+from streamlit.runtime import get_instance
+from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
+
 import sou_py.dpg as dpg
 from sole24oredemo.pbs import start_prediction_job
 
@@ -29,12 +33,20 @@ warnings.filterwarnings('ignore', category=UserWarning,
                         message='The input coordinates to pcolormesh are interpreted as cell centers.*')
 
 
-def compute_figure_gpd(img1, timestamp):
+def compute_figure_gpd(img1,
+                       timestamp,
+                       name=""):
     global x, y
     # gdf = gdf.to_crs(crs="EPSG:4326")
     fig, ax = plt.subplots(figsize=(10, 10))
     italy_shape.plot(ax=ax, edgecolor='black', color='white')
-    mesh = ax.pcolormesh(x, y, img1, shading="auto", cmap=cmap, norm=norm, vmin=None if norm else vmin,
+
+    # Pcolormesh con i valori corretti
+    if name == "diff":
+        cmap_ = plt.get_cmap("jet")
+    else:
+        cmap_ = cmap
+    mesh = ax.pcolormesh(x, y, img1, shading="auto", cmap=cmap_, norm=norm, vmin=None if norm else vmin,
                          vmax=None if norm else vmax, snap=True, linewidths=0, )
 
     # Remove the axis
@@ -411,7 +423,8 @@ def get_italian_region_shapefile() -> Path:
 
 def check_if_gif_present(sidebar_args):
     model = sidebar_args['model_name']
-    gif_dir = f"/davinci-1/home/guidim/demo_sole/data/output/gifs/{model}"
+    home_path = Path.home()
+    gif_dir = home_path / f"demo_sole/data/output/gifs/{model}"
     start_date = sidebar_args['start_date']
     start_time = sidebar_args['start_time']
 
@@ -438,8 +451,18 @@ def check_if_gif_present(sidebar_args):
         f"{(start_datetime + timedelta(minutes=55)).strftime('%d%m%Y_%H%M')}_+60 mins.gif"
     ]
 
+    # File names for differences
+    # charged like gt gifs
+    difference_files = [
+        f"{start_datetime.strftime('%d%m%Y_%H%M')}_"
+        f"{(start_datetime + timedelta(minutes=55)).strftime('%d%m%Y_%H%M')}.gif",
+        f"{start_datetime.strftime('%d%m%Y_%H%M')}_"
+        f"{(start_datetime + timedelta(minutes=55)).strftime('%d%m%Y_%H%M')}.gif"
+    ]
+
     groundtruth_paths = [os.path.join(gif_dir, 'gt', file) for file in groundtruth_files]
     prediction_paths = [os.path.join(gif_dir, 'pred', file) for file in prediction_files]
+    difference_paths = [os.path.join(gif_dir, 'diff', file) for file in difference_files]
 
     # Check presence of groundtruth files
     groundtruth_present = all(os.path.exists(path) for path in groundtruth_paths)
@@ -447,7 +470,10 @@ def check_if_gif_present(sidebar_args):
     # Check presence of prediction files
     prediction_present = all(os.path.exists(path) for path in prediction_paths)
 
-    return groundtruth_present, prediction_present, groundtruth_paths, prediction_paths
+    # Check presence of difference files
+    difference_present = all(os.path.exists(path) for path in difference_paths)
+
+    return groundtruth_present, prediction_present, difference_present, groundtruth_paths, prediction_paths, difference_paths
 
 
 def load_gif_as_bytesio(gif_paths):
@@ -501,8 +527,7 @@ def get_closest_5_minute_time():
 
 
 def read_groundtruth_and_target_data(selected_key, selected_model):
-    # Define output directory and load arrays
-    # TODO: da sistemare
+    home_dir = Path.home()
     out_dir = Path(f"/davinci-1/work/protezionecivile/sole24/pred_teo/{selected_model}")
     gt_array = np.load(Path(f"/davinci-1/work/protezionecivile/sole24/pred_teo/Test") / "predictions.npy",
                        mmap_mode='r')[0:12, 0]
@@ -513,7 +538,7 @@ def read_groundtruth_and_target_data(selected_key, selected_model):
     if selected_model == 'Test':
         pred_array = np.load(out_dir / "predictions.npy", mmap_mode='r')[12:24, 0]
 
-    with h5py.File("/archive/SSD/home/guidim/demo_sole/src/mask/radar_mask.hdf", "r") as f:
+    with h5py.File(f"{home_dir}/demo_sole/src/mask/radar_mask.hdf", "r") as f:
         radar_mask = f["mask"][()]
 
     pred_array = pred_array * radar_mask
@@ -557,40 +582,158 @@ def load_config(config_path):
     return config
 
 
-def get_latest_file(folder_path):
-    files = [f for f in os.listdir(folder_path) if f.endswith(".hdf")]
-    if not files:
-        return None
-    # Sort files based on the timestamp in their names
-    files.sort(key=lambda x: datetime.strptime(x.split(".")[0], "%d-%m-%Y-%H-%M"), reverse=True)
-    return files[0]  # Latest file
+def get_latest_file_once():
+    print("GENERAZIONE randomica IMMAGINE")
+    img = generate_splotchy_image_main_()
+    return img
+
+
+def get_latest_file(folder_path, terminate_event):
+    # questo qua gira su un thread e si accorge quando un nuovo file di input è presente
+    print("AUTO SCAN --> " + str(folder_path))
+    ctx = get_script_run_ctx()
+    runtime = get_instance()
+    thread_id = threading.get_ident()
+    ctx.session_state["thread_ID_get_latest_file"] = thread_id
+    print("thread_ID in thread --> " + str(thread_id))
+
+    latest_file = None
+
+    while not terminate_event.is_set():
+        print("start global cycle thread serching file")
+        files = [f for f in os.listdir(folder_path) if f.endswith(".hdf")]
+        if not files:
+            return None
+
+        files.sort(key=lambda x: datetime.strptime(x.split(".")[0], "%d-%m-%Y-%H-%M"), reverse=True)
+
+        print(f"Input file found: {files[0]}")
+
+        if files[0] != latest_file:
+            ctx.session_state['latest_thread'] = files[0]
+            ctx.session_state['new_update'] = True
+            latest_file = files[0]
+
+        now = datetime.now()
+
+        # calculate the next 5-minute interval
+        next_minute = (now.minute // 5 + 1) * 5
+        if next_minute == 60:  # Handle the hour rollover case
+            next_interval = now.replace(hour=(now.hour + 1) % 24, minute=0, second=0, microsecond=0)
+        else:
+            next_interval = now.replace(minute=next_minute, second=0, microsecond=0)
+
+        wait_time = (next_interval - now).total_seconds()
+        print(f"{datetime.now()}: Waiting for {wait_time:.2f} seconds until the next interval...")
+        time.sleep(wait_time)
+
+        # polling cycle for the research of a new input file after the current 5 minutes slot is terminated
+        while True:
+            files = [f for f in os.listdir(folder_path) if f.endswith(".hdf")]
+            if not files:
+                time.sleep(1)
+                continue
+
+            files.sort(key=lambda x: datetime.strptime(x.split(".")[0], "%d-%m-%Y-%H-%M"), reverse=True)
+            new_file = files[0]
+
+            if new_file != latest_file:
+                print(f"New file detected: {new_file}")
+                latest_file = new_file
+                break
+
+            time.sleep(1)
+
+        # reatart the application to force the refresh of the main loop
+        print("Rerun main")
+        session_info = runtime._session_mgr.get_active_session_info(ctx.session_id)
+        time.sleep(0.2)
+        session_info.session.request_rerun(None)
+    print("TERMINATE event is_set().")
+
+
+def generate_splotchy_image_main_(batch_size=24, channels=12, height=1400, width=1200,
+                                num_clusters=5, cluster_radius=100,
+                                min_value=0, max_value=100):
+    # Initialize the 4D array
+    images = np.zeros((batch_size, channels, height, width), dtype=np.float32)
+    intensity_scale = max_value
+
+    for b in range(batch_size):
+        for c in range(channels):
+            # Create a unique image for each channel
+            image = np.zeros((height, width), dtype=np.float32)
+
+            # Generate different cluster centers for each channel for variety
+            cluster_centers = np.random.randint(0, [height, width], size=(num_clusters, 2))
+
+            for cx, cy in cluster_centers:
+                y_grid, x_grid = np.ogrid[:height, :width]
+                dist = np.sqrt((x_grid - cy) ** 2 + (y_grid - cx) ** 2)
+                mask = dist < cluster_radius
+                noise = np.random.rand(height, width).astype(np.float32)
+
+                # Create blob with intensity that decreases with distance
+                blob = intensity_scale * noise * (1 - dist / cluster_radius)
+                blob *= mask  # apply mask
+                image += blob
+
+            # Assign the generated image to this batch and channel
+            images[b, c] = image
+
+    return images
+
+
+def generate_splotchy_image_realTime(height, width, num_clusters, cluster_radius):
+    # test function for generate predicted data
+    intensity_scale = 5
+    image = np.zeros((height, width))
+    cluster_centers = np.random.randint(0, min(height, width), size=(num_clusters, 2))
+
+    for center in cluster_centers:
+        cluster_x, cluster_y = center
+        for i in range(height):
+            for j in range(width):
+                dist = np.sqrt((i - cluster_x) ** 2 + (j - cluster_y) ** 2)
+                if dist < cluster_radius:
+                    image[i, j] += intensity_scale * np.random.random() * (1 - dist / cluster_radius)
+
+    image = np.clip(image, 0, 1)
+    return image
 
 
 def load_prediction_data(st, time_options, latest_file):
+    # load data prediction file
+    # it works only for ED_ConvLSTM model
+    print(st.session_state.selected_model)
+    print(st.session_state.selected_time)
     if st.session_state.selected_model and st.session_state.selected_time:
-
         if st.session_state.selected_model == 'ED_ConvLSTM':
             latest_npy = Path(latest_file).stem + '.npy'
-            img1 = np.load(f"/davinci-1/work/protezionecivile/sole24/pred_teo/real_time_pred/ED_ConvLSTM/{latest_npy}")[
-                0, time_options.index(st.session_state.selected_time)]
+            try:
+                img1 = \
+                np.load(f"/davinci-1/work/protezionecivile/sole24/pred_teo/real_time_pred/ED_ConvLSTM/{latest_npy}")[
+                    0, time_options.index(st.session_state.selected_time)]
+            except FileNotFoundError:
+                print("File not present yet.")
 
         else:
             img1 = np.load(
                 Path(
                     f"/davinci-1/work/protezionecivile/sole24/pred_teo/{st.session_state.selected_model}") /
-                "predictions.npy", mmap_mode='r')[0, time_options.index(st.session_state.selected_time)]
-            # img1 = np.load(
-            #     Path(
-            #         f"/davinci-1/work/protezionecivile/sole24/pred_teo/Test") /
-            #     "predictions.npy", mmap_mode='r')[0, 0]
-            img1 = np.array(img1)
+                "predictions.npy")[0, time_options.index(st.session_state.selected_time)]
+
         img1[img1 < 0] = 0
-        with h5py.File("src/mask/radar_mask.hdf", "r") as f:
+
+        src_dir = Path(__file__).resolve().parent.parent
+        with h5py.File(os.path.join(src_dir, "mask/radar_mask.hdf"), "r") as f:
             radar_mask = f["mask"][()]
+
         img1 = img1 * radar_mask
 
-        sourceNode = dpg.tree.createTree("data/nodes/sourceNode")
-        destNode = dpg.tree.createTree("data/nodes/destNode")
+        root_dir = Path(__file__).resolve().parent.parent.parent
+        sourceNode = dpg.tree.createTree(str(os.path.join(root_dir, "data/nodes/sourceNode")))
+        destNode = dpg.tree.createTree(str(os.path.join(root_dir, "data/nodes/destNode")))
         img1 = dpg.warp.warp_map(sourceNode, destNode=destNode, source_data=img1)
         img1 = np.nan_to_num(img1, nan=0)
 
@@ -604,6 +747,23 @@ def load_prediction_data(st, time_options, latest_file):
         return None
 
 
+def load_prediction_thread(st, time_options, latest_file):
+    ctx = get_script_run_ctx()
+    runtime = get_instance()
+
+    rgba_img = load_prediction_data(st, time_options, latest_file)
+
+    ctx.session_state['prediction_data_thread'] = rgba_img
+    ctx.session_state['new_prediction'] = False
+    ctx.session_state['load_prediction_thread'] = False
+    ctx.session_state['display_prediction'] = True
+
+    print("load prediction TERMINATED..")
+
+    session_info = runtime._session_mgr.get_active_session_info(ctx.session_id)
+    session_info.session.request_rerun(None)
+
+
 def worker_thread(event, latest_file, models_list=None):
     output_dir = f"/davinci-1/work/protezionecivile/sole24/pred_teo/real_time_pred"
     thread_id = threading.get_ident()  # Get the thread ID
@@ -612,7 +772,9 @@ def worker_thread(event, latest_file, models_list=None):
     model = 'ED_ConvLSTM'
 
     jobs_ids = []
+    print("sono dopo job id")
     new_file = Path(latest_file).stem + '.npy'
+    print(f"new_file: {new_file}")
     if not os.path.exists(os.path.join(output_dir, model, new_file)):
         print(f"File {os.path.join(output_dir, model, new_file)} does not exists. Starting prediction")
         job_id = start_prediction_job(model, latest_file)
@@ -628,33 +790,53 @@ def worker_thread(event, latest_file, models_list=None):
     event.set()  # Signal that the worker thread is done
 
 
+def worker_thread_test(event):
+    # simulazione del tempo di previsione
+    thread_id = threading.get_ident()
+    print(f"Worker thread (ID: {thread_id}) is starting prediction...")
+
+    time.sleep(10)
+
+    print(f"Worker thread (ID: {thread_id}) has finished!")
+    event.set()
+
+
 def launch_thread_execution(st, latest_file, columns):
-    st.session_state.latest_file = latest_file
+    ctx = get_script_run_ctx()
+    runtime = get_instance()
+
+    ctx.session_state.latest_file = latest_file
     print(f"New SRI file available! {latest_file}")
     with columns[1]:
-        st.write("")
-        st.write("")
-        st.status(label="✅ Found new data!", state="complete", expanded=False)
-
         event = threading.Event()
         print(f"prima dell'if stato thread_started: {st.session_state.thread_started}")
-        if st.session_state.thread_started is None:
-            print("Starting thread")
-            # Start the worker thread only if no thread is running
-            thread = threading.Thread(target=worker_thread, args=(event, latest_file))
-            st.session_state.thread_started = True
-            thread.start()
+        print("Starting thread")
+        # Start the worker thread only if no thread is running
 
-        with st.status(f':hammer_and_wrench: **Running prediction...**', expanded=True) as status:
-            status_placeholder = st.empty()
-            i = 1
-            time_prediction = time.time()
-            while not event.is_set():
-                time.sleep(1)  # Sleep for a short time to avoid blocking
-                status_placeholder.text(f"Prediction running for {int(time.time() - time_prediction)} seconds")
-                i += 1
+        thread = threading.Thread(target=worker_thread, args=(event, latest_file))
+
+        st.session_state.thread_started = True
+        thread.start()
+
+        status_placeholder = st.empty()
+        i = 1
+        time_prediction = time.time()
+        while not event.is_set():
+            i += 1
+            time.sleep(1)
         thread.join()
-        status.update(label="✅ Prediction completed!", state="complete", expanded=False)
+
+        # reset
+        ctx.session_state["launch_prediction_thread"] = None
+
+        # state update
+        ctx.session_state.latest_file = latest_file
+        ctx.session_state.selection = None
+        ctx.session_state["new_prediction"] = True
+        print("launch prediction TERMINATED..")
+
+    session_info = runtime._session_mgr.get_active_session_info(ctx.session_id)
+    session_info.session.request_rerun(None)
 
 
 lat_0 = 42.0
@@ -673,7 +855,8 @@ ur_lat = 47
 ll_lon = 6.5
 ur_lon = 20
 
-italy_shape = gpd.read_file("/davinci-1/home/guidim/demo_sole/src/shapefiles/italian_regions/gadm41_ITA_1.shp")
+src_dir = Path(__file__).resolve().parent.parent
+italy_shape = gpd.read_file(os.path.join(src_dir, "shapefiles/italian_regions/gadm41_ITA_1.shp"))
 # Define the custom Transverse Mercator projection
 custom_crs = {
     "proj": "tmerc",  # Transverse Mercator projection

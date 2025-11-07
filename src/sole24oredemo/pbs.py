@@ -1,3 +1,4 @@
+import os.path
 import subprocess
 from pathlib import Path
 
@@ -133,17 +134,18 @@ def start_prediction_job(model, latest_data):
     if model == 'ED_ConvLSTM':
 
         cmd_string = f"""
-    python "/archive/SSD/home/guidim/protezione_civile/nowcasting/nwc_test_webapp.py" \
+    python "/davinci-1/work/protezionecivile/backup_old_stuff/nowcasting_OLD_TEO_CODE/nwc_test_webapp.py" \
         start_date={str(latest_data)}
         """
-    else:
+    else: # TODO: da fixare
         cmd_string = f"""
     python "/archive/SSD/home/guidim/demo_sole/src/sole24oredemo/inference_scripts/run_{model}_inference.py" \
         --start_date={str(latest_data)}
         """
 
     print(f"cmd_string: \n > {cmd_string}")
-    pbs_logs = Path("/davinci-1/home/guidim/pbs_logs")
+    home_dir = Path.home()
+    pbs_logs = home_dir / "pbs_logs"
     pbs_logs.mkdir(parents=True, exist_ok=True)
 
     pbs_script = "#!/bin/bash"
@@ -151,7 +153,8 @@ def start_prediction_job(model, latest_data):
     pbs_script += get_pbs_env(model)
     pbs_script += f"\n{cmd_string}"
 
-    pbs_scripts = Path("/archive/SSD/home/guidim/demo_sole/src/sole24oredemo/pbs_scripts")
+    src_dir = Path(__file__).resolve().parent.parent
+    pbs_scripts = Path(os.path.join(src_dir, "sole24oredemo/pbs_scripts"))
     pbs_scripts.mkdir(parents=True, exist_ok=True)
     pbs_script_path = pbs_scripts / f"run_{model}_inference.sh"
     with open(pbs_script_path, "w", encoding="utf-8") as f:
@@ -161,6 +164,8 @@ def start_prediction_job(model, latest_data):
     command = ["qsub", pbs_script_path]
 
     try:
+        print("COMMAND")
+        print(command)
         result = subprocess.run(command, check=True, text=True, capture_output=True)
         print("Inference job submitted successfully!")
         job_id = result.stdout.strip().split(".davinci-mgt01")[0]
