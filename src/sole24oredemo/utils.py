@@ -721,7 +721,7 @@ def load_prediction_data(st, time_options, latest_file):
             img1 = np.load(
                 Path(
                     f"/davinci-1/work/protezionecivile/sole24/pred_teo/{st.session_state.selected_model}") /
-                "predictions.npy", mmap_mode='r')[0, time_options.index(st.session_state.selected_time)]
+                "predictions.npy")[0, time_options.index(st.session_state.selected_time)]
 
         img1[img1 < 0] = 0
 

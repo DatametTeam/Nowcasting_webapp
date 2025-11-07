@@ -134,7 +134,7 @@ def start_prediction_job(model, latest_data):
     if model == 'ED_ConvLSTM':
 
         cmd_string = f"""
-    python "/davinci-1/work/protezionecivile/nowcasting_OLD_TEO_CODE/nwc_test_webapp.py" \
+    python "/davinci-1/work/protezionecivile/backup_old_stuff/nowcasting_OLD_TEO_CODE/nwc_test_webapp.py" \
         start_date={str(latest_data)}
         """
     else: # TODO: da fixare
