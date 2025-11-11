@@ -1,0 +1,73 @@
+import io
+from datetime import datetime
+
+import folium
+from matplotlib import pyplot as plt
+from nwc_webapp.metrics import compute_CSI
+from nwc_webapp.utils import read_groundtruth_and_target_data
+from streamlit_folium import st_folium
+
+
+def generate_metrics_plot(selected_date, selected_time, selected_models, config):
+    selected_datetime = datetime.combine(selected_date, selected_time)
+
+    thresholds = config.get("csi_thresholds", None)
+
+    csi_df_total = {}
+    for model in selected_models:
+        _, target_data, pred_dict = read_groundtruth_and_target_data(selected_datetime.strftime("%d%m%Y_%H%M"), model)
+
+        csi_df_model = compute_CSI(target_data, pred_dict, thresholds=thresholds)
+        csi_df_total[model] = csi_df_model
+
+    print(csi_df_total.keys())
+    plots = []  # List to store plots as BytesIO objects
+
+    for index, row in csi_df_model.iterrows():
+        plt.figure(figsize=(10, 6))  # Create a new figure for each row
+        x_values = csi_df_model.columns  # The column names for X-axis
+
+        # Plot data for each model
+        for model_name, model_df in csi_df_total.items():
+            y_values = model_df.loc[index].values  # Get the row of the current model
+            plt.plot(x_values, y_values, label=model_name, marker='o', markersize=3)  # Plot the line
+
+        # Customize the plot
+        plt.title(f"CSI @ {index} mm/h")
+        plt.xlabel("Time Intervals")
+        plt.ylabel("Values")
+        plt.legend(title="Models")
+        plt.grid(True)
+        plt.tight_layout()
+        plt.ylim([0, 1.1])
+        # Save the plot to a BytesIO object
+        buffer = io.BytesIO()
+        plt.savefig(buffer, format="png")
+        buffer.seek(0)  # Reset buffer to the start
+        plots.append(buffer)  # Append the buffer to the list
+        plt.close()
+
+    return plots
+
+
+def create_map():
+    map = folium.Map(location=[42.5, 12.5],
+                     zoom_start=5,
+                     control_scale=False,  # Disable control scale
+                     tiles='Esri.WorldGrayCanvas',  # Watercolor map style
+                     name="WorldGray",
+                     )
+    folium.TileLayer(
+        tiles='Esri.WorldImagery',  # Satellite imagery
+        name="Satellite",
+        control=True
+    ).add_to(map)
+
+    folium.TileLayer(
+        tiles='OpenStreetMap.Mapnik',  # Satellite imagery
+        name="OSM",
+        control=True
+    ).add_to(map)
+    folium.LayerControl().add_to(map)
+
+    return map
