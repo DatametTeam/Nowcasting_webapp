@@ -2,6 +2,10 @@ import os
 import h5py
 import numpy as np
 
+from nwc_webapp.logging_config import setup_logger
+
+# Set up logger
+logger = setup_logger(__name__)
 
 def read_hdf_files_sequences(root_folder, sequence_length=12):
     """
@@ -47,6 +51,6 @@ root_folder = "/davinci-1/work/protezionecivile/SRI_sole24/SRI_adj_01-25/31"
 combined_sequences = read_hdf_files_sequences(root_folder)
 
 if combined_sequences is not None:
-    print("Combined sequences shape:", combined_sequences.shape)
+    logger.info("Combined sequences shape:", combined_sequences.shape)
     np.save("/davinci-1/home/guidim/demo_sole/data/output/ConvLSTM/20250205/20250205/generations/data.npy",
             combined_sequences)

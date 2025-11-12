@@ -222,8 +222,8 @@ if __name__ == "__main__":
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
 
-    print("Starting mock realtime service for testing...")
-    print("Press Ctrl+C to stop\n")
+    logger.info("Starting mock realtime service for testing...")
+    logger.info("Press Ctrl+C to stop\n")
 
     service = start_mock_service(interval_seconds=10, generate_history=True)
 
@@ -232,7 +232,7 @@ if __name__ == "__main__":
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\n\nStopping service...")
+        logger.info("\n\nStopping service...")
         stop_mock_service()
-        print("Service stopped")
+        logger.info("Service stopped")
         sys.exit(0)

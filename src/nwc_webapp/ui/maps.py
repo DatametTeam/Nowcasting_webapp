@@ -13,7 +13,10 @@ from PIL import Image
 import numpy as np
 
 from nwc_webapp.utils import cmap, norm
+from nwc_webapp.logging_config import setup_logger
 
+# Set up logger
+logger = setup_logger(__name__)
 
 def create_map():
     """
@@ -55,7 +58,7 @@ def create_only_map(rgba_img, prediction: bool = False):
         rgba_img: RGBA image data for prediction overlay
         prediction: If True, add prediction overlay to map
     """
-    print("creating map")
+    logger.info("creating map")
     if st.session_state.selected_model and st.session_state.selected_time:
         if "display_prediction" in st.session_state:
             if st.session_state["display_prediction"]:
@@ -562,7 +565,7 @@ def create_animated_map_html(rgba_images_dict):
     timestamps = list(rgba_images_dict.keys())
     image_data_urls = []
 
-    print(f"Converting {len(rgba_images_dict)} images to base64...")
+    logger.info(f"Converting {len(rgba_images_dict)} images to base64...")
     for timestamp, rgba_img in rgba_images_dict.items():
         # Convert numpy array to PIL Image
         img_pil = Image.fromarray((rgba_img * 255).astype(np.uint8))

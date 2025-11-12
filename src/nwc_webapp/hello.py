@@ -11,6 +11,10 @@ from nwc_webapp.page_modules.prediction_by_date import show_prediction_page
 from nwc_webapp.page_modules.home import show_home_page
 from nwc_webapp.page_modules.real_time import show_real_time_prediction
 from nwc_webapp.background.workers import monitor_time
+from nwc_webapp.logging_config import setup_logger
+
+# Set up logger
+logger = setup_logger(__name__)
 
 # Configure Streamlit page
 st.set_page_config(page_title="Weather prediction", page_icon=":flag-eu:", layout="wide")
@@ -73,10 +77,10 @@ if is_local() and "mock_service_started" not in st.session_state:
     # Start mock service with 60-second check intervals (files created at 5-min intervals)
     start_mock_service(interval_seconds=60, generate_history=True)
     st.session_state.mock_service_started = True
-    print("🎭 Mock realtime service started (local mode)")
+    logger.info("🎭 Mock realtime service started (local mode)")
 
 if __name__ == "__main__":
-    print(f"***NEWRUN @ {datetime.now()}***")
+    logger.info(f"***NEWRUN @ {datetime.now()}***")
     # print(st.session_state)
 
     main(app_config)

@@ -8,7 +8,10 @@ import yaml
 from dataclasses import dataclass
 
 from nwc_webapp.config.environment import is_hpc, is_local
+from nwc_webapp.logging_config import setup_logger
 
+# Set up logger
+logger = setup_logger(__name__)
 
 @dataclass
 class VisualizationConfig:
@@ -271,12 +274,12 @@ if __name__ == "__main__":
     # Test the configuration
     config = get_config()
 
-    print(f"Configuration: {config}")
-    print(f"\nModels: {config.models}")
-    print(f"SRI Folder: {config.sri_folder}")
-    print(f"Prediction Output: {config.prediction_output}")
-    print(f"Map Center: {config.visualization.map_center}")
-    print(f"Source Grid: {config.source_grid.projection} at ({config.source_grid.prj_lat}, {config.source_grid.prj_lon})")
-    print(f"Dest Grid: {config.dest_grid.minLat}-{config.dest_grid.maxLat}, {config.dest_grid.minLon}-{config.dest_grid.maxLon}")
-    print(f"PBS Queue: {config.pbs.queue}")
-    print(f"ED_ConvLSTM Environment: {config.get_model_pbs_env('ED_ConvLSTM')}")
+    logger.info(f"Configuration: {config}")
+    logger.(f"\nModels: {config.models}")
+    logger.(f"SRI Folder: {config.sri_folder}")
+    logger.(f"Prediction Output: {config.prediction_output}")
+    logger.(f"Map Center: {config.visualization.map_center}")
+    logger.(f"Source Grid: {config.source_grid.projection} at ({config.source_grid.prj_lat}, {config.source_grid.prj_lon})")
+    logger.(f"Dest Grid: {config.dest_grid.minLat}-{config.dest_grid.maxLat}, {config.dest_grid.minLon}-{config.dest_grid.maxLon}")
+    logger.(f"PBS Queue: {config.pbs.queue}")
+    logger.(f"ED_ConvLSTM Environment: {config.get_model_pbs_env('ED_ConvLSTM')}")

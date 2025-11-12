@@ -7,7 +7,10 @@ import h5py
 from pathlib import Path
 from datetime import datetime, timedelta
 import os
+from nwc_webapp.logging_config import setup_logger
 
+# Set up logger
+logger = setup_logger(__name__)
 
 def generate_realistic_precipitation_field(shape=(1400, 1200),
                                            intensity_scale=50.0,
@@ -189,7 +192,7 @@ def setup_mock_sri_data(sri_folder: Path, num_files=10):
 
         if not filepath.exists():
             create_mock_hdf_file(filepath, timestamp)
-            print(f"Created mock SRI file: {filename}")
+            logger.info(f"Created mock SRI file: {filename}")
 
 
 def setup_mock_prediction_data(pred_folder: Path, model_names: list):
@@ -216,7 +219,7 @@ def setup_mock_prediction_data(pred_folder: Path, model_names: list):
                 num_sequences=24,
                 sequence_length=12
             )
-            print(f"Created mock prediction file for {model_name}")
+            logger.info(f"Created mock prediction file for {model_name}")
 
         # Create real-time predictions folder
         realtime_folder = pred_folder / "real_time_pred" / model_name
@@ -227,7 +230,7 @@ if __name__ == "__main__":
     # Example usage: set up mock data
     from environment import get_data_root, get_sri_folder, get_prediction_output_dir
 
-    print("Setting up mock data for local development...")
+    logger.info("Setting up mock data for local development...")
 
     # Set up mock SRI data
     sri_folder = get_sri_folder()
@@ -238,4 +241,4 @@ if __name__ == "__main__":
     models = ["ConvLSTM", "ED_ConvLSTM", "DynamicUnet", "pystep", "Test"]
     setup_mock_prediction_data(pred_folder, models)
 
-    print("Mock data setup complete!")
+    logger.info("Mock data setup complete!")

@@ -12,6 +12,10 @@ from nwc_webapp.ui.state import initial_state_management
 from nwc_webapp.ui.maps import create_only_map, create_animated_map_html
 from nwc_webapp.utils import get_latest_file, launch_thread_execution
 from nwc_webapp.data.loaders import load_all_predictions
+from nwc_webapp.logging_config import setup_logger
+
+# Set up logger
+logger = setup_logger(__name__)
 
 
 def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
@@ -52,14 +56,14 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
         )
 
         # THREAD per l'ottenimento automatico di nuovi file di input
-        print("Sto entrando in get_latest_file_thread")
+        logger.debug("Entering get_latest_file_thread")
         st.session_state["run_get_latest_file"] = True
         ctx = get_script_run_ctx()
 
         if "prev_thread_ID_get_latest_file" in st.session_state:
             thread_ID = st.session_state["prev_thread_ID_get_latest_file"]
-            print(f"NEWRUN --> main process {os.getpid()}")
-            print(f"NEWRUN --> KILLING {thread_ID} thread")
+            logger.debug(f"NEWRUN --> main process {os.getpid()}")
+            logger.debug(f"NEWRUN --> KILLING {thread_ID} thread")
             terminate_event = st.session_state["terminate_event"]
             terminate_event.set()
             time.sleep(0.5)
@@ -77,7 +81,7 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
         time.sleep(0.4)
         if "thread_ID_get_latest_file" in st.session_state:
             thread_ID = st.session_state["thread_ID_get_latest_file"]
-            print("thread_ID in main --> " + str(thread_ID))
+            logger.debug(f"thread_ID in main --> {thread_ID}")
             del (st.session_state["thread_ID_get_latest_file"])
             st.session_state["prev_thread_ID_get_latest_file"] = thread_ID
 
@@ -90,9 +94,11 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
         if latest_file != st.session_state.latest_file:
             # calcolo della previsione in background
             if st.session_state["launch_prediction_thread"] is None:
-                print("LAUNCH PREDICTION..")
+                logger.info(f"Launching prediction for {latest_file}")
 
-                st.session_state["launch_prediction_thread"] = True
+                # Store which model is being computed (currently only ED_ConvLSTM)
+                st.session_state["launch_prediction_thread"] = "ED_ConvLSTM"
+                st.session_state["computing_model"] = "ED_ConvLSTM"
 
                 ctx = get_script_run_ctx()
                 launch_thread = threading.Thread(target=launch_thread_execution, args=(st, latest_file, columns),
@@ -100,7 +106,7 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
                 add_script_run_ctx(launch_thread, ctx)
                 launch_thread.start()
         else:
-            print(f"Current SRI == Latest file processed! {latest_file}. Skipped prediction")
+            logger.debug(f"Current SRI == Latest file processed! {latest_file}. Skipped prediction")
 
         # Load and display animated predictions
         if st.session_state.selected_model:
@@ -165,7 +171,7 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
 
                 if pred_path.exists():
                     st.markdown(f"- ✅ **{model}**: Ready")
-                elif st.session_state.get("launch_prediction_thread") and st.session_state.get("selected_model") == model:
+                elif st.session_state.get("computing_model") == model:
                     st.markdown(f"- ⏳ **{model}**: Computing...")
                 else:
                     st.markdown(f"- ⏹️ **{model}**: Not computed")

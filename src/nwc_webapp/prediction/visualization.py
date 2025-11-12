@@ -14,7 +14,10 @@ from nwc_webapp.services.parallel_code import (
 )
 from nwc_webapp.prediction.jobs import submit_prediction_job
 from nwc_webapp.prediction.loaders import get_prediction_results
+from nwc_webapp.logging_config import setup_logger
 
+# Set up logger
+logger = setup_logger(__name__)
 
 def update_prediction_visualization(gt0_gif, gt6_gif, gt12_gif, pred_gif_6, pred_gif_12, diff_gif_6, diff_gif_12):
     """
@@ -109,7 +112,7 @@ def compute_prediction_results(sidebar_args, folder_path):
 
                 gt_dict, pred_dict = create_fig_dict_in_parallel(gt_array, pred_array, sidebar_args)
 
-                print("CREATING DIFF DICT")
+                logger.info("CREATING DIFF DICT")
                 diff_dict = create_diff_dict_in_parallel(np.abs(diff_array), sidebar_args)
 
                 if not gt_gif_ok:

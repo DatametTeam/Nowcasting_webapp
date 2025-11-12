@@ -65,7 +65,10 @@ from nwc_webapp.services.workers import (
 from datetime import datetime
 import yaml
 import numpy as np
+from nwc_webapp.logging_config import setup_logger
 
+# Set up logger
+logger = setup_logger(__name__)
 
 def get_closest_5_minute_time():
     """Get the closest earlier 5-minute mark from current time."""
@@ -165,7 +168,7 @@ def get_latest_file_once():
     Returns:
         Random image array
     """
-    print("GENERAZIONE randomica IMMAGINE")
+    logger.debug("GENERAZIONE randomica IMMAGINE")
     img = generate_splotchy_image_main_()
     return img
 

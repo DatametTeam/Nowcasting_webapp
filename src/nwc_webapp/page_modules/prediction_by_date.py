@@ -8,6 +8,10 @@ from datetime import datetime, timedelta
 from nwc_webapp.ui.layouts import precompute_images, init_second_tab_layout
 from nwc_webapp.utils import read_groundtruth_and_target_data
 from nwc_webapp.prediction.jobs import submit_prediction_job
+from nwc_webapp.logging_config import setup_logger
+
+# Set up logger
+logger = setup_logger(__name__)
 
 
 def show_prediction_page(model_list):
@@ -35,17 +39,17 @@ def show_prediction_page(model_list):
         args = {'start_date': selected_datetime, 'start_time': prediction_start_datetime, 'model_name': selected_model,
                 'submitted': True}
 
-        print("submit prediction")
+        logger.info("submit prediction")
         submit_prediction_job(args)
-        print("submit prediction DONE")
+        logger.info("submit prediction DONE")
 
         # Check if groundtruths are already in session state
         if selected_key not in st.session_state:
-            print("read ground thruth and target data")
-            print("selected key --> " + str(selected_key))
-            print("selected model --> " + str(selected_model))
+            logger.info("read ground thruth and target data")
+            logger.info("selected key --> " + str(selected_key))
+            logger.info("selected model --> " + str(selected_model))
             groundtruth_dict, target_dict, pred_dict = read_groundtruth_and_target_data(selected_key, selected_model)
-            print("read ground thruth and target data DONE")
+            logger.info("read ground thruth and target data DONE")
 
             # Precompute and cache images for groundtruths
             st.session_state[selected_key] = {
@@ -65,5 +69,5 @@ def show_prediction_page(model_list):
         pred_dict = st.session_state[selected_key]["pred_dict"]
 
         # Initialize the second tab layout with precomputed images
-        print("init second tab layout")
+        logger.debug("init second tab layout")
         init_second_tab_layout(groundtruth_images, target_dict, pred_dict)

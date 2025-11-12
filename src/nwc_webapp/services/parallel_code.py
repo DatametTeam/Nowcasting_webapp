@@ -20,7 +20,7 @@ def create_diff_dict_in_parallel(diff_array, sidebar_args, save_on_disk=False):
     start_date = sidebar_args['start_date']
     start_time = sidebar_args['start_time']
     combined_start = datetime.combine(start_date, start_time)
-    print(combined_start)
+    logger.info(combined_start)
     time_step = timedelta(minutes=5)
 
     max_workers = os.cpu_count()
@@ -54,7 +54,7 @@ def create_fig_dict_in_parallel(gt_data, pred_data, sidebar_args, save_on_disk=F
     start_date = sidebar_args['start_date']
     start_time = sidebar_args['start_time']
     combined_start = datetime.combine(start_date, start_time)
-    print(combined_start)
+    logger.info(combined_start)
     time_step = timedelta(minutes=5)
 
     max_workers = os.cpu_count()
@@ -159,9 +159,9 @@ def create_single_gif_for_parallel(queue, start_pos, figures_dict, window_size, 
     """
     buf = io.BytesIO()
     frames = []
-    print(f"{start_pos} / {start_pos + window_size}")
+    logger.info(f"{start_pos} / {start_pos + window_size}")
     window_keys = sorted_keys[start_pos:start_pos + window_size]
-    print(window_keys)
+    logger.info(window_keys)
 
     for i, key in enumerate(window_keys):
         fig = figures_dict[key]
@@ -187,7 +187,7 @@ def create_single_gif_for_parallel(queue, start_pos, figures_dict, window_size, 
         file_name = f"{window_keys[0]}_{window_keys[-1]}"
         save_path = os.path.join(save_path, file_name + '.gif')
         imageio.mimsave(save_path, frames, format='GIF', fps=fps_gif, loop=0)
-        print(f"GIF save @ path {save_path}")
+        logger.info(f"GIF save @ path {save_path}")
 
 
 def create_sliding_window_gifs(figures_dict, sidebar_args, start_positions=[0, 6, 12], save_on_disk=True,
@@ -277,7 +277,7 @@ def create_single_gif(queue, figures, gif_type, process_idx, start_key, end_key,
             queue.put(('progress', process_idx, progress))
 
         except Exception as e:
-            print(f"Error processing figure for {gif_type}, index {idx}: {e}")
+            logger.info(f"Error processing figure for {gif_type}, index {idx}: {e}")
             continue
 
     if not frames:
@@ -295,7 +295,7 @@ def create_single_gif(queue, figures, gif_type, process_idx, start_key, end_key,
         file_name = f"{start_key}_{end_key}_{gif_type}"
         save_path = os.path.join(save_path, file_name + '.gif')
         imageio.mimsave(save_path, frames, format='GIF', fps=fps_gif, loop=0)
-        print(f"GIF save @ path {save_path}")
+        logger.info(f"GIF save @ path {save_path}")
 
 
 def create_sliding_window_gifs_for_predictions(prediction_dict, sidebar_args, save_on_disk=True, fps_gif=3):

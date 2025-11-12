@@ -3,6 +3,10 @@ Status indicators and spinners for background operations.
 """
 import streamlit as st
 
+from nwc_webapp.logging_config import setup_logger
+
+# Set up logger
+logger = setup_logger(__name__)
 
 def background_checker_spinner(columns):
     """
@@ -11,7 +15,7 @@ def background_checker_spinner(columns):
     Args:
         columns: Streamlit columns to render in
     """
-    print("BACKGROUND checker spinner")
+    logger.info("BACKGROUND checker spinner")
     with columns[1]:
         # with st.spinner("🔄 Running background file **CHECKER**..", show_time=False):
         #     while True:

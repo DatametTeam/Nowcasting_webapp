@@ -9,6 +9,10 @@ from matplotlib import pyplot as plt
 from nwc_webapp.evaluation.metrics import compute_CSI
 from nwc_webapp.data.loaders import read_groundtruth_and_target_data
 
+from nwc_webapp.logging_config import setup_logger
+
+# Set up logger
+logger = setup_logger(__name__)
 
 def generate_metrics_plot(selected_date, selected_time, selected_models, config):
     """
@@ -36,7 +40,7 @@ def generate_metrics_plot(selected_date, selected_time, selected_models, config)
         csi_df_model = compute_CSI(target_data, pred_dict, thresholds=thresholds)
         csi_df_total[model] = csi_df_model
 
-    print(csi_df_total.keys())
+    logger.debug(csi_df_total.keys())
     plots = []  # List to store plots as BytesIO objects
 
     for index, row in csi_df_model.iterrows():

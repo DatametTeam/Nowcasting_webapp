@@ -12,7 +12,10 @@ from typing import Tuple, Optional
 from nwc_webapp.config.config import get_config
 from nwc_webapp.services.mock.mock_data_generator import create_mock_prediction_file
 
-logger = logging.getLogger(__name__)
+from nwc_webapp.logging_config import setup_logger
+
+# Set up logger
+logger = setup_logger(__name__)
 
 # Global process tracker
 _IN_PROCESS: Optional[multiprocessing.Process] = None
@@ -184,7 +187,7 @@ if __name__ == "__main__":
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
 
-    print("Testing mock PBS system...\n")
+    logger.info("Testing mock PBS system...\n")
 
     # Submit a test job
     test_args = {
@@ -194,12 +197,12 @@ if __name__ == "__main__":
     }
 
     job_id, output_dir = submit_inference(test_args)
-    print(f"Job submitted: {job_id}")
-    print(f"Output dir: {output_dir}")
+    logger.info(f"Job submitted: {job_id}")
+    logger.info(f"Output dir: {output_dir}")
 
     # Monitor job status
     while get_job_status(job_id) == "R":
-        print("Job running...")
+        logger.info("Job running...")
         time.sleep(1)
 
-    print("Job complete!")
+    logger.info("Job complete!")

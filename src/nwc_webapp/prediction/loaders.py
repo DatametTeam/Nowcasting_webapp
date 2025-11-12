@@ -8,7 +8,10 @@ import numpy as np
 from pathlib import Path
 
 from nwc_webapp.utils import get_latest_file_once
+from nwc_webapp.logging_config import setup_logger
 
+# Set up logger
+logger = setup_logger(__name__)
 
 def get_prediction_results_test(folder_path, sidebar_args, get_only_pred=False):
     """
@@ -27,16 +30,16 @@ def get_prediction_results_test(folder_path, sidebar_args, get_only_pred=False):
     pred_array = None
 
     if not get_only_pred:
-        print("Loading GT data")
+        logger.info("Loading GT data")
 
         # NEW for test
         gt_array = get_latest_file_once()
-        print("GT data loaded")
+        logger.info("GT data loaded")
 
         gt_array = np.array(gt_array)
         gt_array[gt_array < 0] = 0
 
-    print("Loading pred data")
+    logger.info("Loading pred data")
 
     # NEW for test
     pred_array = get_latest_file_once()
@@ -45,17 +48,17 @@ def get_prediction_results_test(folder_path, sidebar_args, get_only_pred=False):
         pred_array = get_latest_file_once()
     pred_array = np.array(pred_array)
     pred_array[pred_array < 0] = 0
-    print("Loaded pred data")
+    logger.info("Loaded pred data")
 
-    print("Loading radar mask")
+    logger.debug("Loading radar mask")
     src_fold = Path(__file__).resolve().parent.parent
     with h5py.File(os.path.join(src_fold, "resources/mask/radar_mask.hdf"), "r") as f:
         radar_mask = f["mask"][()]
-    print("Radar mask loaded")
+    logger.info("Radar mask loaded")
 
     pred_array = pred_array * radar_mask
 
-    print("*** LOADED DATA ***")
+    logger.info("*** LOADED DATA ***")
 
     return gt_array, pred_array
 
@@ -79,31 +82,31 @@ def get_prediction_results(out_dir, sidebar_args, get_only_pred=False):
     gt_array = None
 
     if not get_only_pred:
-        print("Loading GT data")
+        logger.debug("Loading GT data")
         gt_array = np.load(pred_out_dir / "predictions.npy", mmap_mode='r')[12:36]
-        print("GT data loaded")
+        logger.info("GT data loaded")
         gt_array = np.array(gt_array)
         gt_array[gt_array < 0] = 0
         # gt_array[gt_array > 200] = 200
         # gt_array = (gt_array - np.min(gt_array)) / (np.max(gt_array) - np.min(gt_array))
 
-    print("Loading pred data")
+    logger.debug("Loading pred data")
     pred_array = np.load(model_out_dir / "predictions.npy", mmap_mode='r')[0:24]
     if model_name == 'Test':  # TODO: sistemare
         pred_array = np.load(model_out_dir / "predictions.npy", mmap_mode='r')[12:36]
     pred_array = np.array(pred_array)
     pred_array[pred_array < 0] = 0
-    print("Loaded pred data")
+    logger.info("Loaded pred data")
     # pred_array[pred_array > 200] = 200
     # pred_array = (pred_array - np.min(pred_array)) / (np.max(pred_array) - np.min(pred_array))
-    print("Loading radar mask")
+    logger.debug("Loading radar mask")
     src_fold = Path(__file__).resolve().parent.parent
     with h5py.File(os.path.join(src_fold, "resources/mask/radar_mask.hdf"), "r") as f:
         radar_mask = f["mask"][()]
-    print("Radar mask loaded")
+    logger.info("Radar mask loaded")
 
     pred_array = pred_array * radar_mask
 
-    print("*** LOADED DATA ***")
+    logger.info("*** LOADED DATA ***")
 
     return gt_array, pred_array

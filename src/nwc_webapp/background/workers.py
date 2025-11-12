@@ -8,14 +8,17 @@ import streamlit as st
 from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx, add_script_run_ctx
 
 from nwc_webapp.utils import load_prediction_thread
+from nwc_webapp.logging_config import setup_logger
 
+# Set up logger
+logger = setup_logger(__name__)
 
 def thread_for_position():
     """
     Background thread to monitor and update map position.
     """
     thread_id = threading.get_ident()
-    print(f"Worker thread (ID: {thread_id}) is starting...")
+    logger.info(f"Worker thread (ID: {thread_id}) is starting...")
     while True:
         if "st_map" in st.session_state:
             st_map = st.session_state["st_map"]
@@ -45,7 +48,7 @@ def load_prediction(time_options, latest_file, prediction_num):
     load_pred_thread = threading.Thread(target=load_prediction_thread,
                                         args=(st, time_options, latest_file), daemon=True)
     add_script_run_ctx(load_pred_thread, ctx)
-    print("LOAD PREDICTION -- " + str(prediction_num) + " --..")
+    logger.info("LOAD PREDICTION -- " + str(prediction_num) + " --..")
     st.session_state['load_prediction_thread'] = True
     load_pred_thread.start()
 
@@ -55,12 +58,12 @@ def monitor_time():
     Monitor time and trigger app rerun at specific intervals.
     Checks if current minute is a multiple of 5 to force new predictions.
     """
-    print("Starting Monitor time thread")
+    logger.debug("Starting Monitor time thread")
     while True:
         now = datetime.now()
         # Check if the current minute is a multiple of 5 and seconds are close to 0
         if now.minute % 5 == 0 and now.second < 5:
-            print(f"Time is {now}! Restarting app to force new prediction")
+            logger.info(f"Time is {now}! Restarting app to force new prediction")
             time.sleep(5)
             st.rerun()
 

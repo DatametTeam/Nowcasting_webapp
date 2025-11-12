@@ -13,6 +13,10 @@ from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_r
 
 from nwc_webapp.config.config import get_config
 from nwc_webapp.config.environment import is_hpc
+from nwc_webapp.logging_config import setup_logger
+
+# Set up logger
+logger = setup_logger(__name__)
 
 # Import environment-aware job submission
 if is_hpc():
@@ -30,17 +34,17 @@ def get_latest_file(folder_path, terminate_event):
         folder_path: Path to SRI folder to monitor
         terminate_event: Threading event to signal termination
     """
-    print("AUTO SCAN --> " + str(folder_path))
+    logger.info("AUTO SCAN --> " + str(folder_path))
     ctx = get_script_run_ctx()
     runtime = get_instance()
     thread_id = threading.get_ident()
     ctx.session_state["thread_ID_get_latest_file"] = thread_id
-    print("thread_ID in thread --> " + str(thread_id))
+    logger.debug("thread_ID in thread --> " + str(thread_id))
 
     latest_file = None
 
     while not terminate_event.is_set():
-        print("start global cycle thread searching file")
+        logger.info("start global cycle thread searching file")
         files = [f for f in os.listdir(folder_path) if f.endswith(".hdf")]
         if not files:
             return None
@@ -64,7 +68,7 @@ def get_latest_file(folder_path, terminate_event):
             next_interval = now.replace(minute=next_minute, second=0, microsecond=0)
 
         wait_time = (next_interval - now).total_seconds()
-        print(f"{datetime.now()}: Waiting for {wait_time:.2f} seconds until the next interval...")
+        logger.info(f"{datetime.now()}: Waiting for {wait_time:.2f} seconds until the next interval...")
         time.sleep(wait_time)
 
         # Polling cycle for the research of a new input file after the current 5 minutes slot is terminated
@@ -78,18 +82,18 @@ def get_latest_file(folder_path, terminate_event):
             new_file = files[0]
 
             if new_file != latest_file:
-                print(f"New file detected: {new_file}")
+                logger.info(f"New file detected: {new_file}")
                 latest_file = new_file
                 break
 
             time.sleep(1)
 
         # Restart the application to force the refresh of the main loop
-        print("Rerun main")
+        logger.info("Rerun main")
         session_info = runtime._session_mgr.get_active_session_info(ctx.session_id)
         time.sleep(0.2)
         session_info.session.request_rerun(None)
-    print("TERMINATE event is_set().")
+    logger.warning("TERMINATE event is_set().")
 
 
 def worker_thread(event, latest_file, models_list=None):
@@ -106,29 +110,29 @@ def worker_thread(event, latest_file, models_list=None):
     output_dir = config.prediction_output / "real_time_pred"
 
     thread_id = threading.get_ident()
-    print(f"Worker thread (ID: {thread_id}) is starting prediction...")
+    logger.info(f"Worker thread (ID: {thread_id}) is starting prediction...")
 
     model = 'ED_ConvLSTM'
 
     jobs_ids = []
     new_file = Path(latest_file).stem + '.npy'
-    print(f"Looking for prediction file: {new_file}")
+    logger.info(f"Looking for prediction file: {new_file}")
 
     model_output = output_dir / model / new_file
 
     if not model_output.exists():
-        print(f"File {model_output} does not exist. Starting prediction")
+        logger.warning(f"File {model_output} does not exist. Starting prediction")
         job_id = start_prediction_job(model, latest_file)
         jobs_ids.append(job_id)
     else:
-        print(f"Prediction already computed! {model_output} exists for {model}.")
+        logger.warning(f"Prediction already computed! {model_output} exists for {model}.")
 
-    print(f"Waiting for {model_output}")
+    logger.info(f"Waiting for {model_output}")
     while not model_output.exists():
-        print("Prediction still going")
+        logger.info("Prediction still going")
         time.sleep(2)
 
-    print(f"Worker thread (ID: {thread_id}) has finished!")
+    logger.info(f"Worker thread (ID: {thread_id}) has finished!")
     event.set()  # Signal that the worker thread is done
 
 
@@ -140,11 +144,11 @@ def worker_thread_test(event):
         event: Threading event to signal completion
     """
     thread_id = threading.get_ident()
-    print(f"Worker thread (ID: {thread_id}) is starting prediction...")
+    logger.info(f"Worker thread (ID: {thread_id}) is starting prediction...")
 
     time.sleep(10)
 
-    print(f"Worker thread (ID: {thread_id}) has finished!")
+    logger.info(f"Worker thread (ID: {thread_id}) has finished!")
     event.set()
 
 
@@ -161,12 +165,12 @@ def launch_thread_execution(st, latest_file, columns):
     runtime = get_instance()
 
     ctx.session_state.latest_file = latest_file
-    print(f"New SRI file available! {latest_file}")
+    logger.info(f"New SRI file available! {latest_file}")
 
     with columns[1]:
         event = threading.Event()
-        print(f"Thread started status: {st.session_state.thread_started}")
-        print("Starting thread")
+        logger.info(f"Thread started status: {st.session_state.thread_started}")
+        logger.info("Starting thread")
 
         # Start the worker thread
         thread = threading.Thread(target=worker_thread, args=(event, latest_file))
@@ -184,12 +188,13 @@ def launch_thread_execution(st, latest_file, columns):
 
         # Reset
         ctx.session_state["launch_prediction_thread"] = None
+        ctx.session_state["computing_model"] = None
 
         # State update
         ctx.session_state.latest_file = latest_file
         ctx.session_state.selection = None
         ctx.session_state["new_prediction"] = True
-        print("launch prediction TERMINATED..")
+        logger.info("launch prediction TERMINATED..")
 
     session_info = runtime._session_mgr.get_active_session_info(ctx.session_id)
     session_info.session.request_rerun(None)
@@ -216,7 +221,7 @@ def load_prediction_thread(st, time_options, latest_file):
     ctx.session_state['load_prediction_thread'] = False
     ctx.session_state['display_prediction'] = True
 
-    print("load prediction TERMINATED..")
+    logger.info("load prediction TERMINATED..")
 
     session_info = runtime._session_mgr.get_active_session_info(ctx.session_id)
     session_info.session.request_rerun(None)

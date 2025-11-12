@@ -2,9 +2,13 @@ import os.path
 import subprocess
 from pathlib import Path
 
-from constants import OUTPUT_DATA_DIR, TARGET_GPU
+# from constants import OUTPUT_DATA_DIR, TARGET_GPU
 from datetime import datetime
 
+from nwc_webapp.logging_config import setup_logger
+
+# Set up logger
+logger = setup_logger(__name__)
 
 def is_pbs_available() -> bool:
     import subprocess
@@ -97,7 +101,7 @@ python3 "$WORKDIR/faradai/dreambooth_scripts/run_inference.py" \
 --fine-tuned-model-dir={str(fine_tuned_model_dir)}
 """
 
-    print(f"cmd_string: \n > {cmd_string}")
+    logger.info(f"cmd_string: \n > {cmd_string}")
     pbs_logs = out_dir / "pbs_logs"
     pbs_logs.mkdir(parents=True, exist_ok=True)
 
@@ -117,14 +121,14 @@ python3 "$WORKDIR/faradai/dreambooth_scripts/run_inference.py" \
 
     try:
         result = subprocess.run(command, check=True, text=True, capture_output=True)
-        print("Inference job submitted successfully!")
+        logger.info("Inference job submitted successfully!")
         job_id = result.stdout.strip().split(".davinci-mgt01")[0]
-        print("Job ID:", job_id)
+        logger.info("Job ID:", job_id)
         return job_id, out_images_dir
 
     except subprocess.CalledProcessError as e:
-        print("Error occurred while submitting the job!")
-        print("Error message:", e.stderr.strip())
+        logger.info("Error occurred while submitting the job!")
+        logger.info("Error message:", e.stderr.strip())
         return None, None
 
 
@@ -143,7 +147,7 @@ def start_prediction_job(model, latest_data):
         --start_date={str(latest_data)}
         """
 
-    print(f"cmd_string: \n > {cmd_string}")
+    logger.info(f"cmd_string: \n > {cmd_string}")
     home_dir = Path.home()
     pbs_logs = home_dir / "pbs_logs"
     pbs_logs.mkdir(parents=True, exist_ok=True)
@@ -164,15 +168,15 @@ def start_prediction_job(model, latest_data):
     command = ["qsub", pbs_script_path]
 
     try:
-        print("COMMAND")
-        print(command)
+        logger.info("COMMAND")
+        logger.info(command)
         result = subprocess.run(command, check=True, text=True, capture_output=True)
-        print("Inference job submitted successfully!")
+        logger.info("Inference job submitted successfully!")
         job_id = result.stdout.strip().split(".davinci-mgt01")[0]
-        print("Job ID:", job_id)
+        logger.info("Job ID:", job_id)
         return job_id
 
     except subprocess.CalledProcessError as e:
-        print("Error occurred while submitting the job!")
-        print("Error message:", e.stderr.strip())
+        logger.error("Error occurred while submitting the job!")
+        logger.error("Error message:", e.stderr.strip())
         return None
