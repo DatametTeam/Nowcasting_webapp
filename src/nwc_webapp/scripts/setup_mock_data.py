@@ -9,8 +9,8 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from nwc_webapp.mock_data_generator import setup_mock_sri_data, setup_mock_prediction_data
-from nwc_webapp.environment import get_data_root, get_sri_folder, get_prediction_output_dir, is_local
+from nwc_webapp.services.mock.mock_data_generator import setup_mock_sri_data, setup_mock_prediction_data
+from nwc_webapp.config.environment import get_data_root, get_sri_folder, get_prediction_output_dir, is_local
 
 def main():
     if not is_local():

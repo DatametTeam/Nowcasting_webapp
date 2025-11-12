@@ -6,12 +6,12 @@ import numpy as np
 import streamlit as st
 
 # Import the appropriate submit_inference based on environment
-from nwc_webapp.environment import is_hpc
+from nwc_webapp.config.environment import is_hpc
 
 if is_hpc():
-    from pbs import submit_inference
+    from nwc_webapp.services.pbs import submit_inference
 else:
-    from nwc_webapp.mock import submit_inference
+    from nwc_webapp.services.mock.mock import submit_inference
 
 
 def submit_prediction_job(sidebar_args):

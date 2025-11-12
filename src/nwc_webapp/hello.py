@@ -4,13 +4,13 @@ Main entry point for the weather nowcasting Streamlit application.
 import streamlit as st
 from datetime import datetime
 
-from layouts import configure_sidebar, show_metrics_page
-from nwc_webapp.config import get_config
+from nwc_webapp.ui.layouts import configure_sidebar, show_metrics_page
+from nwc_webapp.config.config import get_config
 from nwc_webapp.page_modules.nowcasting import main_page
 from nwc_webapp.page_modules.prediction_by_date import show_prediction_page
 from nwc_webapp.page_modules.home import show_home_page
 from nwc_webapp.page_modules.real_time import show_real_time_prediction
-from nwc_webapp.threading.workers import monitor_time
+from nwc_webapp.background.workers import monitor_time
 
 # Configure Streamlit page
 st.set_page_config(page_title="Weather prediction", page_icon=":flag-eu:", layout="wide")
@@ -64,7 +64,7 @@ SRI_FOLDER_DIR = str(app_config.sri_folder)
 model_list = app_config.models
 
 # Start mock realtime service if running locally
-from nwc_webapp.environment import is_local
+from nwc_webapp.config.environment import is_local
 if is_local() and "mock_service_started" not in st.session_state:
     from nwc_webapp.services.mock_realtime_service import start_mock_service
     import logging

@@ -10,6 +10,38 @@ from streamlit_folium import st_folium
 from nwc_webapp.utils import cmap, norm
 
 
+def create_map():
+    """
+    Create a basic Folium map with multiple tile layers.
+
+    Returns:
+        Folium Map object with Gray Canvas, Satellite, and OSM layers
+    """
+    map = folium.Map(
+        location=[42.5, 12.5],
+        zoom_start=5,
+        control_scale=False,
+        tiles='Esri.WorldGrayCanvas',
+        name="WorldGray",
+    )
+
+    folium.TileLayer(
+        tiles='Esri.WorldImagery',
+        name="Satellite",
+        control=True
+    ).add_to(map)
+
+    folium.TileLayer(
+        tiles='OpenStreetMap.Mapnik',
+        name="OSM",
+        control=True
+    ).add_to(map)
+
+    folium.LayerControl().add_to(map)
+
+    return map
+
+
 def create_only_map(rgba_img, prediction: bool = False):
     """
     Create a Folium map with optional prediction overlay.

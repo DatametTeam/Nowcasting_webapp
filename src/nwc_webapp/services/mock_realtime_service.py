@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 from typing import Optional
 import logging
 
-from nwc_webapp.mock_data_generator import create_mock_hdf_file, create_mock_prediction_file
-from nwc_webapp.config import get_config
+from nwc_webapp.services.mock.mock_data_generator import create_mock_hdf_file, create_mock_prediction_file
+from nwc_webapp.config.config import get_config
 
 logger = logging.getLogger(__name__)
 

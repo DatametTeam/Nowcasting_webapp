@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Tuple, Optional, Dict, Any
 from datetime import datetime
 
-from nwc_webapp.config import get_config
-from nwc_webapp.logging_config import get_logger
+from nwc_webapp.config.config import get_config
+from nwc_webapp.config.logging_config import get_logger
 
 logger = get_logger(__name__)
 

@@ -8,7 +8,8 @@ from datetime import datetime, time, timedelta
 
 from PIL import Image
 from folium import folium
-from nwc_webapp.graphics import generate_metrics_plot, create_map
+from nwc_webapp.evaluation.plots import generate_metrics_plot
+from nwc_webapp.ui.maps import create_map
 from nwc_webapp.utils import compute_figure_gpd, create_colorbar_fig
 from streamlit_folium import st_folium
 

@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 import yaml
 from dataclasses import dataclass
 
-from nwc_webapp.environment import is_hpc, is_local
+from nwc_webapp.config.environment import is_hpc, is_local
 
 
 @dataclass
@@ -81,7 +81,8 @@ class Config:
             config_path: Path to config YAML file. If None, uses default.
         """
         if config_path is None:
-            config_path = Path(__file__).parent / "resources" / "cfg" / "cfg.yaml"
+            # config.py is in src/nwc_webapp/config/, resources is in src/nwc_webapp/resources/
+            config_path = Path(__file__).parent.parent / "resources" / "cfg" / "cfg.yaml"
 
         self.config_path = config_path
         self._config: Dict[str, Any] = {}
@@ -139,22 +140,22 @@ class Config:
     def radar_mask_path(self) -> Path:
         """Get radar mask file path (relative to package root)."""
         rel_path = self._config.get("radar_mask_path", "resources/mask/radar_mask.hdf")
-        # Resolve relative to package root
-        return Path(__file__).parent / rel_path
+        # Resolve relative to package root (config.py is in config/ subfolder)
+        return Path(__file__).parent.parent / rel_path
 
     @property
     def shapefiles_folder(self) -> Path:
         """Get shapefiles folder path (relative to package root)."""
         rel_path = self._config.get("shapefiles_folder", "resources/shapefiles")
-        # Resolve relative to package root
-        return Path(__file__).parent / rel_path
+        # Resolve relative to package root (config.py is in config/ subfolder)
+        return Path(__file__).parent.parent / rel_path
 
     @property
     def legends_folder(self) -> Path:
         """Get legends folder path (relative to package root)."""
         rel_path = self._config.get("legends_folder", "resources/legends")
-        # Resolve relative to package root
-        return Path(__file__).parent / rel_path
+        # Resolve relative to package root (config.py is in config/ subfolder)
+        return Path(__file__).parent.parent / rel_path
 
     # Structured configs
     @property

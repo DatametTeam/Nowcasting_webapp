@@ -11,14 +11,14 @@ from datetime import datetime, timedelta
 from streamlit.runtime import get_instance
 from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
 
-from nwc_webapp.config import get_config
-from nwc_webapp.environment import is_hpc
+from nwc_webapp.config.config import get_config
+from nwc_webapp.config.environment import is_hpc
 
 # Import environment-aware job submission
 if is_hpc():
-    from nwc_webapp.pbs import start_prediction_job
+    from nwc_webapp.services.pbs import start_prediction_job
 else:
-    from nwc_webapp.mock import start_prediction_job
+    from nwc_webapp.services.mock.mock import start_prediction_job
 
 
 def get_latest_file(folder_path, terminate_event):

@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from datetime import datetime, timedelta
 
-from nwc_webapp.config import get_config
+from nwc_webapp.config.config import get_config
 
 
 def check_if_gif_present(sidebar_args):

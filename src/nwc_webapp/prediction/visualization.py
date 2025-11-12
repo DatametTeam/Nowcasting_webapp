@@ -4,9 +4,9 @@ Prediction visualization and display functions.
 import numpy as np
 import streamlit as st
 
-from layouts import init_prediction_visualization_layout
+from nwc_webapp.ui.layouts import init_prediction_visualization_layout
 from nwc_webapp.utils import check_if_gif_present, load_gif_as_bytesio, create_colorbar_fig
-from nwc_webapp.parallel_code import (
+from nwc_webapp.services.parallel_code import (
     create_fig_dict_in_parallel,
     create_sliding_window_gifs,
     create_sliding_window_gifs_for_predictions,

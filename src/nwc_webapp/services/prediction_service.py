@@ -6,15 +6,15 @@ from typing import Dict, Any, Tuple, Optional
 from datetime import datetime
 import time
 
-from nwc_webapp.config import get_config
-from nwc_webapp.logging_config import get_logger
-from nwc_webapp.pbs import is_pbs_available
+from nwc_webapp.config.config import get_config
+from nwc_webapp.config.logging_config import get_logger
+from nwc_webapp.services.pbs import is_pbs_available
 
 # Import PBS or mock based on environment
 if is_pbs_available():
-    from nwc_webapp.pbs import submit_inference, get_job_status
+    from nwc_webapp.services.pbs import submit_inference, get_job_status
 else:
-    from nwc_webapp.mock import submit_inference, get_job_status
+    from nwc_webapp.services.mock.mock import submit_inference, get_job_status
 
 logger = get_logger(__name__)
 

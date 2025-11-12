@@ -14,7 +14,7 @@ from nwc_webapp.ui.spinners import (
     background_prediction_calculator_spinner,
     background_prediction_loader_spinner
 )
-from nwc_webapp.threading.workers import load_prediction
+from nwc_webapp.background.workers import load_prediction
 from nwc_webapp.utils import get_latest_file, launch_thread_execution
 
 

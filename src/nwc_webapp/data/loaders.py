@@ -9,7 +9,7 @@ import h5py
 import numpy as np
 import streamlit as st
 
-from nwc_webapp.config import get_config
+from nwc_webapp.config.config import get_config
 from nwc_webapp.visualization.colormaps import configure_colorbar
 
 # Lazy import of sou_py to avoid circular import issues

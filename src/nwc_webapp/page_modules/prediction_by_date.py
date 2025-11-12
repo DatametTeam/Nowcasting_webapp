@@ -5,7 +5,7 @@ import streamlit as st
 from datetime import time as dt_time
 from datetime import datetime, timedelta
 
-from layouts import precompute_images, init_second_tab_layout
+from nwc_webapp.ui.layouts import precompute_images, init_second_tab_layout
 from nwc_webapp.utils import read_groundtruth_and_target_data
 from nwc_webapp.prediction.jobs import submit_prediction_job
 
