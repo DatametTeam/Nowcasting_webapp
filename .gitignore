@@ -54,3 +54,7 @@ htmlcov/
 *.bak
 *.swp
 .~lock.*
+
+# Local project files
+CLAUDE.md
+TODO.md
