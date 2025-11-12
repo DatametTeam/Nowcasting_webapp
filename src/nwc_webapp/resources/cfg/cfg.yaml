@@ -65,12 +65,30 @@ visualization:
     fps: 3
     save_to_disk: true
 
-# Coordinate system (Transverse Mercator)
-projection:
-  proj: "tmerc"
-  lat_0: 42.0
-  lon_0: 12.5
-  par: [600.0, 1000.0, 650.0, -1000.0]
+# Coordinate system and grid navigation parameters
+# Source grid: Transverse Mercator projection (radar data native projection)
+source_grid:
+  projection: "tmerc"
+  prj_lat: 42.0
+  prj_lon: 12.5
+  ncols: 1200
+  nlines: 1400
+  cOff: 600     # Column offset
+  lOff: 650     # Line offset
+  cRes: 1000    # Column resolution (meters)
+  lRes: -1000   # Line resolution (meters, negative = north to south)
+
+# Destination grid: Geographic lat/lon (for display on maps)
+dest_grid:
+  projection: "merc"
+  prj_lat: 0.0
+  prj_lon: 12.5
+  ncols: 1200
+  nlines: 1400
+  minLon: 4.51987
+  maxLon: 20.4801
+  minLat: 35.0623
+  maxLat: 47.5730
 
 # Prediction settings
 prediction:

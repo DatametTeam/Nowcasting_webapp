@@ -11,18 +11,7 @@ import streamlit as st
 
 from nwc_webapp.config.config import get_config
 from nwc_webapp.visualization.colormaps import configure_colorbar
-
-# Lazy import of sou_py to avoid circular import issues
-# sou_py has legacy imports that expect 'sou_py' not 'nwc_webapp.sou_py'
-def _get_dpg():
-    """Lazy import of dpg module."""
-    import sys
-    # Temporarily add src to path for sou_py compatibility
-    src_path = str(Path(__file__).resolve().parent.parent)
-    if src_path not in sys.path:
-        sys.path.insert(0, src_path)
-    import sou_py.dpg as dpg
-    return dpg
+from nwc_webapp.geo.warping import warp_map
 
 # Get configuration
 config = get_config()
@@ -137,12 +126,8 @@ def load_prediction_data(st, time_options, latest_file):
 
     img1 = img1 * radar_mask
 
-    # Load nodes for warping
-    dpg = _get_dpg()
-    root_dir = Path(__file__).resolve().parent.parent.parent.parent
-    sourceNode = dpg.tree.createTree(str(root_dir / "data/nodes/sourceNode"))
-    destNode = dpg.tree.createTree(str(root_dir / "data/nodes/destNode"))
-    img1 = dpg.warp.warp_map(sourceNode, destNode=destNode, source_data=img1)
+    # Warp image using warping function (reads grid params from config)
+    img1 = warp_map(img1)
     img1 = np.nan_to_num(img1, nan=0)
 
     img1[img1 < 0] = 0

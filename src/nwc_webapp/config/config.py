@@ -22,12 +22,31 @@ class VisualizationConfig:
 
 
 @dataclass
-class ProjectionConfig:
-    """Coordinate projection settings."""
-    proj: str
-    lat_0: float
-    lon_0: float
-    par: List[float]
+class SourceGridConfig:
+    """Source grid navigation parameters (Transverse Mercator)."""
+    projection: str
+    prj_lat: float
+    prj_lon: float
+    ncols: int
+    nlines: int
+    cOff: int
+    lOff: int
+    cRes: int
+    lRes: int
+
+
+@dataclass
+class DestGridConfig:
+    """Destination grid navigation parameters (Geographic lat/lon)."""
+    projection: str
+    prj_lat: float
+    prj_lon: float
+    ncols: int
+    nlines: int
+    minLon: float
+    maxLon: float
+    minLat: float
+    maxLat: float
 
 
 @dataclass
@@ -165,10 +184,16 @@ class Config:
         return VisualizationConfig(**viz_config)
 
     @property
-    def projection(self) -> ProjectionConfig:
-        """Get projection configuration."""
-        proj_config = self._config.get("projection", {})
-        return ProjectionConfig(**proj_config)
+    def source_grid(self) -> SourceGridConfig:
+        """Get source grid configuration."""
+        grid_config = self._config.get("source_grid", {})
+        return SourceGridConfig(**grid_config)
+
+    @property
+    def dest_grid(self) -> DestGridConfig:
+        """Get destination grid configuration."""
+        grid_config = self._config.get("dest_grid", {})
+        return DestGridConfig(**grid_config)
 
     @property
     def prediction(self) -> PredictionConfig:
@@ -251,6 +276,7 @@ if __name__ == "__main__":
     print(f"SRI Folder: {config.sri_folder}")
     print(f"Prediction Output: {config.prediction_output}")
     print(f"Map Center: {config.visualization.map_center}")
-    print(f"Projection: {config.projection.proj} at ({config.projection.lat_0}, {config.projection.lon_0})")
+    print(f"Source Grid: {config.source_grid.projection} at ({config.source_grid.prj_lat}, {config.source_grid.prj_lon})")
+    print(f"Dest Grid: {config.dest_grid.minLat}-{config.dest_grid.maxLat}, {config.dest_grid.minLon}-{config.dest_grid.maxLon}")
     print(f"PBS Queue: {config.pbs.queue}")
     print(f"ED_ConvLSTM Environment: {config.get_model_pbs_env('ED_ConvLSTM')}")
