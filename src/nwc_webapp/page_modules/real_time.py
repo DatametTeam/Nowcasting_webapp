@@ -8,7 +8,7 @@ import streamlit as st
 from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx, add_script_run_ctx
 
 from nwc_webapp.ui.state import initial_state_management
-from nwc_webapp.ui.maps import create_only_map
+from nwc_webapp.ui.maps import create_only_map, create_animated_map_html
 from nwc_webapp.ui.spinners import (
     background_checker_spinner,
     background_prediction_calculator_spinner,
@@ -16,6 +16,7 @@ from nwc_webapp.ui.spinners import (
 )
 from nwc_webapp.background.workers import load_prediction
 from nwc_webapp.utils import get_latest_file, launch_thread_execution
+from nwc_webapp.data.loaders import load_all_predictions
 
 
 def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
@@ -33,28 +34,27 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
     # Initial state management
     initial_state_management(COUNT)
 
+    # Clear cached predictions on first load to prevent showing stale data
+    if "page_initialized" not in st.session_state:
+        st.session_state["page_initialized"] = True
+        if "all_predictions_data" in st.session_state:
+            del st.session_state["all_predictions_data"]
+        st.session_state["new_prediction"] = False
+
     model_options = model_list
-    time_options = ["+5min", "+10min", "+15min", "+20min", "+25min",
+    # Include ground truth times (-30 to 0) and prediction times (+5 to +60)
+    time_options = ["-30min", "-25min", "-20min", "-15min", "-10min", "-5min", "0min",
+                    "+5min", "+10min", "+15min", "+20min", "+25min",
                     "+30min", "+35min", "+40min", "+45min", "+50min",
                     "+55min", "+60min"]
 
     with (columns[0]):
-        internal_columns = st.columns([0.3, 0.1, 0.3])
-        with internal_columns[0]:
-            # Select model, bound to session state
-            st.selectbox(
-                "Select a model",
-                options=model_options,
-                key="selected_model"
-            )
-
-        with internal_columns[2]:
-            # Select time, bound to session state
-            st.selectbox(
-                "Select a prediction time",
-                options=time_options,
-                key="selected_time",
-            )
+        # Select model only (time selection removed - animation shows all times)
+        st.selectbox(
+            "Select a model",
+            options=model_options,
+            key="selected_model"
+        )
 
         # THREAD per l'ottenimento automatico di nuovi file di input
         print("Sto entrando in get_latest_file_thread")
@@ -107,52 +107,31 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
         else:
             print(f"Current SRI == Latest file processed! {latest_file}. Skipped prediction")
 
-        if st.session_state.selected_model and st.session_state.selected_time:
-            # carico di default l'ultima previsione disponibile solo la prima volta
-            if "first_prediction_visualization" not in st.session_state:
-                st.session_state["first_prediction_visualization"] = True
-                if latest_file is not None:
-                    pass
-                load_prediction(time_options, latest_file, 3)
+        # Load and display animated predictions
+        if st.session_state.selected_model:
+            # Check if we need to load new predictions (first time or model changed)
+            if ("new_prediction" in st.session_state and st.session_state["new_prediction"]) or \
+               ("previous_model" in st.session_state and st.session_state['previous_model'] != st.session_state['selected_model']) or \
+               "all_predictions_data" not in st.session_state:
 
-            # se st.session_state["new_prediction"] == True allora posso fare il caricamente di una nuova previsione
-            if "new_prediction" in st.session_state and st.session_state["new_prediction"] or \
-                    (st.session_state['previous_time'] != st.session_state['selected_time'] or
-                     st.session_state['previous_model'] != st.session_state['selected_model']):
-                st.session_state.previous_time = st.session_state.selected_time
                 st.session_state.previous_model = st.session_state.selected_model
 
-                if "prediction_data_thread" not in st.session_state:
-                    st.session_state["prediction_data_thread"] = None
+                # Load all 12 predictions at once
+                with st.spinner("Loading all prediction timesteps...", show_time=True):
+                    rgba_images_dict = load_all_predictions(st, time_options, latest_file)
 
-                if "load_prediction_thread" in st.session_state:
-                    if st.session_state["load_prediction_thread"] is False:
-                        load_prediction(time_options, latest_file, 1)
+                if rgba_images_dict is not None:
+                    st.session_state['all_predictions_data'] = rgba_images_dict
+                    st.session_state['display_prediction'] = True
+                    st.session_state['new_prediction'] = False
+                    create_animated_map_html(rgba_images_dict)
                 else:
-                    print("LATEST FILE")
-                    print(str(latest_file))
-                    load_prediction(time_options, latest_file, 2)
-
-                if "prediction_data_thread" in st.session_state:
-                    rgba_img = st.session_state["prediction_data_thread"]
-                    if rgba_img is not None:
-                        st.session_state['display_prediction'] = True
-                        with st.spinner("Loading **DATA**..", show_time=True):
-                            create_only_map(rgba_img, prediction=True)
-                    else:
-                        create_only_map(None)
-                else:
+                    # No predictions available yet
                     create_only_map(None)
             else:
-                # se st.session_state["new_prediction"] == False allora posso semplicemente applicare la predizione
-                # alla mappa
-                if "prediction_data_thread" in st.session_state:
-                    rgba_img = st.session_state["prediction_data_thread"]
-                    if rgba_img is not None:
-                        with st.spinner("Loading **DATA**..", show_time=True):
-                            create_only_map(rgba_img, prediction=True)
-                    else:
-                        create_only_map(None)
+                # Display existing predictions
+                if "all_predictions_data" in st.session_state and st.session_state['all_predictions_data'] is not None:
+                    create_animated_map_html(st.session_state['all_predictions_data'])
                 else:
                     create_only_map(None)
         else:

@@ -137,3 +137,143 @@ def load_prediction_data(st, time_options, latest_file):
     img_norm = norm(img1)
     rgba_img = cmap(img_norm)
     return rgba_img
+
+
+def load_all_predictions(st, time_options, latest_file):
+    """
+    Load ground truth and prediction timesteps for real-time animated visualization.
+
+    Args:
+        st: Streamlit module
+        time_options: List of time options (e.g., ["-30min", ..., "+5min", ..., "+60min"])
+        latest_file: Latest input file name
+
+    Returns:
+        Dictionary mapping time_option -> RGBA image array, or None if loading fails
+    """
+    if not st.session_state.selected_model:
+        return None
+
+    # Split time_options into ground truth (negative/zero) and predictions (positive)
+    ground_truth_times = [t for t in time_options if t.startswith('-') or t == "0min"]
+    prediction_times = [t for t in time_options if t.startswith('+')]
+
+    # Load radar mask once
+    mask_path = Path(__file__).resolve().parent.parent / "resources/mask/radar_mask.hdf"
+    with h5py.File(mask_path, "r") as f:
+        radar_mask = f["mask"][()]
+
+    rgba_images = {}
+
+    # ===== Load Ground Truth Data (past SRI files) =====
+    if ground_truth_times:
+        try:
+            # Parse latest file timestamp (format: DD-MM-YYYY-HH-MM.hdf)
+            filename = Path(latest_file).stem
+            dt = datetime.strptime(filename, "%d-%m-%Y-%H-%M")
+
+            # Get SRI folder from config
+            sri_folder = config.sri_folder
+
+            # Load past SRI files
+            for time_option in ground_truth_times:
+                # Extract minutes offset (e.g., "-30min" -> -30)
+                minutes_offset = int(time_option.replace("min", ""))
+
+                # Calculate past timestamp
+                past_dt = dt + timedelta(minutes=minutes_offset)
+                past_filename = past_dt.strftime("%d-%m-%Y-%H-%M") + ".hdf"
+                past_filepath = sri_folder / past_filename
+
+                if past_filepath.exists():
+                    # Load SRI file
+                    with h5py.File(past_filepath, "r") as f:
+                        # Try common dataset names
+                        if 'precipitation' in f:
+                            img = f['precipitation'][()].astype(float)
+                        elif 'data' in f:
+                            img = f['data'][()].astype(float)
+                        else:
+                            # Try first dataset
+                            first_key = list(f.keys())[0]
+                            img = f[first_key][()].astype(float)
+
+                    img[img < 0] = 0
+
+                    # Apply mask
+                    img = img * radar_mask
+
+                    # Warp image
+                    img = warp_map(img)
+                    img = np.nan_to_num(img, nan=0)
+                    img[img < 0] = 0
+
+                    # Flip image vertically to correct orientation
+                    img = np.flipud(img)
+
+                    # Apply colormap
+                    img_norm = norm(img)
+                    rgba_img = cmap(img_norm)
+
+                    rgba_images[time_option] = rgba_img
+                    print(f"[DEBUG] Loaded ground truth {time_option}: {past_filename}")
+                else:
+                    print(f"[WARNING] Ground truth file not found: {past_filepath}")
+                    # Create empty/zero image as fallback
+                    img = np.zeros_like(radar_mask).astype(float)
+                    img_norm = norm(img)
+                    rgba_img = cmap(img_norm)
+                    rgba_images[time_option] = rgba_img
+
+        except Exception as e:
+            print(f"[ERROR] Failed to load ground truth data: {e}")
+            import traceback
+            traceback.print_exc()
+
+    # ===== Load Prediction Data =====
+    selected_model = st.session_state.selected_model
+    latest_npy = Path(latest_file).stem + '.npy'
+
+    try:
+        # Use config for prediction paths
+        if selected_model == 'ED_ConvLSTM':
+            pred_path = config.prediction_output / "real_time_pred" / selected_model / latest_npy
+            pred_array = np.load(pred_path)[0]  # Load all 12 timesteps
+        else:
+            pred_path = config.prediction_output / selected_model / "predictions.npy"
+            pred_array = np.load(pred_path)[0]  # Load all 12 timesteps
+    except FileNotFoundError:
+        print(f"Prediction file not present yet: {pred_path}")
+        return None if not ground_truth_times else rgba_images  # Return ground truth if available
+
+    # Process all 12 prediction timesteps
+    for i, time_option in enumerate(prediction_times):
+        img = pred_array[i].copy()
+        img[img < 0] = 0
+
+        # Apply mask
+        img = img * radar_mask
+
+        # Warp image
+        img = warp_map(img)
+        img = np.nan_to_num(img, nan=0)
+        img[img < 0] = 0
+        img = img.astype(float)
+
+        # Flip image vertically to correct orientation
+        img = np.flipud(img)
+
+        # Debug: Check if images are different
+        if i == 0:
+            print(f"[DEBUG] Prediction {time_option}: min={img.min():.2f}, max={img.max():.2f}, mean={img.mean():.2f}")
+        elif i == len(prediction_times) - 1:
+            print(f"[DEBUG] Prediction {time_option}: min={img.min():.2f}, max={img.max():.2f}, mean={img.mean():.2f}")
+
+        # Apply colormap
+        img_norm = norm(img)
+        rgba_img = cmap(img_norm)
+
+        rgba_images[time_option] = rgba_img
+
+    print(f"[DEBUG] Loaded {len(ground_truth_times)} ground truth + {len(prediction_times)} prediction timesteps = {len(rgba_images)} total")
+    return rgba_images
