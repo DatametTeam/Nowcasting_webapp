@@ -7,14 +7,9 @@ import threading
 import streamlit as st
 from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx, add_script_run_ctx
 
+from pathlib import Path
 from nwc_webapp.ui.state import initial_state_management
 from nwc_webapp.ui.maps import create_only_map, create_animated_map_html
-from nwc_webapp.ui.spinners import (
-    background_checker_spinner,
-    background_prediction_calculator_spinner,
-    background_prediction_loader_spinner
-)
-from nwc_webapp.background.workers import load_prediction
 from nwc_webapp.utils import get_latest_file, launch_thread_execution
 from nwc_webapp.data.loaders import load_all_predictions
 
@@ -28,7 +23,7 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
         sri_folder_dir: Path to SRI folder directory
         COUNT: Optional count value for auto-refresh
     """
-    columns = st.columns([0.5, 0.5])
+    columns = st.columns([0.7, 0.3])  # 70% map, 30% status panel
     st.session_state["sync_end"] = 1
 
     # Initial state management
@@ -137,18 +132,56 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
         else:
             create_only_map(None)
 
-    # Spinner section
-    # --------------------------------------------------------------------------------------------
-    if "load_prediction_thread" in st.session_state and st.session_state["load_prediction_thread"]:
-        background_prediction_loader_spinner(columns)
-    # --------------------------------------------------------------------------------------------
+    # Status Panel - Right Column
+    with columns[1]:
+        st.markdown("### System Status")
 
-    # ---------------------------------------------
-    if st.session_state["launch_prediction_thread"]:
-        background_prediction_calculator_spinner(columns)
-    # ---------------------------------------------
+        # Latest data timestamp
+        latest_file = st.session_state.get("latest_file", "N/A")
+        st.markdown(f"**Last Data Found:**  \n`{latest_file}`")
 
-    # ----------------------------------------
-    if st.session_state["run_get_latest_file"]:
-        background_checker_spinner(columns)
-    # ----------------------------------------
+        # Check if new data is available
+        latest_thread = st.session_state.get("latest_thread", None)
+        if latest_thread and latest_thread != latest_file:
+            st.success("🆕 New data available!")
+
+        st.markdown("---")
+
+        # Model Prediction Status
+        st.markdown("**Model Predictions:**")
+
+        from nwc_webapp.config.config import get_config
+        config = get_config()
+
+        for model in model_options:
+            # Check if prediction exists for this model
+            latest_npy = Path(latest_file).stem + '.npy' if latest_file != "N/A" else None
+
+            if latest_npy:
+                if model == 'ED_ConvLSTM':
+                    pred_path = config.prediction_output / "real_time_pred" / model / latest_npy
+                else:
+                    pred_path = config.prediction_output / model / "predictions.npy"
+
+                if pred_path.exists():
+                    st.markdown(f"- ✅ **{model}**: Ready")
+                elif st.session_state.get("launch_prediction_thread") and st.session_state.get("selected_model") == model:
+                    st.markdown(f"- ⏳ **{model}**: Computing...")
+                else:
+                    st.markdown(f"- ⏹️ **{model}**: Not computed")
+            else:
+                st.markdown(f"- ⏹️ **{model}**: Waiting for data")
+
+        st.markdown("---")
+
+        # System Info
+        st.markdown("**System Info:**")
+        checking_status = "🔄 Active" if st.session_state.get("run_get_latest_file") else "⏸️ Paused"
+        st.markdown(f"- Data Monitor: {checking_status}")
+
+        if "all_predictions_data" in st.session_state and st.session_state["all_predictions_data"]:
+            num_frames = len(st.session_state["all_predictions_data"])
+            st.markdown(f"- Loaded Frames: {num_frames}")
+
+        # Auto-refresh indicator
+        st.markdown(f"- Auto-refresh: Every 5 min")
