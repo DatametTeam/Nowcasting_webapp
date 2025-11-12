@@ -119,7 +119,10 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
 
                 # Load all 12 predictions at once
                 with st.spinner("Loading all prediction timesteps...", show_time=True):
-                    rgba_images_dict = load_all_predictions(st, time_options, latest_file)
+                    rgba_images_dict, status_info = load_all_predictions(st, time_options, latest_file)
+
+                # Store status information for display in status panel
+                st.session_state['data_load_status'] = status_info
 
                 if rgba_images_dict is not None:
                     st.session_state['all_predictions_data'] = rgba_images_dict
@@ -191,3 +194,18 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
 
         # Auto-refresh indicator
         st.markdown(f"- Auto-refresh: Every 5 min")
+
+        # Data Load Status / Errors
+        if "data_load_status" in st.session_state:
+            status = st.session_state["data_load_status"]
+
+            # Show ground truth status
+            if not status.get('ground_truth_available', False):
+                st.markdown("---")
+                st.warning(f"⚠️ **Ground Truth Data Missing**")
+                if status.get('error'):
+                    st.error(status['error'])
+                st.markdown("_Ground truth radar data is required for predictions. Please ensure SRI files are available._")
+            elif status.get('ground_truth_count', 0) < 7:
+                st.markdown("---")
+                st.warning(f"⚠️ **Partial Ground Truth**  \nOnly {status.get('ground_truth_count', 0)}/7 frames loaded")

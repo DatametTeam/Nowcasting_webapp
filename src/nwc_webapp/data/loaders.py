@@ -153,10 +153,12 @@ def load_all_predictions(st, time_options, latest_file):
         latest_file: Latest input file name
 
     Returns:
-        Dictionary mapping time_option -> RGBA image array, or None if loading fails
+        Tuple of (rgba_images_dict, status_info) where:
+        - rgba_images_dict: Dictionary mapping time_option -> RGBA image array, or None if loading fails
+        - status_info: Dictionary with keys 'ground_truth_available', 'predictions_available', 'error'
     """
     if not st.session_state.selected_model:
-        return None
+        return None, {'ground_truth_available': False, 'predictions_available': False, 'error': 'No model selected'}
 
     # Split time_options into ground truth (negative/zero) and predictions (positive)
     ground_truth_times = [t for t in time_options if t.startswith('-') or t == "0min"]
@@ -168,8 +170,15 @@ def load_all_predictions(st, time_options, latest_file):
         radar_mask = f["mask"][()]
 
     rgba_images = {}
+    status_info = {
+        'ground_truth_available': False,
+        'ground_truth_count': 0,
+        'predictions_available': False,
+        'error': None
+    }
 
     # ===== Load Ground Truth Data (past SRI files) =====
+    ground_truth_loaded = 0
     if ground_truth_times:
         try:
             # Parse latest file timestamp (format: DD-MM-YYYY-HH-MM.hdf)
@@ -226,16 +235,26 @@ def load_all_predictions(st, time_options, latest_file):
                     rgba_img = cmap(img_norm)
 
                     rgba_images[time_option] = rgba_img
+                    ground_truth_loaded += 1
                     logger.debug(f"Loaded ground truth {time_option}: {past_filename}")
                 else:
-                    logger.warning(f"Ground truth file not found: {past_filepath}")
+                    logger.error(f"Ground truth file not found: {past_filepath}")
                     # Create empty/zero image as fallback
                     img = np.zeros_like(radar_mask).astype(float)
                     img_norm = norm(img)
                     rgba_img = cmap(img_norm)
                     rgba_images[time_option] = rgba_img
 
+            # Check if we got any ground truth data
+            if ground_truth_loaded > 0:
+                status_info['ground_truth_available'] = True
+                status_info['ground_truth_count'] = ground_truth_loaded
+            else:
+                status_info['error'] = f"No ground truth data found (checked {len(ground_truth_times)} files)"
+                logger.error(f"No ground truth data found! Expected {len(ground_truth_times)} files in {sri_folder}")
+
         except Exception as e:
+            status_info['error'] = f"Failed to load ground truth: {str(e)}"
             logger.error(f"Failed to load ground truth data: {e}", exc_info=True)
 
     # ===== Load Prediction Data =====
@@ -255,6 +274,7 @@ def load_all_predictions(st, time_options, latest_file):
         return None if not ground_truth_times else rgba_images  # Return ground truth if available
 
     # Process all 12 prediction timesteps
+    status_info['predictions_available'] = True
     for i, time_option in enumerate(prediction_times):
         img = pred_array[i].copy()
         img[img < 0] = 0
@@ -283,5 +303,5 @@ def load_all_predictions(st, time_options, latest_file):
 
         rgba_images[time_option] = rgba_img
 
-    logger.debug(f"Loaded {len(ground_truth_times)} ground truth + {len(prediction_times)} prediction timesteps = {len(rgba_images)} total")
-    return rgba_images
+    logger.debug(f"Loaded {ground_truth_loaded}/{len(ground_truth_times)} ground truth + {len(prediction_times)} prediction timesteps = {len(rgba_images)} total")
+    return rgba_images, status_info

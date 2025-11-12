@@ -770,23 +770,20 @@ def create_animated_map_html(rgba_images_dict):
                 attribution: '© OpenStreetMap contributors'
             }}).addTo(map);
 
-            // Add geocoder control (like Folium native with markers)
+            // Add geocoder control (search only, no permanent markers)
             const geocoder = L.Control.geocoder({{
                 collapsed: false,
                 position: 'topright',
                 placeholder: 'Search for a location...',
                 errorMessage: 'Location not found',
                 geocoder: L.Control.Geocoder.nominatim(),
-                defaultMarkGeocode: true
+                defaultMarkGeocode: false
             }}).addTo(map);
 
-            // Add marker on geocode result (like Folium's add_marker=True)
+            // Pan to location without adding permanent marker
             geocoder.on('markgeocode', function(e) {{
                 const latlng = e.geocode.center;
-                L.marker(latlng).addTo(map)
-                    .bindPopup(e.geocode.name)
-                    .openPopup();
-                map.setView(latlng, 13);
+                map.setView(latlng, 10);
             }});
 
             // Image data
