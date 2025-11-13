@@ -208,14 +208,8 @@ def load_all_predictions(st, time_options, latest_file):
                     # Load SRI file
                     with h5py.File(past_filepath, "r") as f:
                         # Try common dataset names
-                        if 'precipitation' in f:
-                            img = f['precipitation'][()].astype(float)
-                        elif 'data' in f:
-                            img = f['data'][()].astype(float)
-                        else:
-                            # Try first dataset
-                            first_key = list(f.keys())[0]
-                            img = f[first_key][()].astype(float)
+                        if 'dataset1/data1/data' in f:
+                            img = f['dataset1/data1/data'][()].astype(float)
 
                     img[img < 0] = 0
 
