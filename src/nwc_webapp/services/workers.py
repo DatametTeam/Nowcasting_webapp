@@ -96,7 +96,7 @@ def get_latest_file(folder_path, terminate_event):
     logger.warning("TERMINATE event is_set().")
 
 
-def worker_thread(event, latest_file, models_list=None):
+def worker_thread(event, latest_file, model, ctx):
     """
     Worker thread that submits prediction jobs and waits for completion.
     Uses config-based paths instead of hardcoded paths.
@@ -104,15 +104,14 @@ def worker_thread(event, latest_file, models_list=None):
     Args:
         event: Threading event to signal completion
         latest_file: Name of the latest input file
-        models_list: Optional list of models (currently unused, defaults to ED_ConvLSTM)
+        model: Model name to compute predictions for
+        ctx: Streamlit script run context for session state access
     """
     config = get_config()
     output_dir = config.prediction_output / "real_time_pred"
 
     thread_id = threading.get_ident()
-    logger.info(f"Worker thread (ID: {thread_id}) is starting prediction...")
-
-    model = 'ED_ConvLSTM'
+    logger.info(f"Worker thread (ID: {thread_id}) starting prediction for model: {model}")
 
     jobs_ids = []
     new_file = Path(latest_file).stem + '.npy'
@@ -121,7 +120,7 @@ def worker_thread(event, latest_file, models_list=None):
     model_output = output_dir / model / new_file
 
     if not model_output.exists():
-        logger.warning(f"File {model_output} does not exist. Starting prediction")
+        logger.warning(f"File {model_output} does not exist. Starting prediction for {model}")
         job_id = start_prediction_job(model, latest_file)
         jobs_ids.append(job_id)
     else:
@@ -129,10 +128,15 @@ def worker_thread(event, latest_file, models_list=None):
 
     logger.info(f"Waiting for {model_output}")
     while not model_output.exists():
-        logger.info("Prediction still going")
+        logger.info(f"Prediction for {model} still going")
         time.sleep(2)
 
-    logger.info(f"Worker thread (ID: {thread_id}) has finished!")
+    logger.info(f"Worker thread (ID: {thread_id}) finished prediction for {model}!")
+
+    # Remove model from computing set
+    if model in ctx.session_state["computing_models"]:
+        ctx.session_state["computing_models"].remove(model)
+
     event.set()  # Signal that the worker thread is done
 
 
@@ -152,49 +156,59 @@ def worker_thread_test(event):
     event.set()
 
 
-def launch_thread_execution(st, latest_file, columns):
+def launch_thread_execution(st, latest_file, columns, model_list):
     """
-    Launch a worker thread for prediction execution.
+    Launch worker threads for prediction execution for all models.
 
     Args:
         st: Streamlit module
         latest_file: Latest input file name
         columns: Streamlit columns for UI display
+        model_list: List of models to compute predictions for
     """
     ctx = get_script_run_ctx()
     runtime = get_instance()
 
     ctx.session_state.latest_file = latest_file
     logger.info(f"New SRI file available! {latest_file}")
+    logger.info(f"Launching predictions for models: {model_list}")
 
-    with columns[1]:
+    # Add all models to computing set
+    for model in model_list:
+        ctx.session_state["computing_models"].add(model)
+
+    # Create events and threads for each model
+    threads = []
+    events = []
+
+    for model in model_list:
         event = threading.Event()
-        logger.info(f"Thread started status: {st.session_state.thread_started}")
-        logger.info("Starting thread")
+        events.append(event)
 
-        # Start the worker thread
-        thread = threading.Thread(target=worker_thread, args=(event, latest_file))
-
-        st.session_state.thread_started = True
+        # Start worker thread for this model
+        thread = threading.Thread(target=worker_thread, args=(event, latest_file, model, ctx), daemon=True)
+        from streamlit.runtime.scriptrunner_utils.script_run_context import add_script_run_ctx
+        add_script_run_ctx(thread, ctx)
+        threads.append(thread)
         thread.start()
+        logger.info(f"Started worker thread for model: {model}")
 
-        status_placeholder = st.empty()
-        i = 1
-        time_prediction = time.time()
-        while not event.is_set():
-            i += 1
-            time.sleep(1)
+    st.session_state.thread_started = True
+
+    # Wait for all threads to complete
+    logger.info(f"Waiting for {len(threads)} prediction threads to complete...")
+    for thread, model in zip(threads, model_list):
         thread.join()
+        logger.info(f"Thread for model {model} completed")
 
-        # Reset
-        ctx.session_state["launch_prediction_thread"] = None
-        ctx.session_state["computing_model"] = None
+    # Reset
+    ctx.session_state["launch_prediction_thread"] = None
 
-        # State update
-        ctx.session_state.latest_file = latest_file
-        ctx.session_state.selection = None
-        ctx.session_state["new_prediction"] = True
-        logger.info("launch prediction TERMINATED..")
+    # State update
+    ctx.session_state.latest_file = latest_file
+    ctx.session_state.selection = None
+    ctx.session_state["new_prediction"] = True
+    logger.info("All prediction threads TERMINATED..")
 
     session_info = runtime._session_mgr.get_active_session_info(ctx.session_id)
     session_info.session.request_rerun(None)

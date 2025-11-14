@@ -31,3 +31,5 @@ def initial_state_management(COUNT=None):
         st.session_state["latest_thread"] = None
     if "launch_prediction_thread" not in st.session_state:
         st.session_state["launch_prediction_thread"] = None
+    if "computing_models" not in st.session_state:
+        st.session_state["computing_models"] = set()  # Track multiple models being computed

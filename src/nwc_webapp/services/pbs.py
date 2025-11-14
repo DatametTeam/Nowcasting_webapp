@@ -36,6 +36,47 @@ def get_job_status(job_id):
         return "ended"
 
 
+def get_model_job_status(model):
+    """
+    Check if there's a job running/queued for the specified model.
+
+    Args:
+        model: Model name (e.g., 'ED_ConvLSTM', 'pystep')
+
+    Returns:
+        str: 'Q' (queued), 'R' (running), or None (no job found)
+    """
+    try:
+        job_name = f"nwc_{model}"
+        # Run qstat to get all jobs
+        result = subprocess.run(
+            ["qstat"],
+            check=True,
+            text=True,
+            capture_output=True
+        )
+
+        # Parse qstat output to find jobs with matching name
+        for line in result.stdout.splitlines():
+            if job_name in line:
+                # qstat output format: job_id job_name user time status queue
+                # Status is typically the 5th column (index 4)
+                parts = line.split()
+                if len(parts) >= 5:
+                    status = parts[4]  # 'Q' for queued, 'R' for running
+                    logger.debug(f"Found job for model {model} with status: {status}")
+                    return status
+
+        return None  # No job found for this model
+
+    except subprocess.CalledProcessError:
+        logger.warning("qstat command failed - PBS might not be available")
+        return None
+    except Exception as e:
+        logger.error(f"Error checking job status for model {model}: {e}")
+        return None
+
+
 def get_pbs_header(job_name, q_name, pbs_log_path, target_gpu=None):
     if target_gpu is None:
         return f"""
@@ -153,7 +194,7 @@ def start_prediction_job(model, latest_data):
     pbs_logs.mkdir(parents=True, exist_ok=True)
 
     pbs_script = "#!/bin/bash"
-    pbs_script += get_pbs_header("nwc_webapp", 'fast', str(pbs_logs / "pbs.log"))
+    pbs_script += get_pbs_header(f"nwc_{model}", 'fast', str(pbs_logs / "pbs.log"))
     pbs_script += get_pbs_env(model)
     pbs_script += f"\n{cmd_string}"
 

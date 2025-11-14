@@ -256,13 +256,10 @@ def load_all_predictions(st, time_options, latest_file):
     latest_npy = Path(latest_file).stem + '.npy'
 
     try:
-        # Use config for prediction paths
-        if selected_model == 'ED_ConvLSTM':
-            pred_path = config.prediction_output / "real_time_pred" / selected_model / latest_npy
-            pred_array = np.load(pred_path)[0]  # Load all 12 timesteps
-        else:
-            pred_path = config.prediction_output / selected_model / "predictions.npy"
-            pred_array = np.load(pred_path)[0]  # Load all 12 timesteps
+        # All models now use the same path structure in real_time_pred
+        pred_path = config.prediction_output / "real_time_pred" / selected_model / latest_npy
+        pred_array = np.load(pred_path)[0]  # Load all 12 timesteps
+        logger.debug(f"Loaded predictions from: {pred_path}")
     except FileNotFoundError:
         logger.warning(f"Prediction file not present yet: {pred_path}")
         return None if not ground_truth_times else rgba_images  # Return ground truth if available

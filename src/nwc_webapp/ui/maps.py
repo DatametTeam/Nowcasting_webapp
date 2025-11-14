@@ -105,14 +105,6 @@ def create_only_map(rgba_img, prediction: bool = False):
         attr='OpenStreetMap'
     )
 
-    # Add geocoder (search bar) for location search in upper right
-    folium.plugins.Geocoder(
-        collapsed=False,
-        position='topright',
-        placeholder='Search for a location...',
-        add_marker=True
-    ).add_to(map)
-
     if prediction:
         # ricreazione totale della mappa + predizione
         folium.raster_layers.ImageOverlay(
@@ -554,14 +546,26 @@ def create_animated_map(rgba_images_dict):
     # The map will remember its position within a session anyway via browser
 
 
-def create_animated_map_html(rgba_images_dict):
+def create_animated_map_html(rgba_images_dict, latest_file=None):
     """
     Create an animated map using custom HTML component (bypasses iframe restrictions).
 
     Args:
         rgba_images_dict: Dictionary mapping time_option -> RGBA image array
+        latest_file: Latest SRI filename to extract base datetime
     """
-    # Convert RGBA images to base64 data URLs
+    # Parse base datetime from latest_file
+    base_dt = None
+    if latest_file:
+        try:
+            from datetime import datetime, timedelta
+            from pathlib import Path
+            filename_clean = Path(latest_file).stem
+            base_dt = datetime.strptime(filename_clean, "%d-%m-%Y-%H-%M")
+        except:
+            pass
+
+    # Convert RGBA images to base64 data URLs with formatted timestamps
     timestamps = list(rgba_images_dict.keys())
     image_data_urls = []
 
@@ -577,16 +581,36 @@ def create_animated_map_html(rgba_images_dict):
         img_base64 = base64.b64encode(buffer.read()).decode()
         data_url = f"data:image/png;base64,{img_base64}"
 
+        # Create formatted label like "HH:MM (±Xmin)"
+        display_label = timestamp
+        if base_dt:
+            try:
+                # Extract minutes offset from timestamp (e.g., "+30min" -> 30, "-30min" -> -30)
+                minutes_offset = int(timestamp.replace("min", "").replace("+", "").replace("-", ""))
+                if timestamp.startswith("-"):
+                    minutes_offset = -minutes_offset
+
+                # Calculate actual datetime
+                actual_dt = base_dt + timedelta(minutes=minutes_offset)
+                # Show only HH:MM and offset
+                display_label = f"{actual_dt.strftime('%H:%M')} ({timestamp})"
+            except:
+                pass
+
         image_data_urls.append({
-            'timestamp': timestamp,
+            'timestamp': timestamp,  # Keep original for layer matching
+            'display_label': display_label,
             'data_url': data_url
         })
 
-    # Build JavaScript array of images
+    # Build JavaScript array of images with display labels
     images_js = "[\n"
     for img_data in image_data_urls:
-        images_js += f"  {{timestamp: '{img_data['timestamp']}', url: '{img_data['data_url']}'}},\n"
+        images_js += f"  {{timestamp: '{img_data['timestamp']}', label: '{img_data['display_label']}', url: '{img_data['data_url']}'}},\n"
     images_js += "]"
+
+    # Get first display label for initial display
+    first_label = image_data_urls[0]['display_label'] if image_data_urls else timestamps[0]
 
     # Generate colorbar gradient
     data_values = [0, 1, 2, 5, 10, 20, 30, 50, 75, 100]
@@ -617,33 +641,41 @@ def create_animated_map_html(rgba_images_dict):
             body {{ margin: 0; padding: 0; }}
             #map {{ width: 100%; height: 700px; }}
 
-            /* Animation controls - top center, more compact */
+            /* Animation controls - fully responsive, scales with zoom */
             #animationControls {{
-                position: absolute;
-                top: 8px;
-                left: 50%;
-                transform: translateX(-50%);
+                position: fixed;
+                top: 12px;  /* Moved down 2px */
+                left: 60px;  /* Space for zoom controls */
+                right: 10px;
                 background: rgba(255, 255, 255, 0.95);
-                padding: 5px 8px;
-                border-radius: 4px;
-                box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+                padding: 1vh 1.2vw;  /* Responsive padding */
+                border-radius: 0.6vh;
+                box-shadow: 0 0.3vh 0.8vh rgba(0,0,0,0.3);
                 z-index: 1000;
                 display: flex;
+                flex-direction: row;
                 align-items: center;
-                gap: 6px;
+                gap: 1.2vw;
                 font-family: Arial, sans-serif;
-                font-size: 11px;
+                height: 8.5vh;  /* Taller */
+                box-sizing: border-box;
             }}
 
             #playBtn {{
-                padding: 4px 8px;
+                padding: 0 1.5vw;
                 background: #4CAF50;
                 color: white;
                 border: none;
-                border-radius: 3px;
+                border-radius: 0.4vh;
                 cursor: pointer;
                 font-weight: bold;
-                font-size: 10px;
+                font-size: 2.6vh;  /* Even bigger text */
+                height: 70%;  /* 70% of bar height */
+                min-width: 7vw;
+                flex-shrink: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
             }}
 
             #playBtn:hover {{ background: #45a049; }}
@@ -651,23 +683,36 @@ def create_animated_map_html(rgba_images_dict):
             #playBtn.playing:hover {{ background: #da190b; }}
 
             #timeSlider {{
-                width: 150px;
+                width: 30vw;  /* Fixed smaller width */
                 cursor: pointer;
+                height: 0.4vh;  /* Even smaller slider */
+                margin: 0 0.8vw;
+                flex-shrink: 0;
             }}
 
             #timeLabel {{
                 font-weight: bold;
-                min-width: 50px;
+                flex: 1;  /* Take remaining space */
+                min-width: 20vw;
                 text-align: center;
-                font-size: 10px;
+                font-size: 2.8vh;  /* Even bigger text */
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
             }}
 
             #speedSelect {{
-                padding: 2px 4px;
-                border-radius: 3px;
+                padding: 0 1vw;
+                border-radius: 0.4vh;
                 border: 1px solid #ccc;
                 cursor: pointer;
-                font-size: 9px;
+                font-size: 2.4vh;  /* Even bigger text */
+                font-weight: 500;
+                height: 70%;  /* 70% of bar height, matching button */
+                min-width: 7vw;
+                background: white;
+                flex-shrink: 0;
+                box-sizing: border-box;
             }}
 
             /* Colorbar legend - horizontal, bottom left, compact */
@@ -713,15 +758,47 @@ def create_animated_map_html(rgba_images_dict):
                 line-height: 1;
             }}
 
-            /* Geocoder positioning - top right, below animation controls */
+            /* Geocoder positioning - top right below control bar */
             .leaflet-control-geocoder {{
-                margin-top: 55px !important;
-                margin-right: 10px !important;
+                position: fixed !important;
+                top: 75px !important;  /* Closer to control bar */
+                right: 10px !important;
+                bottom: auto !important;
+                left: auto !important;
+                margin: 0 !important;
+                max-width: 300px !important;
+                z-index: 2000 !important;  /* Higher than control bar */
+                display: flex !important;
+                flex-direction: row !important;  /* Single row */
+                align-items: center !important;
+                visibility: visible !important;
+                opacity: 1 !important;
+                background: white !important;
+                border-radius: 4px !important;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.3) !important;
+                padding: 2px 4px !important;
+            }}
+
+            .leaflet-control-geocoder-form {{
+                margin: 0 !important;
+                display: flex !important;
+                flex-direction: row !important;  /* Single row */
+                align-items: center !important;
+                flex: 1 !important;
             }}
 
             .leaflet-control-geocoder-form input {{
-                font-size: 12px;
-                padding: 4px 8px;
+                font-size: 13px !important;
+                padding: 6px 10px !important;
+                width: 220px !important;
+                border: 1px solid #ccc !important;
+                border-radius: 4px !important;
+                margin-left: 4px !important;
+            }}
+
+            .leaflet-control-geocoder-icon {{
+                display: inline-block !important;
+                flex-shrink: 0 !important;
             }}
         </style>
     </head>
@@ -732,7 +809,7 @@ def create_animated_map_html(rgba_images_dict):
         <div id="animationControls">
             <button id="playBtn">Play</button>
             <input type="range" id="timeSlider" min="0" max="{len(timestamps) - 1}" value="0" step="1">
-            <span id="timeLabel">{timestamps[0]}</span>
+            <span id="timeLabel">{first_label}</span>
             <select id="speedSelect">
                 <option value="1000">Slow</option>
                 <option value="500" selected>Normal</option>
@@ -802,7 +879,8 @@ def create_animated_map_html(rgba_images_dict):
                 layer.addTo(map);
                 layers.push({{
                     layer: layer,
-                    timestamp: img.timestamp
+                    timestamp: img.timestamp,
+                    label: img.label  // Store display label
                 }});
             }});
 
@@ -827,8 +905,8 @@ def create_animated_map_html(rgba_images_dict):
                 if (frameIndex >= 0 && frameIndex < layers.length) {{
                     layers[frameIndex].layer.setOpacity(1);
                     slider.value = frameIndex;
-                    timeLabel.textContent = layers[frameIndex].timestamp;
-                    console.log('Showing frame:', frameIndex, layers[frameIndex].timestamp);
+                    timeLabel.textContent = layers[frameIndex].label;  // Use display label
+                    console.log('Showing frame:', frameIndex, layers[frameIndex].label);
                 }}
             }}
 

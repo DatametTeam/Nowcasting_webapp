@@ -85,8 +85,21 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
             del (st.session_state["thread_ID_get_latest_file"])
             st.session_state["prev_thread_ID_get_latest_file"] = thread_ID
 
+        # Format current date nicely (from "DD-MM-YYYY-HH-MM.hdf" to "HH:MM DD-MM-YYYY")
+        latest_file_display = st.session_state.latest_file
+        if latest_file_display and latest_file_display != "N/A":
+            try:
+                from datetime import datetime
+                # Remove .hdf extension and parse
+                filename_clean = Path(latest_file_display).stem
+                dt = datetime.strptime(filename_clean, "%d-%m-%Y-%H-%M")
+                latest_file_display = dt.strftime("%H:%M %d-%m-%Y")
+            except:
+                # Fallback to original if parsing fails
+                latest_file_display = latest_file_display.replace('.hdf', '')
+
         st.markdown("<div style='text-align: center; font-size: 18px;'>"
-                    f"<b>Current Date: {st.session_state.latest_file}</b>"
+                    f"<b>Current Date: {latest_file_display}</b>"
                     "</div>",
                     unsafe_allow_html=True)
 
@@ -94,14 +107,14 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
         if latest_file != st.session_state.latest_file:
             # calcolo della previsione in background
             if st.session_state["launch_prediction_thread"] is None:
-                logger.info(f"Launching prediction for {latest_file}")
+                logger.info(f"Launching predictions for all models for {latest_file}")
 
-                # Store which model is being computed (currently only ED_ConvLSTM)
-                st.session_state["launch_prediction_thread"] = "ED_ConvLSTM"
-                st.session_state["computing_model"] = "ED_ConvLSTM"
+                # Mark that prediction threads are launching
+                st.session_state["launch_prediction_thread"] = "ALL_MODELS"
 
                 ctx = get_script_run_ctx()
-                launch_thread = threading.Thread(target=launch_thread_execution, args=(st, latest_file, columns),
+                launch_thread = threading.Thread(target=launch_thread_execution,
+                                                 args=(st, latest_file, columns, model_list),
                                                  daemon=True)
                 add_script_run_ctx(launch_thread, ctx)
                 launch_thread.start()
@@ -128,14 +141,14 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
                     st.session_state['all_predictions_data'] = rgba_images_dict
                     st.session_state['display_prediction'] = True
                     st.session_state['new_prediction'] = False
-                    create_animated_map_html(rgba_images_dict)
+                    create_animated_map_html(rgba_images_dict, st.session_state.latest_file)
                 else:
                     # No predictions available yet
                     create_only_map(None)
             else:
                 # Display existing predictions
                 if "all_predictions_data" in st.session_state and st.session_state['all_predictions_data'] is not None:
-                    create_animated_map_html(st.session_state['all_predictions_data'])
+                    create_animated_map_html(st.session_state['all_predictions_data'], st.session_state.latest_file)
                 else:
                     create_only_map(None)
         else:
@@ -167,17 +180,28 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
             latest_npy = Path(latest_file).stem + '.npy' if latest_file != "N/A" else None
 
             if latest_npy:
-                if model == 'ED_ConvLSTM':
-                    pred_path = config.prediction_output / "real_time_pred" / model / latest_npy
-                else:
-                    pred_path = config.prediction_output / model / "predictions.npy"
+                # All models now use the same path structure in real_time_pred
+                pred_path = config.prediction_output / "real_time_pred" / model / latest_npy
 
                 if pred_path.exists():
                     st.markdown(f"- ✅ **{model}**: Ready")
-                elif st.session_state.get("computing_model") == model:
-                    st.markdown(f"- ⏳ **{model}**: Computing...")
                 else:
-                    st.markdown(f"- ⏹️ **{model}**: Not computed")
+                    # Check PBS job status (only on HPC)
+                    job_status = None
+                    try:
+                        from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
+                        if is_pbs_available():
+                            job_status = get_model_job_status(model)
+                    except:
+                        pass
+
+                    # Determine display status
+                    if job_status == 'Q':
+                        st.markdown(f"- 📋 **{model}**: Queue")
+                    elif job_status == 'R' or model in st.session_state.get("computing_models", set()):
+                        st.markdown(f"- ⚙️ **{model}**: Computing...")
+                    else:
+                        st.markdown(f"- ⏹️ **{model}**: Not computed")
             else:
                 st.markdown(f"- ⏹️ **{model}**: Waiting for data")
 
