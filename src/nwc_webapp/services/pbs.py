@@ -141,10 +141,10 @@ def start_prediction_job(model, latest_data):
     python "/davinci-1/work/protezionecivile/backup_old_stuff/nowcasting_OLD_TEO_CODE/nwc_test_webapp.py" \
         start_date={str(latest_data)}
         """
-    else: # TODO: da fixare
+    else:
         cmd_string = f"""
-    python "/archive/SSD/home/guidim/demo_sole/src/nwc_webapp/inference_scripts/run_{model}_inference.py" \
-        --start_date={str(latest_data)}
+    python "/davinci-1/home/guidim/spatiotemporal-nowcast/spatiotemporal_forecast/scripts/webapp_predictions.py" \
+        --cfg_path "/davinci-1/work/protezionecivile/nwc_webapp/configs/{model}.yaml"
         """
 
     logger.info(f"cmd_string: \n > {cmd_string}")
@@ -153,12 +153,12 @@ def start_prediction_job(model, latest_data):
     pbs_logs.mkdir(parents=True, exist_ok=True)
 
     pbs_script = "#!/bin/bash"
-    pbs_script += get_pbs_header("sole24ore_demo", 'fast', str(pbs_logs / "pbs.log"))
+    pbs_script += get_pbs_header("nwc_webapp", 'fast', str(pbs_logs / "pbs.log"))
     pbs_script += get_pbs_env(model)
     pbs_script += f"\n{cmd_string}"
 
     src_dir = Path(__file__).resolve().parent.parent
-    pbs_scripts = Path(os.path.join(src_dir, "nwc_webapp/pbs_scripts"))
+    pbs_scripts = Path(os.path.join(src_dir, "pbs_scripts"))
     pbs_scripts.mkdir(parents=True, exist_ok=True)
     pbs_script_path = pbs_scripts / f"run_{model}_inference.sh"
     with open(pbs_script_path, "w", encoding="utf-8") as f:
