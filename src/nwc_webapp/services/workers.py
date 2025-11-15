@@ -117,18 +117,57 @@ def worker_thread(event, latest_file, model, ctx):
     new_file = Path(latest_file).stem + '.npy'
     logger.info(f"Looking for prediction file: {new_file}")
 
-    model_output = output_dir / model / new_file
+    # Special handling for TEST model - use test directory, no job submission
+    if model == "TEST":
+        test_output_dir = output_dir.parent / "test_predictions" / model
+        model_output = test_output_dir / new_file
+        logger.info(f"TEST model detected - looking for results in {test_output_dir}")
+    else:
+        model_output = output_dir / model / new_file
 
     if not model_output.exists():
-        logger.warning(f"File {model_output} does not exist. Starting prediction for {model}")
-        job_id = start_prediction_job(model, latest_file)
-        jobs_ids.append(job_id)
+        if model == "TEST":
+            logger.warning(f"TEST model: No test file found at {model_output}")
+            # Don't submit job for TEST model - just wait for file to appear
+        else:
+            logger.warning(f"File {model_output} does not exist. Starting prediction for {model}")
+            job_id = start_prediction_job(model, latest_file)
+            jobs_ids.append(job_id)
+            # Track that this model had a job submitted
+            ctx.session_state["submitted_models"].add(model)
     else:
         logger.warning(f"Prediction already computed! {model_output} exists for {model}.")
 
     logger.info(f"Waiting for {model_output}")
+
+    # Track job status to trigger UI update on status change
+    from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
+    last_status = None
+    check_interval = 0  # Check status every 3 iterations (6 seconds)
+
     while not model_output.exists():
         logger.info(f"Prediction for {model} still going")
+
+        # Periodically check job status and trigger rerun if it changes
+        if is_pbs_available() and check_interval % 3 == 0:
+            current_status = get_model_job_status(model)
+            if current_status and current_status != last_status:
+                logger.info(f"Job status for {model} changed: {last_status} -> {current_status}")
+                last_status = current_status
+                # Trigger UI refresh to show status change
+                try:
+                    from streamlit.runtime.scriptrunner import get_script_run_ctx
+                    from streamlit.runtime import get_instance
+                    runtime = get_instance()
+                    if runtime and ctx:
+                        session_info = runtime._session_mgr.get_active_session_info(ctx.session_id)
+                        if session_info:
+                            session_info.session.request_rerun(None)
+                            logger.info(f"Triggered UI rerun for status change: {current_status}")
+                except Exception as e:
+                    logger.debug(f"Could not trigger rerun: {e}")
+
+        check_interval += 1
         time.sleep(2)
 
     logger.info(f"Worker thread (ID: {thread_id}) finished prediction for {model}!")

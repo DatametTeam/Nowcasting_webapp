@@ -48,12 +48,13 @@ def get_model_job_status(model):
     """
     try:
         job_name = f"nwc_{model}"
-        # Run qstat to get all jobs
+        # Run qstat to get all jobs (suppress all output)
         result = subprocess.run(
             ["qstat"],
             check=True,
             text=True,
-            capture_output=True
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL  # Suppress error output
         )
 
         # Parse qstat output to find jobs with matching name
@@ -64,16 +65,15 @@ def get_model_job_status(model):
                 parts = line.split()
                 if len(parts) >= 5:
                     status = parts[4]  # 'Q' for queued, 'R' for running
-                    logger.debug(f"Found job for model {model} with status: {status}")
                     return status
 
         return None  # No job found for this model
 
     except subprocess.CalledProcessError:
-        logger.warning("qstat command failed - PBS might not be available")
+        # Silently fail if qstat not available
         return None
-    except Exception as e:
-        logger.error(f"Error checking job status for model {model}: {e}")
+    except Exception:
+        # Silently fail on any error
         return None
 
 

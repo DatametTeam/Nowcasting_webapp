@@ -256,8 +256,13 @@ def load_all_predictions(st, time_options, latest_file):
     latest_npy = Path(latest_file).stem + '.npy'
 
     try:
-        # All models now use the same path structure in real_time_pred
-        pred_path = config.prediction_output / "real_time_pred" / selected_model / latest_npy
+        # Special handling for TEST model - use test directory
+        if selected_model == "TEST":
+            pred_path = config.prediction_output / "test_predictions" / selected_model / latest_npy
+        else:
+            # All other models use the same path structure in real_time_pred
+            pred_path = config.prediction_output / "real_time_pred" / selected_model / latest_npy
+
         pred_array = np.load(pred_path)[0]  # Load all 12 timesteps
         logger.debug(f"Loaded predictions from: {pred_path}")
     except FileNotFoundError:

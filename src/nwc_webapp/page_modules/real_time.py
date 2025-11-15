@@ -188,6 +188,8 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
                 else:
                     # Check PBS job status (only on HPC)
                     job_status = None
+                    was_computing = model in st.session_state.get("submitted_models", set())
+
                     try:
                         from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
                         if is_pbs_available():
@@ -200,6 +202,9 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
                         st.markdown(f"- 📋 **{model}**: Queue")
                     elif job_status == 'R' or model in st.session_state.get("computing_models", set()):
                         st.markdown(f"- ⚙️ **{model}**: Computing...")
+                    elif was_computing and not job_status:
+                        # Job was submitted but is no longer in queue and no output file
+                        st.markdown(f"- ❌ **{model}**: Failed")
                     else:
                         st.markdown(f"- ⏹️ **{model}**: Not computed")
             else:
