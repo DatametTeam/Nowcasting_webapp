@@ -233,15 +233,18 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
                 # Update latest_file immediately so we don't relaunch for the same file
                 st.session_state.latest_file = latest_file
 
-                # Clear failed models from previous run so they can try again with new data
+                # Clear all model state from previous run so they can start fresh with new data
                 if "failed_models" in st.session_state:
                     st.session_state["failed_models"].clear()
                     logger.info("Cleared failed_models set for new data processing")
 
-                # Clear submitted models from previous run
                 if "submitted_models" in st.session_state:
                     st.session_state["submitted_models"].clear()
                     logger.info("Cleared submitted_models set for new data processing")
+
+                if "computing_models" in st.session_state:
+                    st.session_state["computing_models"].clear()
+                    logger.info("Cleared computing_models set for new data processing")
 
                 ctx = get_script_run_ctx()
                 launch_thread = threading.Thread(target=launch_thread_execution,
