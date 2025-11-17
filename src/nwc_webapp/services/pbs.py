@@ -1,4 +1,5 @@
 import os.path
+import re
 import subprocess
 from pathlib import Path
 
@@ -73,18 +74,26 @@ def get_model_job_status(model):
 
         # Parse qstat output to find jobs with matching name
         # qstat may truncate long job names, so check if our job_name is a substring
-        for line in result.stdout.splitlines():
+        for line in result.stdout.split('\n'):
             # Skip header lines
-            if line.startswith("Job id") or line.startswith("---") or not line.strip():
+            if line.startswith("Job id") or line.startswith("---") or line.startswith("davinci") or not line.strip():
                 continue
 
-            # Look for our job name anywhere in the line (handles truncation)
-            if job_name in line or model in line:
-                parts = line.split()
-                if len(parts) >= 5:
-                    status = parts[4]  # 'Q' for queued, 'R' for running
-                    logger.info(f"[QSTAT] Model {model}: FOUND - Status={status}")
-                    return status
+            if line and line[0].isdigit():
+                job_id = line.split()[0].split('.')[0]
+                result2 = subprocess.run(
+                    ["qstat", "-f", f"{job_id}"],
+                    check=True,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL  # Suppress error output
+                )
+                if job_name in result2.stdout:
+                    match = re.search(r'^\s*job_state\s*=\s*(\S+)', result2.stdout, re.MULTILINE)
+                    if match:
+                        status = match.group(1)
+                        logger.info(f"[QSTAT] Model {model}: FOUND - Status={status}")
+                        return status
 
         logger.info(f"[QSTAT] Model {model}: No job found in queue")
         return None  # No job found for this model
@@ -137,7 +146,7 @@ def get_pbs_env(model):
         env = f"""
             module load proxy
             module load anaconda3
-            source activate sole24_310
+            source activate nowcasting3.12
             """
     return env
 
