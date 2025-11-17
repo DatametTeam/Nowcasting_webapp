@@ -180,14 +180,40 @@ def worker_thread(event, latest_file, model, ctx):
 
             # Job disappeared from queue - check if prediction exists
             if last_status and not current_status:
-                logger.info(f"[{model}] Job no longer in queue - checking for output file")
-                # Give it a few more seconds for file system sync
-                time.sleep(5)
-                if model_output.exists():
-                    logger.info(f"[{model}] Prediction file appeared!")
-                    break
-                else:
-                    logger.warning(f"[{model}] Job ended but no prediction file - possible failure")
+                logger.info(f"[{model}] Job no longer in queue - polling for output file...")
+
+                # Poll more aggressively for up to 30 seconds
+                max_polls = 15  # 15 polls * 2 seconds = 30 seconds
+                for poll_attempt in range(max_polls):
+                    time.sleep(2)
+
+                    if model_output.exists():
+                        logger.info(f"[{model}] SUCCESS - Prediction file found after job completion!")
+
+                        # Trigger UI refresh immediately to update sidebar
+                        try:
+                            from streamlit.runtime.scriptrunner import get_script_run_ctx
+                            from streamlit.runtime import get_instance
+                            runtime = get_instance()
+                            if runtime and ctx:
+                                session_info = runtime._session_mgr.get_active_session_info(ctx.session_id)
+                                if session_info:
+                                    session_info.session.request_rerun(None)
+                                    logger.info(f"[{model}] Triggered UI rerun - sidebar will update")
+                        except Exception as e:
+                            logger.debug(f"[{model}] Could not trigger rerun: {e}")
+
+                        # Exit the wait loop - file is ready
+                        break
+
+                    logger.debug(f"[{model}] Poll {poll_attempt + 1}/{max_polls}: File not found yet...")
+
+                # Final check after polling
+                if not model_output.exists():
+                    logger.warning(f"[{model}] Job ended but no prediction file after 30s - likely failed")
+
+                # Exit the main wait loop since job is done
+                break
 
         # Log progress every 30 seconds
         if check_count % 15 == 0:
