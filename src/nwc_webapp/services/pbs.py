@@ -11,8 +11,17 @@ from nwc_webapp.logging_config import setup_logger
 logger = setup_logger(__name__)
 
 def is_pbs_available() -> bool:
-    import subprocess
-    return subprocess.call(["qstat"], shell=True) == 0
+    """Check if PBS is available by running qstat silently."""
+    try:
+        result = subprocess.run(
+            ["qstat", "-u", "guidim"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=2
+        )
+        return result.returncode == 0
+    except:
+        return False
 
 
 def get_job_status(job_id):
