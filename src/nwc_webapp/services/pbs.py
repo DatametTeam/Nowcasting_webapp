@@ -57,7 +57,7 @@ def get_model_job_status(model):
     """
     try:
         job_name = f"nwc_{model}"
-        # Run qstat only for user 'guidim' to reduce output (temporary - working on full suppression)
+        # Run qstat only for user 'guidim' to reduce output
         result = subprocess.run(
             ["qstat", "-u", "guidim"],
             check=True,
@@ -66,15 +66,24 @@ def get_model_job_status(model):
             stderr=subprocess.DEVNULL  # Suppress error output
         )
 
-        # Parse qstat output to find jobs with matching name
+        # Log full qstat output for debugging
+        logger.info(f"[QSTAT] Full output for user guidim:")
         for line in result.stdout.splitlines():
-            if job_name in line:
-                # qstat output format: job_id job_name user time status queue
-                # Status is typically the 5th column (index 4)
+            logger.info(f"[QSTAT]   {line}")
+
+        # Parse qstat output to find jobs with matching name
+        # qstat may truncate long job names, so check if our job_name is a substring
+        for line in result.stdout.splitlines():
+            # Skip header lines
+            if line.startswith("Job id") or line.startswith("---") or not line.strip():
+                continue
+
+            # Look for our job name anywhere in the line (handles truncation)
+            if job_name in line or model in line:
                 parts = line.split()
                 if len(parts) >= 5:
                     status = parts[4]  # 'Q' for queued, 'R' for running
-                    logger.info(f"[QSTAT] Model {model}: Status={status}, Line={line.strip()}")
+                    logger.info(f"[QSTAT] Model {model}: FOUND - Status={status}")
                     return status
 
         logger.info(f"[QSTAT] Model {model}: No job found in queue")
@@ -185,6 +194,11 @@ python3 "$WORKDIR/faradai/dreambooth_scripts/run_inference.py" \
 
 
 def start_prediction_job(model, latest_data):
+    # Defensive check - never submit job for TEST model
+    if model == "TEST" or model.upper() == "TEST":
+        logger.warning(f"[{model}] TEST model detected - skipping job submission")
+        return None
+
     latest_data = latest_data.split('.')[0]
 
     if model == 'ED_ConvLSTM':
@@ -224,7 +238,7 @@ def start_prediction_job(model, latest_data):
         logger.info(command)
         result = subprocess.run(command, check=True, text=True, capture_output=True)
         logger.info("Inference job submitted successfully!")
-        job_id = result.stdout.strip().split(".davinci-mgt01")[0]
+        job_id = result.stdout.strip().split(".")[0]
         logger.info("Job ID:", job_id)
         return job_id
 
