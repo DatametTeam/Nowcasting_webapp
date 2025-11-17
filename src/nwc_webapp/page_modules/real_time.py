@@ -112,12 +112,17 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
                 # Mark that prediction threads are launching
                 st.session_state["launch_prediction_thread"] = "ALL_MODELS"
 
+                # Update latest_file immediately so we don't relaunch for the same file
+                st.session_state.latest_file = latest_file
+
                 ctx = get_script_run_ctx()
                 launch_thread = threading.Thread(target=launch_thread_execution,
                                                  args=(st, latest_file, columns, model_list),
                                                  daemon=True)
                 add_script_run_ctx(launch_thread, ctx)
                 launch_thread.start()
+
+                logger.info(f"Updated latest_file to {latest_file} - ready for next update")
         else:
             logger.debug(f"Current SRI == Latest file processed! {latest_file}. Skipped prediction")
 
