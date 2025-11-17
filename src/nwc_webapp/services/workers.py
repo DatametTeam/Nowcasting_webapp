@@ -231,6 +231,28 @@ def worker_thread(event, latest_file, model, ctx):
                 # Exit the main wait loop since job is done
                 break
 
+        # Check if job never appeared in queue after 30 seconds - likely failed at submission
+        if check_count > 15 and last_status is None and not model_output.exists():
+            logger.warning(f"[{model}] Job never appeared in queue after 30s - marking as failed")
+            if "failed_models" not in ctx.session_state:
+                ctx.session_state["failed_models"] = set()
+            ctx.session_state["failed_models"].add(model)
+
+            # Trigger UI refresh to show failed status
+            try:
+                from streamlit.runtime.scriptrunner import get_script_run_ctx
+                from streamlit.runtime import get_instance
+                runtime = get_instance()
+                if runtime and ctx:
+                    session_info = runtime._session_mgr.get_active_session_info(ctx.session_id)
+                    if session_info:
+                        session_info.session.request_rerun(None)
+                        logger.info(f"[{model}] Triggered UI rerun - showing failed status")
+            except Exception as e:
+                logger.debug(f"[{model}] Could not trigger rerun: {e}")
+
+            break
+
         # Log progress every 30 seconds
         if check_count % 15 == 0:
             logger.info(f"[{model}] Still waiting... ({check_count * 2}s elapsed)")
