@@ -48,9 +48,9 @@ def get_model_job_status(model):
     """
     try:
         job_name = f"nwc_{model}"
-        # Run qstat to get all jobs (suppress all output)
+        # Run qstat only for user 'guidim' to reduce output (temporary - working on full suppression)
         result = subprocess.run(
-            ["qstat"],
+            ["qstat", "-u", "guidim"],
             check=True,
             text=True,
             stdout=subprocess.PIPE,
