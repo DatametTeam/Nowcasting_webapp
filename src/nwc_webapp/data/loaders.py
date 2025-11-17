@@ -267,7 +267,11 @@ def load_all_predictions(st, time_options, latest_file):
         logger.debug(f"Loaded predictions from: {pred_path}")
     except FileNotFoundError:
         logger.warning(f"Prediction file not present yet: {pred_path}")
-        return None if not ground_truth_times else rgba_images  # Return ground truth if available
+        # Return ground truth if available, otherwise None
+        if ground_truth_times and ground_truth_loaded > 0:
+            return rgba_images, status_info
+        else:
+            return None, status_info
 
     # Process all 12 prediction timesteps
     status_info['predictions_available'] = True

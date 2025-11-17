@@ -74,8 +74,10 @@ def get_model_job_status(model):
                 parts = line.split()
                 if len(parts) >= 5:
                     status = parts[4]  # 'Q' for queued, 'R' for running
+                    logger.info(f"[QSTAT] Model {model}: Status={status}, Line={line.strip()}")
                     return status
 
+        logger.info(f"[QSTAT] Model {model}: No job found in queue")
         return None  # No job found for this model
 
     except subprocess.CalledProcessError:
