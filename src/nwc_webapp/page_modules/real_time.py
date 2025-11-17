@@ -206,6 +206,7 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
                     job_status = None
                     is_computing = model in st.session_state.get("computing_models", set())
                     was_submitted = model in st.session_state.get("submitted_models", set())
+                    has_failed = model in st.session_state.get("failed_models", set())
 
                     try:
                         from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
@@ -215,7 +216,10 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
                         pass
 
                     # Determine display status
-                    if job_status == 'Q':
+                    if has_failed:
+                        # Worker detected job failed (no output after polling)
+                        st.markdown(f"- ❌ **{model}**: Failed prediction!")
+                    elif job_status == 'Q':
                         st.markdown(f"- 📋 **{model}**: <span class='queue-text'>Queue</span>", unsafe_allow_html=True)
                     elif job_status == 'R':
                         st.markdown(f"- ⚙️ **{model}**: <span class='computing-text'>Computing</span>", unsafe_allow_html=True)

@@ -117,11 +117,10 @@ def worker_thread(event, latest_file, model, ctx):
     new_file = Path(latest_file).stem + '.npy'
     logger.info(f"Looking for prediction file: {new_file}")
 
-    # Special handling for TEST model - use test directory, no job submission
+    # Special handling for TEST model - check in real_time_pred/Test folder
     if model == "TEST":
-        test_output_dir = output_dir.parent / "test_predictions" / model
-        model_output = test_output_dir / new_file
-        logger.info(f"[{model}] TEST model - looking in {test_output_dir}")
+        model_output = output_dir / "Test" / new_file
+        logger.info(f"[{model}] TEST model - looking in {output_dir / 'Test'}")
     else:
         model_output = output_dir / model / new_file
 
@@ -210,7 +209,11 @@ def worker_thread(event, latest_file, model, ctx):
 
                 # Final check after polling
                 if not model_output.exists():
-                    logger.warning(f"[{model}] Job ended but no prediction file after 30s - likely failed")
+                    logger.warning(f"[{model}] Job ended but no prediction file after 30s - marking as failed")
+                    # Add to failed models set
+                    if "failed_models" not in ctx.session_state:
+                        ctx.session_state["failed_models"] = set()
+                    ctx.session_state["failed_models"].add(model)
 
                 # Exit the main wait loop since job is done
                 break

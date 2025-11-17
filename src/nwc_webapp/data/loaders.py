@@ -256,15 +256,49 @@ def load_all_predictions(st, time_options, latest_file):
     latest_npy = Path(latest_file).stem + '.npy'
 
     try:
-        # Special handling for TEST model - use test directory
+        # Special handling for TEST model
         if selected_model == "TEST":
-            pred_path = config.real_time_pred.parent / "test_predictions" / selected_model / latest_npy
+            # TEST model file contains 24 timesteps: first 12 are ground truth, last 12 are predictions
+            pred_path = config.real_time_pred / "Test" / latest_npy
+            full_array = np.load(pred_path)  # Shape: (24, H, W)
+
+            # Extract ground truth (first 12) and predictions (last 12)
+            ground_truth_array = full_array[:12]  # First 12 timesteps
+            pred_array = full_array[12:]  # Last 12 timesteps
+
+            logger.debug(f"Loaded TEST data from: {pred_path} (24 timesteps: 12 GT + 12 predictions)")
+
+            # Override ground truth with TEST ground truth data
+            for i, time_option in enumerate(ground_truth_times):
+                if i < len(ground_truth_array):
+                    img = ground_truth_array[i].copy()
+                    img[img < 0] = 0
+
+                    # Apply mask
+                    img = img * radar_mask
+
+                    # Warp image
+                    img = warp_map(img)
+                    img = np.nan_to_num(img, nan=0)
+                    img[img < 0] = 0
+
+                    # Flip image vertically
+                    img = np.flipud(img)
+
+                    # Apply colormap
+                    img_norm = norm(img)
+                    rgba_img = cmap(img_norm)
+
+                    rgba_images[time_option] = rgba_img
+                    logger.debug(f"TEST: Loaded ground truth {time_option} from array")
+
+            status_info['ground_truth_available'] = True
+            status_info['ground_truth_count'] = min(len(ground_truth_array), len(ground_truth_times))
         else:
             # All other models use the same path structure in real_time_pred
             pred_path = config.real_time_pred / selected_model / latest_npy
-
-        pred_array = np.load(pred_path)[0]  # Load all 12 timesteps
-        logger.debug(f"Loaded predictions from: {pred_path}")
+            pred_array = np.load(pred_path)[0]  # Load all 12 timesteps
+            logger.debug(f"Loaded predictions from: {pred_path}")
     except FileNotFoundError:
         logger.warning(f"Prediction file not present yet: {pred_path}")
         # Return ground truth if available, otherwise None
