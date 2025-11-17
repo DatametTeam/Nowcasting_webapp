@@ -157,7 +157,7 @@ def start_prediction_job(model: str, latest_data: str) -> str:
     config = get_config()
 
     # For real-time predictions, create output in real_time_pred folder
-    output_dir = config.prediction_output / "real_time_pred" / model
+    output_dir = config.real_time_pred / model
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Output filename matches the input data timestamp

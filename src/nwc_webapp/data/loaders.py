@@ -112,7 +112,7 @@ def load_prediction_data(st, time_options, latest_file):
     try:
         # Use config for prediction paths
         if selected_model == 'ED_ConvLSTM':
-            pred_path = config.prediction_output / "real_time_pred" / selected_model / latest_npy
+            pred_path = config.real_time_pred / selected_model / latest_npy
             img1 = np.load(pred_path)[0, time_options.index(selected_time)]
         else:
             pred_path = config.prediction_output / selected_model / "predictions.npy"
@@ -258,10 +258,10 @@ def load_all_predictions(st, time_options, latest_file):
     try:
         # Special handling for TEST model - use test directory
         if selected_model == "TEST":
-            pred_path = config.prediction_output / "test_predictions" / selected_model / latest_npy
+            pred_path = config.real_time_pred.parent / "test_predictions" / selected_model / latest_npy
         else:
             # All other models use the same path structure in real_time_pred
-            pred_path = config.prediction_output / "real_time_pred" / selected_model / latest_npy
+            pred_path = config.real_time_pred / selected_model / latest_npy
 
         pred_array = np.load(pred_path)[0]  # Load all 12 timesteps
         logger.debug(f"Loaded predictions from: {pred_path}")

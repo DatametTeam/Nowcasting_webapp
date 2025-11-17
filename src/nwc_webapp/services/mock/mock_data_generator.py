@@ -203,7 +203,10 @@ def setup_mock_prediction_data(pred_folder: Path, model_names: list):
         pred_folder: Base folder for predictions
         model_names: List of model names to create data for
     """
+    from nwc_webapp.config.config import get_config
+
     pred_folder.mkdir(parents=True, exist_ok=True)
+    config = get_config()
 
     for model_name in model_names:
         model_folder = pred_folder / model_name
@@ -221,8 +224,8 @@ def setup_mock_prediction_data(pred_folder: Path, model_names: list):
             )
             logger.info(f"Created mock prediction file for {model_name}")
 
-        # Create real-time predictions folder
-        realtime_folder = pred_folder / "real_time_pred" / model_name
+        # Create real-time predictions folder using config
+        realtime_folder = config.real_time_pred / model_name
         realtime_folder.mkdir(parents=True, exist_ok=True)
 
 

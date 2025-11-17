@@ -156,10 +156,10 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
 
     # Status Panel - Right Column
     with columns[1]:
-        # Add CSS for animated dots on Computing status
+        # Add CSS for animated dots on Queue and Computing status
         st.markdown("""
         <style>
-        .computing-text::after {
+        .queue-text::after, .computing-text::after {
             content: '';
             animation: dots 1.5s steps(4, end) infinite;
         }
@@ -216,7 +216,7 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
 
                     # Determine display status
                     if job_status == 'Q':
-                        st.markdown(f"- 📋 **{model}**: Queue")
+                        st.markdown(f"- 📋 **{model}**: <span class='queue-text'>Queue</span>", unsafe_allow_html=True)
                     elif job_status == 'R':
                         st.markdown(f"- ⚙️ **{model}**: <span class='computing-text'>Computing</span>", unsafe_allow_html=True)
                     elif is_computing:
