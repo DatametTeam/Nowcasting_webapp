@@ -13,9 +13,127 @@ from nwc_webapp.ui.maps import create_only_map, create_animated_map_html
 from nwc_webapp.utils import get_latest_file, launch_thread_execution
 from nwc_webapp.data.loaders import load_all_predictions
 from nwc_webapp.logging_config import setup_logger
+from nwc_webapp.config.config import get_config
 
 # Set up logger
 logger = setup_logger(__name__)
+
+
+@st.fragment(run_every=2)  # Auto-update every 2 seconds without full app rerun
+def render_status_panel(model_list):
+    """
+    Status panel that updates independently every 2 seconds.
+    Shows system status, model predictions, and job states.
+    """
+    # Add CSS for animated dots on Queue and Computing status
+    st.markdown("""
+    <style>
+    .queue-text::after, .computing-text::after {
+        content: '';
+        animation: dots 1.5s steps(4, end) infinite;
+    }
+    @keyframes dots {
+        0%, 24% { content: ''; }
+        25%, 49% { content: '.'; }
+        50%, 74% { content: '..'; }
+        75%, 100% { content: '...'; }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("### System Status")
+
+    # Latest data timestamp
+    latest_file = st.session_state.get("latest_file", "N/A")
+    st.markdown(f"**Last Data Found:**  \n`{latest_file}`")
+
+    # Check if new data is available
+    latest_thread = st.session_state.get("latest_thread", None)
+    if latest_thread and latest_thread != latest_file:
+        st.success("🆕 New data available!")
+
+    st.markdown("---")
+
+    # Model Prediction Status
+    st.markdown("**Model Predictions:**")
+
+    config = get_config()
+
+    for model in model_list:
+        # Check if prediction exists for this model
+        if latest_file != "N/A":
+            # TEST model always uses predictions.npy (case-insensitive)
+            if model.upper() == "TEST":
+                pred_path = config.real_time_pred / "Test" / "predictions.npy"
+            else:
+                # Other models use date-based filename
+                latest_npy = Path(latest_file).stem + '.npy'
+                pred_path = config.real_time_pred / model / latest_npy
+
+            if pred_path.exists():
+                st.markdown(f"- ✅ **{model}**: Ready")
+            else:
+                # Check PBS job status (only on HPC)
+                job_status = None
+                is_computing = model in st.session_state.get("computing_models", set())
+                was_submitted = model in st.session_state.get("submitted_models", set())
+                has_failed = model in st.session_state.get("failed_models", set())
+
+                try:
+                    from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
+                    if is_pbs_available():
+                        job_status = get_model_job_status(model)
+                except:
+                    pass
+
+                # Determine display status
+                if has_failed:
+                    # Worker detected job failed (no output after polling)
+                    st.markdown(f"- ❌ **{model}**: Failed prediction!")
+                elif job_status == 'Q':
+                    st.markdown(f"- 📋 **{model}**: <span class='queue-text'>Queue</span>", unsafe_allow_html=True)
+                elif job_status == 'R':
+                    st.markdown(f"- ⚙️ **{model}**: <span class='computing-text'>Computing</span>", unsafe_allow_html=True)
+                elif is_computing:
+                    # Worker thread is still polling for output file
+                    st.markdown(f"- 🔄 **{model}**: Finalizing...")
+                elif was_submitted and not job_status:
+                    # Job was submitted but is no longer in queue and no output file
+                    # This means the job finished but the prediction file was not created
+                    st.markdown(f"- ❌ **{model}**: Failed")
+                else:
+                    st.markdown(f"- ⏹️ **{model}**: Not computed")
+        else:
+            st.markdown(f"- ⏹️ **{model}**: Waiting for data")
+
+    st.markdown("---")
+
+    # System Info
+    st.markdown("**System Info:**")
+    checking_status = "🔄 Active" if st.session_state.get("run_get_latest_file") else "⏸️ Paused"
+    st.markdown(f"- Data Monitor: {checking_status}")
+
+    if "all_predictions_data" in st.session_state and st.session_state["all_predictions_data"]:
+        num_frames = len(st.session_state["all_predictions_data"])
+        st.markdown(f"- Loaded Frames: {num_frames}")
+
+    # Auto-refresh indicator
+    st.markdown(f"- Auto-refresh: Every 5 min")
+
+    # Data Load Status / Errors
+    if "data_load_status" in st.session_state:
+        status = st.session_state["data_load_status"]
+
+        # Show ground truth status
+        if not status.get('ground_truth_available', False):
+            st.markdown("---")
+            st.warning(f"⚠️ **Ground Truth Data Missing**")
+            if status.get('error'):
+                st.error(status['error'])
+            st.markdown("_Ground truth radar data is required for predictions. Please ensure SRI files are available._")
+        elif status.get('ground_truth_count', 0) < 7:
+            st.markdown("---")
+            st.warning(f"⚠️ **Partial Ground Truth**  \nOnly {status.get('ground_truth_count', 0)}/7 frames loaded")
 
 
 def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
@@ -169,115 +287,6 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
         else:
             create_only_map(None)
 
-    # Status Panel - Right Column
+    # Status Panel - Right Column (updates independently every 2 seconds)
     with columns[1]:
-        # Add CSS for animated dots on Queue and Computing status
-        st.markdown("""
-        <style>
-        .queue-text::after, .computing-text::after {
-            content: '';
-            animation: dots 1.5s steps(4, end) infinite;
-        }
-        @keyframes dots {
-            0%, 24% { content: ''; }
-            25%, 49% { content: '.'; }
-            50%, 74% { content: '..'; }
-            75%, 100% { content: '...'; }
-        }
-        </style>
-        """, unsafe_allow_html=True)
-
-        st.markdown("### System Status")
-
-        # Latest data timestamp
-        latest_file = st.session_state.get("latest_file", "N/A")
-        st.markdown(f"**Last Data Found:**  \n`{latest_file}`")
-
-        # Check if new data is available
-        latest_thread = st.session_state.get("latest_thread", None)
-        if latest_thread and latest_thread != latest_file:
-            st.success("🆕 New data available!")
-
-        st.markdown("---")
-
-        # Model Prediction Status
-        st.markdown("**Model Predictions:**")
-
-        from nwc_webapp.config.config import get_config
-        config = get_config()
-
-        for model in model_options:
-            # Check if prediction exists for this model
-            if latest_file != "N/A":
-                # TEST model always uses predictions.npy (case-insensitive)
-                if model.upper() == "TEST":
-                    pred_path = config.real_time_pred / "Test" / "predictions.npy"
-                else:
-                    # Other models use date-based filename
-                    latest_npy = Path(latest_file).stem + '.npy'
-                    pred_path = config.real_time_pred / model / latest_npy
-
-                if pred_path.exists():
-                    st.markdown(f"- ✅ **{model}**: Ready")
-                else:
-                    # Check PBS job status (only on HPC)
-                    job_status = None
-                    is_computing = model in st.session_state.get("computing_models", set())
-                    was_submitted = model in st.session_state.get("submitted_models", set())
-                    has_failed = model in st.session_state.get("failed_models", set())
-
-                    try:
-                        from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
-                        if is_pbs_available():
-                            job_status = get_model_job_status(model)
-                    except:
-                        pass
-
-                    # Determine display status
-                    if has_failed:
-                        # Worker detected job failed (no output after polling)
-                        st.markdown(f"- ❌ **{model}**: Failed prediction!")
-                    elif job_status == 'Q':
-                        st.markdown(f"- 📋 **{model}**: <span class='queue-text'>Queue</span>", unsafe_allow_html=True)
-                    elif job_status == 'R':
-                        st.markdown(f"- ⚙️ **{model}**: <span class='computing-text'>Computing</span>", unsafe_allow_html=True)
-                    elif is_computing:
-                        # Worker thread is still polling for output file
-                        st.markdown(f"- 🔄 **{model}**: Finalizing...")
-                    elif was_submitted and not job_status:
-                        # Job was submitted but is no longer in queue and no output file
-                        # This means the job finished but the prediction file was not created
-                        st.markdown(f"- ❌ **{model}**: Failed")
-                    else:
-                        st.markdown(f"- ⏹️ **{model}**: Not computed")
-            else:
-                st.markdown(f"- ⏹️ **{model}**: Waiting for data")
-
-        st.markdown("---")
-
-        # System Info
-        st.markdown("**System Info:**")
-        checking_status = "🔄 Active" if st.session_state.get("run_get_latest_file") else "⏸️ Paused"
-        st.markdown(f"- Data Monitor: {checking_status}")
-
-        if "all_predictions_data" in st.session_state and st.session_state["all_predictions_data"]:
-            num_frames = len(st.session_state["all_predictions_data"])
-            st.markdown(f"- Loaded Frames: {num_frames}")
-
-        # Auto-refresh indicator
-        st.markdown(f"- Auto-refresh: Every 5 min")
-
-        # Data Load Status / Errors
-        if "data_load_status" in st.session_state:
-            status = st.session_state["data_load_status"]
-
-            # Show ground truth status
-            if not status.get('ground_truth_available', False):
-                st.markdown("---")
-                st.warning(f"⚠️ **Ground Truth Data Missing**")
-                if status.get('error'):
-                    st.error(status['error'])
-                st.markdown("_Ground truth radar data is required for predictions. Please ensure SRI files are available._")
-            elif status.get('ground_truth_count', 0) < 7:
-                st.markdown("---")
-                st.warning(f"⚠️ **Partial Ground Truth**  \nOnly {status.get('ground_truth_count', 0)}/7 frames loaded")
+        render_status_panel(model_list)
