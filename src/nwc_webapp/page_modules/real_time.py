@@ -194,8 +194,8 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
         for model in model_options:
             # Check if prediction exists for this model
             if latest_file != "N/A":
-                # TEST model always uses predictions.npy
-                if model == "TEST":
+                # TEST model always uses predictions.npy (case-insensitive)
+                if model.upper() == "TEST":
                     pred_path = config.real_time_pred / "Test" / "predictions.npy"
                 else:
                     # Other models use date-based filename

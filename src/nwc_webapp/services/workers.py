@@ -115,8 +115,8 @@ def worker_thread(event, latest_file, model, ctx):
 
     jobs_ids = []
 
-    # Special handling for TEST model - always uses predictions.npy
-    if model == "TEST":
+    # Special handling for TEST model - always uses predictions.npy (case-insensitive)
+    if model.upper() == "TEST":
         model_output = output_dir / "Test" / "predictions.npy"
         logger.info(f"[{model}] TEST model - checking for {model_output}")
 
@@ -170,7 +170,7 @@ def worker_thread(event, latest_file, model, ctx):
         check_count += 1
 
         # Check job status every 3 iterations (6 seconds) for non-TEST models
-        if model != "TEST" and is_pbs_available() and check_count % 3 == 0:
+        if model.upper() != "TEST" and is_pbs_available() and check_count % 3 == 0:
             current_status = get_model_job_status(model)
 
             # Status changed - trigger UI refresh
@@ -194,8 +194,8 @@ def worker_thread(event, latest_file, model, ctx):
             if last_status and not current_status:
                 logger.info(f"[{model}] Job no longer in queue - polling for output file...")
 
-                # Poll more aggressively for up to 30 seconds
-                max_polls = 15  # 15 polls * 2 seconds = 30 seconds
+                # Poll for up to 10 seconds to detect failures faster
+                max_polls = 5  # 5 polls * 2 seconds = 10 seconds
                 for poll_attempt in range(max_polls):
                     time.sleep(2)
 
@@ -222,7 +222,7 @@ def worker_thread(event, latest_file, model, ctx):
 
                 # Final check after polling
                 if not model_output.exists():
-                    logger.warning(f"[{model}] Job ended but no prediction file after 30s - marking as failed")
+                    logger.warning(f"[{model}] Job ended but no prediction file after 10s - marking as failed")
                     # Add to failed models set
                     if "failed_models" not in ctx.session_state:
                         ctx.session_state["failed_models"] = set()

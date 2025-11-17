@@ -67,10 +67,8 @@ def get_model_job_status(model):
             stderr=subprocess.DEVNULL  # Suppress error output
         )
 
-        # Log full qstat output for debugging
-        logger.info(f"[QSTAT] Full output for user guidim:")
-        for line in result.stdout.splitlines():
-            logger.info(f"[QSTAT]   {line}")
+        # Suppress full qstat output to reduce log clutter
+        # logger.debug(f"[QSTAT] Checking jobs for user guidim")
 
         # Parse qstat output to find jobs with matching name
         # qstat may truncate long job names, so check if our job_name is a substring

@@ -255,8 +255,8 @@ def load_all_predictions(st, time_options, latest_file):
     selected_model = st.session_state.selected_model
 
     try:
-        # Special handling for TEST model
-        if selected_model == "TEST":
+        # Special handling for TEST model (case-insensitive)
+        if selected_model.upper() == "TEST":
             # TEST model always uses predictions.npy (24 timesteps: first 12 are ground truth, last 12 are predictions)
             pred_path = config.real_time_pred / "Test" / "predictions.npy"
             full_array = np.load(pred_path)  # Shape: (24, H, W)
