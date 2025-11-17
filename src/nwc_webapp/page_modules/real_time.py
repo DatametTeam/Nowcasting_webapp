@@ -193,11 +193,14 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
 
         for model in model_options:
             # Check if prediction exists for this model
-            latest_npy = Path(latest_file).stem + '.npy' if latest_file != "N/A" else None
-
-            if latest_npy:
-                # All models now use the same path structure in real_time_pred
-                pred_path = config.real_time_pred / model / latest_npy
+            if latest_file != "N/A":
+                # TEST model always uses predictions.npy
+                if model == "TEST":
+                    pred_path = config.real_time_pred / "Test" / "predictions.npy"
+                else:
+                    # Other models use date-based filename
+                    latest_npy = Path(latest_file).stem + '.npy'
+                    pred_path = config.real_time_pred / model / latest_npy
 
                 if pred_path.exists():
                     st.markdown(f"- ✅ **{model}**: Ready")

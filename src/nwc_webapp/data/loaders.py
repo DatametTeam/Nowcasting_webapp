@@ -253,13 +253,12 @@ def load_all_predictions(st, time_options, latest_file):
 
     # ===== Load Prediction Data =====
     selected_model = st.session_state.selected_model
-    latest_npy = Path(latest_file).stem + '.npy'
 
     try:
         # Special handling for TEST model
         if selected_model == "TEST":
-            # TEST model file contains 24 timesteps: first 12 are ground truth, last 12 are predictions
-            pred_path = config.real_time_pred / "Test" / latest_npy
+            # TEST model always uses predictions.npy (24 timesteps: first 12 are ground truth, last 12 are predictions)
+            pred_path = config.real_time_pred / "Test" / "predictions.npy"
             full_array = np.load(pred_path)  # Shape: (24, H, W)
 
             # Extract ground truth (first 12) and predictions (last 12)
@@ -295,7 +294,8 @@ def load_all_predictions(st, time_options, latest_file):
             status_info['ground_truth_available'] = True
             status_info['ground_truth_count'] = min(len(ground_truth_array), len(ground_truth_times))
         else:
-            # All other models use the same path structure in real_time_pred
+            # All other models use date-based filename
+            latest_npy = Path(latest_file).stem + '.npy'
             pred_path = config.real_time_pred / selected_model / latest_npy
             pred_array = np.load(pred_path)[0]  # Load all 12 timesteps
             logger.debug(f"Loaded predictions from: {pred_path}")

@@ -114,15 +114,31 @@ def worker_thread(event, latest_file, model, ctx):
     logger.info(f"Worker thread (ID: {thread_id}) starting prediction for model: {model}")
 
     jobs_ids = []
+
+    # Special handling for TEST model - always uses predictions.npy
+    if model == "TEST":
+        model_output = output_dir / "Test" / "predictions.npy"
+        logger.info(f"[{model}] TEST model - checking for {model_output}")
+
+        # TEST model: Check if file exists and exit immediately (no waiting)
+        if model_output.exists():
+            logger.info(f"[{model}] TEST predictions.npy exists - ready!")
+        else:
+            logger.warning(f"[{model}] TEST predictions.npy not found - marking as failed")
+            if "failed_models" not in ctx.session_state:
+                ctx.session_state["failed_models"] = set()
+            ctx.session_state["failed_models"].add(model)
+
+        # Remove from computing set and exit immediately
+        if model in ctx.session_state["computing_models"]:
+            ctx.session_state["computing_models"].remove(model)
+        event.set()
+        return
+
+    # For non-TEST models: use date-based filename
     new_file = Path(latest_file).stem + '.npy'
     logger.info(f"Looking for prediction file: {new_file}")
-
-    # Special handling for TEST model - check in real_time_pred/Test folder
-    if model == "TEST":
-        model_output = output_dir / "Test" / new_file
-        logger.info(f"[{model}] TEST model - looking in {output_dir / 'Test'}")
-    else:
-        model_output = output_dir / model / new_file
+    model_output = output_dir / model / new_file
 
     # STEP 1: Check if prediction already exists
     if model_output.exists():
@@ -133,17 +149,14 @@ def worker_thread(event, latest_file, model, ctx):
         event.set()
         return
 
-    # STEP 2: Submit job (skip for TEST model)
-    if model == "TEST":
-        logger.info(f"[{model}] TEST model - waiting for manual file placement")
+    # STEP 2: Submit job
+    logger.info(f"[{model}] File does not exist - submitting PBS job")
+    job_id = start_prediction_job(model, latest_file)
+    if job_id:
+        logger.info(f"[{model}] Job submitted: {job_id}")
+        ctx.session_state["submitted_models"].add(model)
     else:
-        logger.info(f"[{model}] File does not exist - submitting PBS job")
-        job_id = start_prediction_job(model, latest_file)
-        if job_id:
-            logger.info(f"[{model}] Job submitted: {job_id}")
-            ctx.session_state["submitted_models"].add(model)
-        else:
-            logger.error(f"[{model}] Job submission failed!")
+        logger.error(f"[{model}] Job submission failed!")
 
     # STEP 3: Monitor job status and wait for file
     from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
