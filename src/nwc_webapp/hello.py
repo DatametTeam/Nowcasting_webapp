@@ -79,8 +79,4 @@ if is_local() and "mock_service_started" not in st.session_state:
     st.session_state.mock_service_started = True
     logger.info("🎭 Mock realtime service started (local mode)")
 
-if __name__ == "__main__":
-    logger.info(f"***NEWRUN @ {datetime.now()}***")
-    # print(st.session_state)
-
-    main(app_config)
+main(app_config)   # Streamlit will call this on each rerun

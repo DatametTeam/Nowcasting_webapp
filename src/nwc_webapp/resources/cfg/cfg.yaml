@@ -14,7 +14,7 @@ csi_threshold: [1, 5, 10, 20, 50]
 # HPC paths (used when running on davinci cluster)
 hpc_paths:
   sri_folder: "/davinci-1/work/protezionecivile/data1/SRI_adj"
-  prediction_output: "/davinci-1/work/protezionecivile/nwc_webapp/models_predictions"
+  prediction_output: "/davinci-1/work/protezionecivile/nwc_webapp/"
   data_root: "/davinci-1/work/protezionecivile"
   real_time_pred: "/davinci-1/work/protezionecivile/nwc_webapp/real_time_results"
 
