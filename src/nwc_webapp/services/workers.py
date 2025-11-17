@@ -108,7 +108,7 @@ def worker_thread(event, latest_file, model, ctx):
         ctx: Streamlit script run context for session state access
     """
     config = get_config()
-    output_dir = config.prediction_output / "real_time_pred"
+    output_dir = config.real_time_pred
 
     thread_id = threading.get_ident()
     logger.info(f"Worker thread (ID: {thread_id}) starting prediction for model: {model}")

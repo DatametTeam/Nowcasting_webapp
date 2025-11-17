@@ -156,6 +156,22 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
 
     # Status Panel - Right Column
     with columns[1]:
+        # Add CSS for animated dots on Computing status
+        st.markdown("""
+        <style>
+        .computing-text::after {
+            content: '';
+            animation: dots 1.5s steps(4, end) infinite;
+        }
+        @keyframes dots {
+            0%, 24% { content: ''; }
+            25%, 49% { content: '.'; }
+            50%, 74% { content: '..'; }
+            75%, 100% { content: '...'; }
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
         st.markdown("### System Status")
 
         # Latest data timestamp
@@ -181,7 +197,7 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
 
             if latest_npy:
                 # All models now use the same path structure in real_time_pred
-                pred_path = config.prediction_output / "real_time_pred" / model / latest_npy
+                pred_path = config.real_time_pred / model / latest_npy
 
                 if pred_path.exists():
                     st.markdown(f"- ✅ **{model}**: Ready")
@@ -202,7 +218,7 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
                     if job_status == 'Q':
                         st.markdown(f"- 📋 **{model}**: Queue")
                     elif job_status == 'R':
-                        st.markdown(f"- ⚙️ **{model}**: Computing...")
+                        st.markdown(f"- ⚙️ **{model}**: <span class='computing-text'>Computing</span>", unsafe_allow_html=True)
                     elif is_computing:
                         # Worker thread is still polling for output file
                         st.markdown(f"- 🔄 **{model}**: Finalizing...")
