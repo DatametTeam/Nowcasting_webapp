@@ -6,6 +6,7 @@ models:
   - ED_ConvLSTM
   - IAM4VP
   - PredFormer
+  - SPROG
   - Test
 
 # Metrics thresholds
