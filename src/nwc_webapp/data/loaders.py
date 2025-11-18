@@ -116,7 +116,7 @@ def load_prediction_data(st, time_options, latest_file):
             img1 = np.load(pred_path)[0, time_options.index(selected_time)]
         else:
             pred_path = config.prediction_output / selected_model / "predictions.npy"
-            img1 = np.load(pred_path)[0, time_options.index(selected_time)]
+            img1 = np.load(pred_path)[time_options.index(selected_time)]
     except FileNotFoundError:
         logger.warning(f"Prediction file not present yet: {pred_path}")
         return None
@@ -297,7 +297,10 @@ def load_all_predictions(st, time_options, latest_file):
             # All other models use date-based filename
             latest_npy = Path(latest_file).stem + '.npy'
             pred_path = config.real_time_pred / selected_model / latest_npy
-            pred_array = np.load(pred_path)[0]  # Load all 12 timesteps
+            if 'ED_ConvLSTM' in str(pred_path):
+                pred_array = np.load(pred_path)[0]  # Load all 12 timesteps
+            else:
+                pred_array = np.load(pred_path)  # Load all 12 timesteps
             logger.debug(f"Loaded predictions from: {pred_path}")
     except FileNotFoundError:
         logger.warning(f"Prediction file not present yet: {pred_path}")
