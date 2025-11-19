@@ -174,7 +174,8 @@ def load_all_predictions(st, time_options, latest_file):
         'ground_truth_available': False,
         'ground_truth_count': 0,
         'predictions_available': False,
-        'error': None
+        'error': None,
+        'missing_groundtruth': []  # List of missing groundtruth timestamps
     }
 
     # ===== Load Ground Truth Data (past SRI files) =====
@@ -221,6 +222,9 @@ def load_all_predictions(st, time_options, latest_file):
                     img = np.nan_to_num(img, nan=0)
                     img[img < 0] = 0
 
+                    # Apply minimum threshold filter (values below threshold are set to 0)
+                    img[img < config.visualization.min_value_threshold] = 0
+
                     # Flip image vertically to correct orientation
                     img = np.flipud(img)
 
@@ -232,7 +236,11 @@ def load_all_predictions(st, time_options, latest_file):
                     ground_truth_loaded += 1
                     logger.debug(f"Loaded ground truth {time_option}: {past_filename}")
                 else:
-                    logger.error(f"Ground truth file not found: {past_filepath}")
+                    # Track missing groundtruth file
+                    missing_timestamp = past_dt.strftime("%d-%m-%Y %H:%M")
+                    status_info['missing_groundtruth'].append(missing_timestamp)
+                    logger.warning(f"Ground truth file not found: {past_filepath}")
+
                     # Create empty/zero image as fallback
                     img = np.zeros_like(radar_mask).astype(float)
                     img_norm = norm(img)
@@ -281,6 +289,9 @@ def load_all_predictions(st, time_options, latest_file):
                     img = np.nan_to_num(img, nan=0)
                     img[img < 0] = 0
 
+                    # Apply minimum threshold filter (values below threshold are set to 0)
+                    img[img < config.visualization.min_value_threshold] = 0
+
                     # Flip image vertically
                     img = np.flipud(img)
 
@@ -324,6 +335,9 @@ def load_all_predictions(st, time_options, latest_file):
         img = np.nan_to_num(img, nan=0)
         img[img < 0] = 0
         img = img.astype(float)
+
+        # Apply minimum threshold filter (values below threshold are set to 0)
+        img[img < config.visualization.min_value_threshold] = 0
 
         # Flip image vertically to correct orientation
         img = np.flipud(img)

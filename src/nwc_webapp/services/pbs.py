@@ -93,7 +93,8 @@ def get_model_job_status(model):
                         logger.info(f"[QSTAT] Model {model}: FOUND - Status={status}")
                         return status
 
-        logger.info(f"[QSTAT] Model {model}: No job found in queue")
+        # No job found - this is normal after job completes, don't spam logs
+        logger.debug(f"[QSTAT] Model {model}: No job found in queue")
         return None  # No job found for this model
 
     except subprocess.CalledProcessError:

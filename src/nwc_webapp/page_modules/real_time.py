@@ -19,12 +19,86 @@ from nwc_webapp.config.config import get_config
 logger = setup_logger(__name__)
 
 
+def _get_model_status(model, latest_file, config):
+    """
+    Fast helper function to determine model status.
+    Returns status text immediately without blocking.
+
+    Args:
+        model: Model name
+        latest_file: Latest SRI file
+        config: Config instance
+
+    Returns:
+        str: Formatted status text for the model
+    """
+    if latest_file == "N/A":
+        return f"- ⏹️ **{model}**: Waiting for data"
+
+    # Check if prediction exists for this model
+    # TEST model always uses predictions.npy (case-insensitive)
+    if model.upper() == "TEST":
+        pred_path = config.real_time_pred / "Test" / "predictions.npy"
+    else:
+        # Other models use date-based filename
+        latest_npy = Path(latest_file).stem + '.npy'
+        pred_path = config.real_time_pred / model / latest_npy
+
+    if pred_path.exists():
+        return f"- ✅ **{model}**: Ready"
+
+    # File doesn't exist - check job status
+    # Get status from session state (fast, non-blocking)
+    # Safely access session state - handle case where context is not available
+    try:
+        is_computing = model in st.session_state.get("computing_models", set())
+        was_submitted = model in st.session_state.get("submitted_models", set())
+        has_failed = model in st.session_state.get("failed_models", set())
+    except RuntimeError:
+        # Script run context not available - return default status
+        return f"- ⏹️ **{model}**: Initializing..."
+
+    # Try to get PBS job status (quick check, non-blocking with try/except)
+    job_status = None
+    try:
+        from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
+        if is_pbs_available():
+            job_status = get_model_job_status(model)
+    except Exception:
+        pass  # Silently fail - don't block on errors
+
+    # Determine display status (fast logic)
+    if has_failed:
+        return f"- ❌ **{model}**: Failed prediction!"
+    elif job_status == 'Q':
+        return f"- 📋 **{model}**: <span class='queue-text'>Queue</span>"
+    elif job_status == 'R':
+        return f"- ⚙️ **{model}**: <span class='computing-text'>Computing</span>"
+    elif is_computing:
+        return f"- 🔄 **{model}**: Finalizing..."
+    elif was_submitted and not job_status:
+        return f"- ❌ **{model}**: Failed"
+    else:
+        return f"- ⏹️ **{model}**: Not computed"
+
+
 @st.fragment(run_every=2)  # Auto-update every 2 seconds without full app rerun
 def render_status_panel(model_list):
     """
     Status panel that updates independently every 2 seconds.
     Shows system status, model predictions, and job states.
     """
+    # Check if script run context is available before accessing session state
+    # This prevents warnings during app initialization
+    try:
+        # Test if session state is accessible
+        _ = st.session_state.get("_test", None)
+    except RuntimeError:
+        # Context not available yet - show loading state
+        st.markdown("### System Status")
+        st.info("⏳ Initializing...")
+        return
+
     # Add CSS for animated dots on Queue and Computing status
     st.markdown("""
     <style>
@@ -47,10 +121,12 @@ def render_status_panel(model_list):
     latest_file = st.session_state.get("latest_file", "N/A")
     st.markdown(f"**Last Data Found:**  \n`{latest_file}`")
 
-    # Check if new data is available
+    # Check if new data is available but not yet displayed on map
     latest_thread = st.session_state.get("latest_thread", None)
-    if latest_thread and latest_thread != latest_file:
-        st.success("🆕 New data available!")
+    displayed_file = st.session_state.get("displayed_file", None)
+
+    if latest_thread and displayed_file and latest_thread != displayed_file:
+        st.success("🆕 **New data available!**  \n_Map will update when prediction loads_")
 
     st.markdown("---")
 
@@ -59,52 +135,12 @@ def render_status_panel(model_list):
 
     config = get_config()
 
+    # Render all models immediately - don't wait for any checks
+    # This ensures all models are visible from the start
     for model in model_list:
-        # Check if prediction exists for this model
-        if latest_file != "N/A":
-            # TEST model always uses predictions.npy (case-insensitive)
-            if model.upper() == "TEST":
-                pred_path = config.real_time_pred / "Test" / "predictions.npy"
-            else:
-                # Other models use date-based filename
-                latest_npy = Path(latest_file).stem + '.npy'
-                pred_path = config.real_time_pred / model / latest_npy
-
-            if pred_path.exists():
-                st.markdown(f"- ✅ **{model}**: Ready")
-            else:
-                # Check PBS job status (only on HPC)
-                job_status = None
-                is_computing = model in st.session_state.get("computing_models", set())
-                was_submitted = model in st.session_state.get("submitted_models", set())
-                has_failed = model in st.session_state.get("failed_models", set())
-
-                try:
-                    from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
-                    if is_pbs_available():
-                        job_status = get_model_job_status(model)
-                except:
-                    pass
-
-                # Determine display status
-                if has_failed:
-                    # Worker detected job failed (no output after polling)
-                    st.markdown(f"- ❌ **{model}**: Failed prediction!")
-                elif job_status == 'Q':
-                    st.markdown(f"- 📋 **{model}**: <span class='queue-text'>Queue</span>", unsafe_allow_html=True)
-                elif job_status == 'R':
-                    st.markdown(f"- ⚙️ **{model}**: <span class='computing-text'>Computing</span>", unsafe_allow_html=True)
-                elif is_computing:
-                    # Worker thread is still polling for output file
-                    st.markdown(f"- 🔄 **{model}**: Finalizing...")
-                elif was_submitted and not job_status:
-                    # Job was submitted but is no longer in queue and no output file
-                    # This means the job finished but the prediction file was not created
-                    st.markdown(f"- ❌ **{model}**: Failed")
-                else:
-                    st.markdown(f"- ⏹️ **{model}**: Not computed")
-        else:
-            st.markdown(f"- ⏹️ **{model}**: Waiting for data")
+        # Determine status for this model
+        status_text = _get_model_status(model, latest_file, config)
+        st.markdown(status_text, unsafe_allow_html=True)
 
     st.markdown("---")
 
@@ -119,6 +155,17 @@ def render_status_panel(model_list):
 
     # Auto-refresh indicator
     st.markdown(f"- Auto-refresh: Every 5 min")
+
+    # Display missing groundtruth data warnings
+    if "data_load_status" in st.session_state:
+        status = st.session_state["data_load_status"]
+        missing_gt = status.get('missing_groundtruth', [])
+
+        if missing_gt:
+            st.markdown("---")
+            st.warning(f"⚠️ **Missing Groundtruth Data**")
+            for timestamp in missing_gt:
+                st.markdown(f"- Groundtruth data **{timestamp}** is missing")
 
     # Data Load Status / Errors
     if "data_load_status" in st.session_state:
@@ -203,8 +250,11 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
             del (st.session_state["thread_ID_get_latest_file"])
             st.session_state["prev_thread_ID_get_latest_file"] = thread_ID
 
-        # Format current date nicely (from "DD-MM-YYYY-HH-MM.hdf" to "HH:MM DD-MM-YYYY")
-        latest_file_display = st.session_state.latest_file
+        # Display date for the data that's ACTUALLY shown on the map (not latest available)
+        # Use displayed_file to track what's currently visible, not latest_file
+        displayed_file = st.session_state.get("displayed_file", st.session_state.latest_file)
+        latest_file_display = displayed_file
+
         if latest_file_display and latest_file_display != "N/A":
             try:
                 from datetime import datetime
@@ -277,6 +327,9 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
                     st.session_state['all_predictions_data'] = rgba_images_dict
                     st.session_state['display_prediction'] = True
                     st.session_state['new_prediction'] = False
+                    # Update displayed_file to match what's actually shown on the map
+                    st.session_state['displayed_file'] = latest_file
+                    logger.info(f"Map data loaded - updated displayed_file to {latest_file}")
                     create_animated_map_html(rgba_images_dict, st.session_state.latest_file)
                 else:
                     # No predictions available yet

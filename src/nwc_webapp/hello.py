@@ -20,13 +20,34 @@ logger = setup_logger(__name__)
 st.set_page_config(page_title="Weather prediction", page_icon=":flag-eu:", layout="wide")
 
 
-def main(app_config):
+def main(app_config, sri_folder, count_value):
     """
     Main application entry point.
 
     Args:
         app_config: Application configuration object
+        sri_folder: Path to SRI folder
+        count_value: Auto-refresh count value
     """
+    # Initialize autorefresh thread (moved from module level)
+    if "autorefresh_thread_started" not in st.session_state:
+        st.session_state["autorefresh_thread_started"] = False
+
+    if not st.session_state["autorefresh_thread_started"]:
+        st.session_state["autorefresh_thread_started"] = True
+
+    # Start mock realtime service if running locally (moved from module level)
+    from nwc_webapp.config.environment import is_local
+    if is_local() and "mock_service_started" not in st.session_state:
+        from nwc_webapp.services.mock_realtime_service import start_mock_service
+        import logging
+        logging.basicConfig(level=logging.INFO)
+
+        # Start mock service with 60-second check intervals
+        start_mock_service(interval_seconds=60, generate_history=True)
+        st.session_state.mock_service_started = True
+        logger.info("🎭 Mock realtime service started (local mode)")
+
     model_list = app_config.models
     sidebar_args = configure_sidebar(model_list)
 
@@ -38,10 +59,10 @@ def main(app_config):
 
     with tab1:
         st.session_state["sync_end"] = 1
-        show_real_time_prediction(model_list, SRI_FOLDER_DIR, COUNT)
+        show_real_time_prediction(model_list, sri_folder, count_value)
 
     with tab2:
-        main_page(sidebar_args, SRI_FOLDER_DIR)
+        main_page(sidebar_args, sri_folder)
 
     with tab3:
         show_prediction_page(model_list)
@@ -50,33 +71,10 @@ def main(app_config):
         show_metrics_page(model_list)
 
 
-# Initial auto-refresh interval (in seconds)
-COUNT = None
-
-# Initialize the thread only once using session state
-if "autorefresh_thread_started" not in st.session_state:
-    st.session_state["autorefresh_thread_started"] = False
-
-if not st.session_state["autorefresh_thread_started"]:
-    # thread = threading.Thread(target=monitor_time, daemon=True)
-    # thread.start()
-    st.session_state["autorefresh_thread_started"] = True
-
-# Get SRI folder from config (environment-aware: HPC or local)
+# Get configuration (safe to call at module level - no session state access)
 app_config = get_config()
 SRI_FOLDER_DIR = str(app_config.sri_folder)
-model_list = app_config.models
+COUNT = None  # Auto-refresh interval
 
-# Start mock realtime service if running locally
-from nwc_webapp.config.environment import is_local
-if is_local() and "mock_service_started" not in st.session_state:
-    from nwc_webapp.services.mock_realtime_service import start_mock_service
-    import logging
-    logging.basicConfig(level=logging.INFO)
-
-    # Start mock service with 60-second check intervals (files created at 5-min intervals)
-    start_mock_service(interval_seconds=60, generate_history=True)
-    st.session_state.mock_service_started = True
-    logger.info("🎭 Mock realtime service started (local mode)")
-
-main(app_config)   # Streamlit will call this on each rerun
+# Call main function (all session state access happens inside function)
+main(app_config, SRI_FOLDER_DIR, COUNT)

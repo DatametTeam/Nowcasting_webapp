@@ -21,6 +21,7 @@ class VisualizationConfig:
     zoom_start: int
     data_shape: Dict[str, int]
     colormap: Dict[str, Any]
+    min_value_threshold: float
     gif: Dict[str, Any]
 
 

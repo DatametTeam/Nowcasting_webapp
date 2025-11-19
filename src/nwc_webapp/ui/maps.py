@@ -800,6 +800,45 @@ def create_animated_map_html(rgba_images_dict, latest_file=None):
                 display: inline-block !important;
                 flex-shrink: 0 !important;
             }}
+
+            /* Search results dropdown - position under search box */
+            .leaflet-control-geocoder-alternatives {{
+                position: absolute !important;
+                top: 100% !important;  /* Position directly below search box */
+                left: 0 !important;
+                right: 0 !important;
+                max-height: 300px !important;
+                overflow-y: auto !important;
+                background: white !important;
+                border: 1px solid #ccc !important;
+                border-top: none !important;
+                border-radius: 0 0 4px 4px !important;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.3) !important;
+                margin: 0 !important;
+                z-index: 2001 !important;  /* Above geocoder control */
+                width: 100% !important;
+            }}
+
+            .leaflet-control-geocoder-alternatives ul {{
+                list-style: none !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }}
+
+            .leaflet-control-geocoder-alternatives li {{
+                padding: 8px 12px !important;
+                cursor: pointer !important;
+                border-bottom: 1px solid #eee !important;
+                font-size: 13px !important;
+            }}
+
+            .leaflet-control-geocoder-alternatives li:hover {{
+                background-color: #f0f0f0 !important;
+            }}
+
+            .leaflet-control-geocoder-alternatives li:last-child {{
+                border-bottom: none !important;
+            }}
         </style>
     </head>
     <body>

@@ -44,14 +44,14 @@ def get_latest_file(folder_path, terminate_event):
     latest_file = None
 
     while not terminate_event.is_set():
-        logger.info("start global cycle thread searching file")
+        logger.debug("Scanning for new SRI files...")
         files = [f for f in os.listdir(folder_path) if f.endswith(".hdf")]
         if not files:
             return None
 
         files.sort(key=lambda x: datetime.strptime(x.split(".")[0], "%d-%m-%Y-%H-%M"), reverse=True)
 
-        print(f"Input file found: {files[0]}")
+        logger.debug(f"Latest SRI file: {files[0]}")
 
         if files[0] != latest_file:
             ctx.session_state['latest_thread'] = files[0]
@@ -68,7 +68,7 @@ def get_latest_file(folder_path, terminate_event):
             next_interval = now.replace(minute=next_minute, second=0, microsecond=0)
 
         wait_time = (next_interval - now).total_seconds()
-        logger.info(f"{datetime.now()}: Waiting for {wait_time:.2f} seconds until the next interval...")
+        logger.debug(f"Waiting {wait_time:.0f}s until next check interval")
         time.sleep(wait_time)
 
         # Polling cycle for the research of a new input file after the current 5 minutes slot is terminated
@@ -164,7 +164,7 @@ def worker_thread(event, latest_file, model, ctx):
     check_count = 0
     max_wait_iterations = 1800  # 1 hour max (1800 * 2 seconds)
 
-    logger.info(f"[{model}] Starting wait loop for {model_output}")
+    logger.debug(f"[{model}] Monitoring for output file: {model_output.name}")
 
     while not model_output.exists() and check_count < max_wait_iterations:
         check_count += 1
@@ -173,22 +173,11 @@ def worker_thread(event, latest_file, model, ctx):
         if model.upper() != "TEST" and is_pbs_available() and check_count % 3 == 0:
             current_status = get_model_job_status(model)
 
-            # Status changed - trigger UI refresh
+            # Status changed - no need to trigger rerun, fragment handles UI updates
             if current_status != last_status:
                 logger.info(f"[{model}] Job status changed: {last_status} -> {current_status}")
                 last_status = current_status
-
-                try:
-                    from streamlit.runtime.scriptrunner import get_script_run_ctx
-                    from streamlit.runtime import get_instance
-                    runtime = get_instance()
-                    if runtime and ctx:
-                        session_info = runtime._session_mgr.get_active_session_info(ctx.session_id)
-                        if session_info:
-                            session_info.session.request_rerun(None)
-                            logger.info(f"[{model}] Triggered UI rerun for status: {current_status}")
-                except Exception as e:
-                    logger.debug(f"[{model}] Could not trigger rerun: {e}")
+                # Fragment updates independently every 2s - no manual rerun needed!
 
             # Job disappeared from queue - check if prediction exists
             if last_status and not current_status:
@@ -201,20 +190,7 @@ def worker_thread(event, latest_file, model, ctx):
 
                     if model_output.exists():
                         logger.info(f"[{model}] SUCCESS - Prediction file found after job completion!")
-
-                        # Trigger UI refresh immediately to update sidebar
-                        try:
-                            from streamlit.runtime.scriptrunner import get_script_run_ctx
-                            from streamlit.runtime import get_instance
-                            runtime = get_instance()
-                            if runtime and ctx:
-                                session_info = runtime._session_mgr.get_active_session_info(ctx.session_id)
-                                if session_info:
-                                    session_info.session.request_rerun(None)
-                                    logger.info(f"[{model}] Triggered UI rerun - sidebar will update")
-                        except Exception as e:
-                            logger.debug(f"[{model}] Could not trigger rerun: {e}")
-
+                        # Fragment will pick up the change automatically - no rerun needed!
                         # Exit the wait loop - file is ready
                         break
 
@@ -237,25 +213,12 @@ def worker_thread(event, latest_file, model, ctx):
             if "failed_models" not in ctx.session_state:
                 ctx.session_state["failed_models"] = set()
             ctx.session_state["failed_models"].add(model)
-
-            # Trigger UI refresh to show failed status
-            try:
-                from streamlit.runtime.scriptrunner import get_script_run_ctx
-                from streamlit.runtime import get_instance
-                runtime = get_instance()
-                if runtime and ctx:
-                    session_info = runtime._session_mgr.get_active_session_info(ctx.session_id)
-                    if session_info:
-                        session_info.session.request_rerun(None)
-                        logger.info(f"[{model}] Triggered UI rerun - showing failed status")
-            except Exception as e:
-                logger.debug(f"[{model}] Could not trigger rerun: {e}")
-
+            # Fragment will show failed status automatically - no rerun needed!
             break
 
-        # Log progress every 30 seconds
-        if check_count % 15 == 0:
-            logger.info(f"[{model}] Still waiting... ({check_count * 2}s elapsed)")
+        # Log progress every 60 seconds (reduced from 30s to reduce noise)
+        if check_count % 30 == 0:
+            logger.info(f"[{model}] Still waiting for output... ({check_count * 2}s elapsed)")
 
         time.sleep(2)
 
@@ -324,15 +287,15 @@ def launch_thread_execution(st, latest_file, columns, model_list):
         add_script_run_ctx(thread, ctx)
         threads.append(thread)
         thread.start()
-        logger.info(f"Started worker thread for model: {model}")
+        logger.debug(f"Started worker thread for model: {model}")
 
     st.session_state.thread_started = True
 
     # Wait for all threads to complete
-    logger.info(f"Waiting for {len(threads)} prediction threads to complete...")
+    logger.info(f"Monitoring {len(threads)} prediction jobs...")
     for thread, model in zip(threads, model_list):
         thread.join()
-        logger.info(f"Thread for model {model} completed")
+        logger.debug(f"Worker thread completed for: {model}")
 
     # Reset
     ctx.session_state["launch_prediction_thread"] = None
