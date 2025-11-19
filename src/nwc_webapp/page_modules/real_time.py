@@ -150,21 +150,25 @@ def render_status_panel(model_list):
     # Model Prediction Status - updates all models together every 5 seconds
     st.markdown("**Model Predictions:**")
 
-    # Initialize on first render, then fragment takes over
-    if "model_predictions_initialized" not in st.session_state:
-        st.session_state["model_predictions_initialized"] = True
-        # Render initial statuses immediately
-        config = get_config()
-        latest_file = st.session_state.get("latest_file", "N/A")
-        for model in model_list:
-            try:
-                status_text = _get_model_status(model, latest_file, config)
-                st.markdown(status_text, unsafe_allow_html=True)
-            except Exception as e:
-                st.markdown(f"- ⚠️ **{model}**: Error", unsafe_allow_html=True)
-    else:
-        # Fragment pre-computes all statuses then renders all at once
-        update_model_predictions(model_list)
+    # Always render initial state immediately (handles first load and app reruns)
+    # Fragment will take over and update every 5 seconds after this
+    config = get_config()
+    latest_file = st.session_state.get("latest_file", "N/A")
+
+    # Pre-compute all statuses first
+    model_statuses = {}
+    for model in model_list:
+        try:
+            model_statuses[model] = _get_model_status(model, latest_file, config)
+        except Exception as e:
+            model_statuses[model] = f"- ⚠️ **{model}**: Error"
+
+    # Render all at once
+    for model in model_list:
+        st.markdown(model_statuses[model], unsafe_allow_html=True)
+
+    # Fragment takes over for periodic updates (every 5s)
+    update_model_predictions(model_list)
 
     st.markdown("---")
 
