@@ -82,6 +82,22 @@ def _get_model_status(model, latest_file, config):
         return f"- ⏹️ **{model}**: Not computed"
 
 
+@st.fragment(run_every=2)
+def render_single_model_status(model):
+    """
+    Independent fragment for a single model - updates separately from other models.
+    Each model has its own fragment that refreshes every 2 seconds.
+    """
+    config = get_config()
+    latest_file = st.session_state.get("latest_file", "N/A")
+
+    try:
+        status_text = _get_model_status(model, latest_file, config)
+        st.markdown(status_text, unsafe_allow_html=True)
+    except Exception as e:
+        st.markdown(f"- ⚠️ **{model}**: Error", unsafe_allow_html=True)
+
+
 @st.fragment(run_every=2)  # Auto-update every 2 seconds without full app rerun
 def render_status_panel(model_list):
     """
@@ -130,21 +146,13 @@ def render_status_panel(model_list):
 
     st.markdown("---")
 
-    # Model Prediction Status - render directly (no placeholders)
+    # Model Prediction Status - each model has its own independent fragment!
     st.markdown("**Model Predictions:**")
 
-    config = get_config()
-
-    # Render each model directly with current status
-    # No intermediate "Checking..." step - just show the actual status
+    # Render each model with its own independent fragment
+    # This ensures all models appear immediately and update separately
     for model in model_list:
-        try:
-            # Get and display status immediately
-            status_text = _get_model_status(model, latest_file, config)
-            st.markdown(status_text, unsafe_allow_html=True)
-        except Exception as e:
-            # If status check fails, show error but don't block other models
-            st.markdown(f"- ⚠️ **{model}**: Error", unsafe_allow_html=True)
+        render_single_model_status(model)
 
     st.markdown("---")
 
