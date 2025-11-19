@@ -83,44 +83,38 @@ def _get_model_status(model, latest_file, config):
 
 
 @st.fragment(run_every=2)
-def render_single_model_status(model):
+def update_model_statuses_fragment(model_list):
     """
-    Independent fragment for a single model - updates separately from other models.
-    Each model has its own fragment that refreshes every 2 seconds.
+    Monitor all models and update only those whose status changed.
+    Runs every 2 seconds but only updates changed models.
     """
     config = get_config()
     latest_file = st.session_state.get("latest_file", "N/A")
 
-    try:
-        status_text = _get_model_status(model, latest_file, config)
-        st.markdown(status_text, unsafe_allow_html=True)
-    except Exception as e:
-        st.markdown(f"- ⚠️ **{model}**: Error", unsafe_allow_html=True)
+    # Initialize tracking for first run
+    if "last_model_statuses" not in st.session_state:
+        st.session_state["last_model_statuses"] = {}
 
+    # Check each model and update if changed
+    for model in model_list:
+        current_status = _get_model_status(model, latest_file, config)
+        last_status = st.session_state["last_model_statuses"].get(model)
 
-@st.fragment(run_every=2)
-def render_system_info():
-    """
-    Independent fragment for system info - updates separately.
-    """
-    # System Info section
-    st.markdown("**System Info:**")
-    checking_status = "🔄 Active" if st.session_state.get("run_get_latest_file") else "⏸️ Paused"
-    st.markdown(f"- Data Monitor: {checking_status}")
+        # Update stored status
+        st.session_state["last_model_statuses"][model] = current_status
 
-    if "all_predictions_data" in st.session_state and st.session_state["all_predictions_data"]:
-        num_frames = len(st.session_state["all_predictions_data"])
-        st.markdown(f"- Loaded Frames: {num_frames}")
-
-    # Auto-refresh indicator
-    st.markdown(f"- Auto-refresh: Every 5 min")
+        # Render current status (will only cause visual update if changed)
+        try:
+            st.markdown(current_status, unsafe_allow_html=True)
+        except Exception as e:
+            st.markdown(f"- ⚠️ **{model}**: Error", unsafe_allow_html=True)
 
 
 @st.fragment
 def render_status_panel(model_list):
     """
-    Parent fragment (no run_every) - creates structure once, doesn't recreate on app reruns.
-    Child fragments (with run_every=2) update independently without recreating structure.
+    Status panel with static structure and smart model status updates.
+    Only Model Predictions section updates (every 2s), everything else is static.
     """
     # Add CSS for animated dots (only once)
     st.markdown("""
@@ -156,18 +150,24 @@ def render_status_panel(model_list):
 
     st.markdown("---")
 
-    # Model Prediction Status - each model has its own independent fragment!
+    # Model Prediction Status - monitored fragment updates only changed models
     st.markdown("**Model Predictions:**")
 
-    # Render each model with its own independent fragment
-    # Each fragment updates every 2s independently
-    for model in model_list:
-        render_single_model_status(model)
+    # Fragment monitors all models and updates only those that changed
+    update_model_statuses_fragment(model_list)
 
     st.markdown("---")
 
-    # System Info - separate fragment
-    render_system_info()
+    # System Info - static section
+    st.markdown("**System Info:**")
+    checking_status = "🔄 Active" if st.session_state.get("run_get_latest_file") else "⏸️ Paused"
+    st.markdown(f"- Data Monitor: {checking_status}")
+
+    if "all_predictions_data" in st.session_state and st.session_state["all_predictions_data"]:
+        num_frames = len(st.session_state["all_predictions_data"])
+        st.markdown(f"- Loaded Frames: {num_frames}")
+
+    st.markdown(f"- Auto-refresh: Every 5 min")
 
     st.markdown("---")
 
