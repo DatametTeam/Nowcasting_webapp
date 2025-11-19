@@ -1,0 +1,147 @@
+# Nowcasting Application Configuration
+
+# Available prediction models
+models:
+  - ConvLSTM
+  - ED_ConvLSTM
+  - IAM4VP
+  - PredFormer
+  - SPROG
+  - Test
+
+# Metrics thresholds
+csi_threshold: [1, 5, 10, 20, 50]
+
+# HPC paths (used when running on davinci cluster)
+hpc_paths:
+  sri_folder: "/davinci-1/work/protezionecivile/data1/SRI_adj"
+  prediction_output: "/davinci-1/work/protezionecivile/nwc_webapp/"
+  data_root: "/davinci-1/work/protezionecivile"
+  real_time_pred: "/davinci-1/work/protezionecivile/nwc_webapp/real_time_results"
+
+# Local paths (used for development)
+local_paths:
+  sri_folder: "data/mock_sri"
+  prediction_output: "data/predictions"
+  data_root: "data"
+  real_time_pred: "data/predictions/real_time_pred"
+
+# Radar mask (relative to package root)
+radar_mask_path: "resources/mask/radar_mask.hdf"
+
+# Shapefiles for map visualization (relative to package root)
+shapefiles_folder: "resources/shapefiles"
+
+# Legend definitions for colormaps (relative to package root)
+legends_folder: "resources/legends"
+
+# Visualization settings
+visualization:
+  # Map bounds for Italy [south, west, north, east]
+  italy_bounds:
+    south: 35.0623
+    west: 4.51987
+    north: 47.5730
+    east: 20.4801
+
+  # Map center [lat, lon]
+  map_center: [42.5, 12.5]
+
+  # Default zoom level
+  zoom_start: 5
+
+  # Data dimensions
+  data_shape:
+    height: 1400
+    width: 1200
+
+  # Colormap settings
+  colormap:
+    min_value: 0
+    max_value: 100
+    data_values: [0, 1, 2, 5, 10, 20, 30, 50, 75, 100]
+
+  # Minimum precipitation value threshold (values below this are filtered out)
+  min_value_threshold: 0.2
+
+  # GIF generation
+  gif:
+    fps: 3
+    save_to_disk: true
+
+# Coordinate system and grid navigation parameters
+# Source grid: Transverse Mercator projection (radar data native projection)
+source_grid:
+  projection: "tmerc"
+  prj_lat: 42.0
+  prj_lon: 12.5
+  ncols: 1200
+  nlines: 1400
+  cOff: 600     # Column offset
+  lOff: 650     # Line offset
+  cRes: 1000    # Column resolution (meters)
+  lRes: -1000   # Line resolution (meters, negative = north to south)
+
+# Destination grid: Geographic lat/lon (for display on maps)
+dest_grid:
+  projection: "merc"
+  prj_lat: 0.0
+  prj_lon: 12.5
+  ncols: 1200
+  nlines: 1400
+  minLon: 4.51987
+  maxLon: 20.4801
+  minLat: 35.0623
+  maxLat: 47.5730
+
+# Prediction settings
+prediction:
+  # Number of input timesteps
+  num_input_timesteps: 12
+
+  # Number of forecast timesteps
+  num_forecast_timesteps: 12
+
+  # Time step in minutes
+  timestep_minutes: 5
+
+  # Number of sequences to generate
+  num_sequences: 24
+
+  # Forecast times to display (in minutes)
+  display_times: [30, 60]
+
+  # All available forecast times
+  time_options: ["+5min", "+10min", "+15min", "+20min", "+25min",
+                 "+30min", "+35min", "+40min", "+45min", "+50min",
+                 "+55min", "+60min"]
+
+# PBS/HPC settings
+pbs:
+  queue: "fast"
+  target_gpu: "dvgpu006"
+  walltime: "12:00:00"
+  log_folder: "/davinci-1/home/guidim/pbs_logs"
+
+  # Conda environments for each model
+  environments:
+    ED_ConvLSTM: "protezionecivile"
+    pystep: "nowcasting"
+    default: "sole24_310"
+
+# Auto-refresh settings
+auto_refresh:
+  # Interval in seconds
+  interval_seconds: 100
+
+  # Check every N seconds for new data
+  check_interval: 2
+
+  # Force refresh when time is multiple of N minutes
+  refresh_on_minute_multiple: 5
+
+# Logging
+logging:
+  level: "INFO"
+  log_to_file: true
+  log_to_console: true

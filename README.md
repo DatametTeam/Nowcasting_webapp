@@ -1,0 +1,173 @@
+# Weather Nowcasting Web Application
+
+A Streamlit-based web application for visualizing short-term weather radar precipitation forecasts using deep learning models.
+
+## Features
+
+- **Real-time Predictions**: View precipitation forecasts up to 60 minutes ahead with animated timeline
+- **Animated Visualization**: Auto-playing timeline with 19 frames (7 ground truth + 12 predictions)
+- **Multiple Models**: Support for ConvLSTM, ED_ConvLSTM, DynamicUnet, pystep, and more
+- **Interactive Maps**: Leaflet.js-based maps with play/pause controls and speed adjustment
+- **Historical Analysis**: Query predictions by date and time
+- **Performance Metrics**: CSI scores and other evaluation metrics
+- **HPC Integration**: Seamless integration with PBS job scheduler on HPC clusters
+- **Local Development**: Automatic mock data generation for development without HPC
+- **Status Panel**: Real-time job status tracking per model (Computing, Ready, Not computed)
+- **Colored Logging**: Comprehensive logging with colored output for better debugging
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.10 or higher
+- For HPC: PBS/Torque job scheduler
+- For local development: Nothing special needed!
+
+### Installation
+
+```bash
+# Clone the repository
+cd Nowcasting_webapp
+
+# Install dependencies
+pip install -e .
+
+# For local development: Generate mock data
+python setup_mock_data.py
+```
+
+### Running the Application
+
+```bash
+# Start the Streamlit app
+streamlit run src/nwc_webapp/hello.py
+```
+
+The application automatically detects your environment:
+- **On HPC**: Uses real PBS job submission and radar data
+- **Locally**: Uses synthetic data and simulated predictions
+
+## Project Structure
+
+```
+Nowcasting_webapp/
+│
+├── src/nwc_webapp/
+│   ├── services/                   # Business logic layer
+│   │   ├── prediction_service.py   # Job submission and management
+│   │   └── data_service.py         # Data loading and processing
+│   │
+│   ├── ui/                         # UI components (WIP)
+│   │
+│   ├── sou_py/                     # Radar processing library
+│   │   ├── dpg/                    # Data processing and geometry
+│   │   ├── dpb/                    # Data block handling
+│   │   ├── products/               # Radar products (CAPPI, VIL, etc.)
+│   │   └── preprocessing/          # Data preprocessing
+│   │
+│   ├── cfg/
+│   │   └── cfg.yaml                # Centralized configuration
+│   │
+│   ├── hello.py                    # Main Streamlit application
+│   ├── config.py                   # Configuration management
+│   ├── logging_config.py           # Logging setup
+│   ├── environment.py              # Environment detection (HPC vs local)
+│   ├── mock.py                     # Mock PBS for local development
+│   ├── mock_data_generator.py      # Synthetic data generation
+│   ├── pbs.py                      # PBS job management
+│   ├── utils.py                    # Utility functions
+│   ├── graphics.py                 # Visualization utilities
+│   ├── layouts.py                  # Streamlit layouts
+│   └── parallel_code.py            # Parallel processing
+│
+├── data/                           # Data directory (auto-created)
+│   ├── mock_sri/                   # Mock SRI files (local dev)
+│   ├── predictions/                # Prediction outputs
+│   └── nodes/                      # Node data
+│
+├── logs/                           # Application logs
+│
+├── setup_mock_data.py              # Mock data setup script
+├── pyproject.toml                  # Project dependencies
+└── CLAUDE.md                       # Development guide
+
+```
+
+## Configuration
+
+All settings are centralized in `src/nwc_webapp/cfg/cfg.yaml`:
+
+- **Models**: Available prediction models
+- **Paths**: Data locations (separate for HPC and local)
+- **Visualization**: Map settings, colormaps, GIF parameters
+- **Prediction**: Timesteps, forecast horizons
+- **PBS/HPC**: Queue settings, GPU targets, conda environments
+- **Auto-refresh**: Update intervals
+- **Logging**: Log levels and destinations
+
+## Development
+
+### Environment Detection
+
+The application uses automatic environment detection:
+
+```python
+from nwc_webapp.environment import is_hpc, is_local
+from nwc_webapp.config import get_config
+
+config = get_config()
+sri_folder = config.sri_folder  # Automatically uses HPC or local path
+```
+
+### Logging
+
+Centralized colored logging system with timestamps:
+
+```python
+from nwc_webapp.logging_config import setup_logger
+
+logger = setup_logger(__name__)
+logger.info("Processing data...")
+logger.warning("This is a warning")
+logger.error("Something went wrong!", exc_info=True)
+```
+
+**Features**:
+- ERROR messages: Entire message colored RED
+- WARNING messages: Entire message colored YELLOW
+- DEBUG messages: "DEBUG" prefix colored BLUE
+- Timestamp format: `YYYY-MM-DD HH:MM:SS` (to the second)
+
+### Adding a New Model
+
+1. Add model name to `cfg/cfg.yaml` under `models:`
+2. (Optional) Add PBS environment under `pbs.environments:`
+3. Create prediction script in `inference_scripts/`
+4. The model will automatically appear in the UI
+
+### Mock Data for Testing
+
+The mock data system generates realistic precipitation fields:
+
+```bash
+# Regenerate mock data
+python setup_mock_data.py
+```
+
+Mock data includes:
+- 20 SRI files with 5-minute intervals
+- Prediction outputs for all models
+- Realistic temporal evolution
+
+## Architecture
+
+### Data Flow
+
+1. **Input**: Radar SRI data (HDF5 files) with 5-minute intervals
+2. **Processing**: Models generate 60-minute forecasts
+3. **Visualization**: Maps and GIFs show precipitation evolution
+4. **Output**: NPY files with prediction arrays
+
+### Coordinate System
+
+- **Projection**: Transverse Mercator
