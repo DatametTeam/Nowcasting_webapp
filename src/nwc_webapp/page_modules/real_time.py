@@ -130,21 +130,7 @@ def render_status_panel(model_list):
 
     st.markdown("---")
 
-    # Model Prediction Status
-    st.markdown("**Model Predictions:**")
-
-    config = get_config()
-
-    # Render all models immediately - don't wait for any checks
-    # This ensures all models are visible from the start
-    for model in model_list:
-        # Determine status for this model
-        status_text = _get_model_status(model, latest_file, config)
-        st.markdown(status_text, unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    # System Info
+    # System Info section - render FIRST so it always appears quickly
     st.markdown("**System Info:**")
     checking_status = "🔄 Active" if st.session_state.get("run_get_latest_file") else "⏸️ Paused"
     st.markdown(f"- Data Monitor: {checking_status}")
@@ -155,6 +141,35 @@ def render_status_panel(model_list):
 
     # Auto-refresh indicator
     st.markdown(f"- Auto-refresh: Every 5 min")
+
+    st.markdown("---")
+
+    # Model Prediction Status - render with placeholders first, update later
+    st.markdown("**Model Predictions:**")
+
+    config = get_config()
+
+    # Pre-render ALL model entries immediately with loading status
+    # Then update each one independently (non-blocking)
+    model_containers = {}
+    for model in model_list:
+        # Create container for each model immediately
+        model_containers[model] = st.empty()
+        # Show model name immediately with loading status
+        model_containers[model].markdown(f"- 🔄 **{model}**: Checking...", unsafe_allow_html=True)
+
+    # Now update each model's status (this is fast because containers already exist)
+    for model in model_list:
+        try:
+            # Get status for this model (fast, non-blocking)
+            status_text = _get_model_status(model, latest_file, config)
+            # Update the container
+            model_containers[model].markdown(status_text, unsafe_allow_html=True)
+        except Exception as e:
+            # If status check fails, show error but don't block other models
+            model_containers[model].markdown(f"- ⚠️ **{model}**: Error", unsafe_allow_html=True)
+
+    st.markdown("---")
 
     # Display missing groundtruth data warnings
     if "data_load_status" in st.session_state:
