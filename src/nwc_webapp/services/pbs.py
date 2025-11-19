@@ -247,10 +247,10 @@ def start_prediction_job(model, latest_data):
         result = subprocess.run(command, check=True, text=True, capture_output=True)
         logger.info("Inference job submitted successfully!")
         job_id = result.stdout.strip().split(".")[0]
-        logger.info("Job ID:", job_id)
+        logger.info(f"Job ID: {job_id}")
         return job_id
 
     except subprocess.CalledProcessError as e:
         logger.error("Error occurred while submitting the job!")
-        logger.error("Error message:", e.stderr.strip())
+        logger.error(f"Error message: {e.stderr.strip()}")
         return None
