@@ -138,12 +138,17 @@ def render_status_panel(model_list):
     latest_file = st.session_state.get("latest_file", "N/A")
     st.code(latest_file, language=None)
 
-    # Check if new data is available but not yet displayed on map
+    # Check if new data is being processed
     latest_thread = st.session_state.get("latest_thread", None)
     displayed_file = st.session_state.get("displayed_file", None)
 
     if latest_thread and displayed_file and latest_thread != displayed_file:
-        st.success("🆕 **New data available!**  \n_Map will update when prediction loads_")
+        # Check if any jobs are still processing
+        computing_models = st.session_state.get("computing_models", set())
+        if computing_models:
+            st.info(f"⚙️ **NEW DATA PROCESSING!**  \n_Processing predictions for: {', '.join(computing_models)}_")
+        else:
+            st.success("🆕 **New data available!**  \n_Map will update when ready_")
 
     st.markdown("---")
 
@@ -295,8 +300,8 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
                 # Fallback to original if parsing fails
                 latest_file_display = latest_file_display.replace('.hdf', '')
 
-        st.markdown("<div style='text-align: center; font-size: 18px;'>"
-                    f"<b>Current Date: {latest_file_display}</b>"
+        st.markdown("<div style='text-align: center; font-size: 24px;'>"
+                    f"<b>Map Data: {latest_file_display}</b>"
                     "</div>",
                     unsafe_allow_html=True)
 

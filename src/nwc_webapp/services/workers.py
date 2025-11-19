@@ -155,6 +155,8 @@ def worker_thread(event, latest_file, model, ctx):
     if job_id:
         logger.info(f"[{model}] Job submitted: {job_id}")
         ctx.session_state["submitted_models"].add(model)
+        # Store job_id for fast status checking
+        ctx.session_state[f"job_id_{model}"] = job_id
     else:
         logger.error(f"[{model}] Job submission failed!")
 

@@ -49,6 +49,7 @@ def get_job_status(job_id):
 def get_model_job_status(model):
     """
     Check if there's a job running/queued for the specified model.
+    Uses stored job_id for fast direct lookup.
 
     Args:
         model: Model name (e.g., 'ED_ConvLSTM', 'pystep')
@@ -57,23 +58,45 @@ def get_model_job_status(model):
         str: 'Q' (queued), 'R' (running), or None (no job found)
     """
     try:
+        # Try fast path: check stored job_id directly
+        try:
+            import streamlit as st
+            job_id = st.session_state.get(f"job_id_{model}")
+            if job_id:
+                # Direct check for this specific job
+                result = subprocess.run(
+                    ["qstat", "-f", job_id],
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    timeout=2
+                )
+                if result.returncode == 0:
+                    # Job still exists - extract status from line 3 (always "job_state = X")
+                    lines = result.stdout.splitlines()
+                    for line in lines:
+                        if "job_state" in line:
+                            status = line.split("=", 1)[1].strip()
+                            logger.debug(f"[QSTAT-FAST] Model {model}: Job {job_id} - Status={status}")
+                            return status
+                # Job doesn't exist anymore - clear stored id
+                del st.session_state[f"job_id_{model}"]
+                logger.debug(f"[QSTAT-FAST] Model {model}: Job {job_id} ended, cleared stored ID")
+                return None
+        except Exception:
+            pass  # Fall back to slow method
+
+        # Slow fallback path: search all jobs (for backward compatibility)
         job_name = f"nwc_{model}"
-        # Run qstat only for user 'guidim' to reduce output
         result = subprocess.run(
             ["qstat", "-u", "guidim"],
             check=True,
             text=True,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL  # Suppress error output
+            stderr=subprocess.DEVNULL
         )
 
-        # Suppress full qstat output to reduce log clutter
-        # logger.debug(f"[QSTAT] Checking jobs for user guidim")
-
-        # Parse qstat output to find jobs with matching name
-        # qstat may truncate long job names, so check if our job_name is a substring
         for line in result.stdout.split('\n'):
-            # Skip header lines
             if line.startswith("Job id") or line.startswith("---") or line.startswith("davinci") or not line.strip():
                 continue
 
@@ -84,24 +107,21 @@ def get_model_job_status(model):
                     check=True,
                     text=True,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL  # Suppress error output
+                    stderr=subprocess.DEVNULL
                 )
                 if job_name in result2.stdout:
-                    match = re.search(r'^\s*job_state\s*=\s*(\S+)', result2.stdout, re.MULTILINE)
-                    if match:
-                        status = match.group(1)
-                        logger.info(f"[QSTAT] Model {model}: FOUND - Status={status}")
-                        return status
+                    for line2 in result2.stdout.splitlines():
+                        if "job_state" in line2:
+                            status = line2.split("=", 1)[1].strip()
+                            logger.info(f"[QSTAT-SLOW] Model {model}: FOUND - Status={status}")
+                            return status
 
-        # No job found - this is normal after job completes, don't spam logs
         logger.debug(f"[QSTAT] Model {model}: No job found in queue")
-        return None  # No job found for this model
+        return None
 
     except subprocess.CalledProcessError:
-        # Silently fail if qstat not available
         return None
     except Exception:
-        # Silently fail on any error
         return None
 
 
