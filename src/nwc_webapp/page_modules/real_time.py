@@ -98,24 +98,31 @@ def render_single_model_status(model):
         st.markdown(f"- ⚠️ **{model}**: Error", unsafe_allow_html=True)
 
 
-@st.fragment(run_every=2)  # Auto-update every 2 seconds without full app rerun
+@st.fragment(run_every=2)
+def render_system_info():
+    """
+    Independent fragment for system info - updates separately.
+    """
+    # System Info section
+    st.markdown("**System Info:**")
+    checking_status = "🔄 Active" if st.session_state.get("run_get_latest_file") else "⏸️ Paused"
+    st.markdown(f"- Data Monitor: {checking_status}")
+
+    if "all_predictions_data" in st.session_state and st.session_state["all_predictions_data"]:
+        num_frames = len(st.session_state["all_predictions_data"])
+        st.markdown(f"- Loaded Frames: {num_frames}")
+
+    # Auto-refresh indicator
+    st.markdown(f"- Auto-refresh: Every 5 min")
+
+
+@st.fragment
 def render_status_panel(model_list):
     """
-    Status panel that updates independently every 2 seconds.
-    Shows system status, model predictions, and job states.
+    Parent fragment (no run_every) - creates structure once, doesn't recreate on app reruns.
+    Child fragments (with run_every=2) update independently without recreating structure.
     """
-    # Check if script run context is available before accessing session state
-    # This prevents warnings during app initialization
-    try:
-        # Test if session state is accessible
-        _ = st.session_state.get("_test", None)
-    except RuntimeError:
-        # Context not available yet - show loading state
-        st.markdown("### System Status")
-        st.info("⏳ Initializing...")
-        return
-
-    # Add CSS for animated dots on Queue and Computing status
+    # Add CSS for animated dots (only once)
     st.markdown("""
     <style>
     .queue-text::after, .computing-text::after {
@@ -131,11 +138,14 @@ def render_status_panel(model_list):
     </style>
     """, unsafe_allow_html=True)
 
+    # Static header
     st.markdown("### System Status")
 
-    # Latest data timestamp
+    # Static label
+    st.markdown("**Last Data Found:**")
+    # Dynamic content (updates every 2s)
     latest_file = st.session_state.get("latest_file", "N/A")
-    st.markdown(f"**Last Data Found:**  \n`{latest_file}`")
+    st.code(latest_file, language=None)
 
     # Check if new data is available but not yet displayed on map
     latest_thread = st.session_state.get("latest_thread", None)
@@ -150,23 +160,14 @@ def render_status_panel(model_list):
     st.markdown("**Model Predictions:**")
 
     # Render each model with its own independent fragment
-    # This ensures all models appear immediately and update separately
+    # Each fragment updates every 2s independently
     for model in model_list:
         render_single_model_status(model)
 
     st.markdown("---")
 
-    # System Info section
-    st.markdown("**System Info:**")
-    checking_status = "🔄 Active" if st.session_state.get("run_get_latest_file") else "⏸️ Paused"
-    st.markdown(f"- Data Monitor: {checking_status}")
-
-    if "all_predictions_data" in st.session_state and st.session_state["all_predictions_data"]:
-        num_frames = len(st.session_state["all_predictions_data"])
-        st.markdown(f"- Loaded Frames: {num_frames}")
-
-    # Auto-refresh indicator
-    st.markdown(f"- Auto-refresh: Every 5 min")
+    # System Info - separate fragment
+    render_system_info()
 
     st.markdown("---")
 
