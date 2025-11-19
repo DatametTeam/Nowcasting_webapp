@@ -82,32 +82,29 @@ def _get_model_status(model, latest_file, config):
         return f"- ⏹️ **{model}**: Not computed"
 
 
-@st.fragment(run_every=2)
-def update_model_statuses_fragment(model_list):
+@st.fragment(run_every=5)
+def update_model_predictions(model_list):
     """
-    Monitor all models and update only those whose status changed.
-    Runs every 2 seconds but only updates changed models.
+    Update all model predictions together every 5 seconds.
+    Pre-computes all statuses first, then renders all at once for simultaneous display.
     """
     config = get_config()
     latest_file = st.session_state.get("latest_file", "N/A")
 
-    # Initialize tracking for first run
-    if "last_model_statuses" not in st.session_state:
-        st.session_state["last_model_statuses"] = {}
-
-    # Check each model and update if changed
+    # STEP 1: Pre-compute all model statuses BEFORE rendering
+    # This loop can be sequential - it's hidden from the user
+    model_statuses = {}
     for model in model_list:
-        current_status = _get_model_status(model, latest_file, config)
-        last_status = st.session_state["last_model_statuses"].get(model)
-
-        # Update stored status
-        st.session_state["last_model_statuses"][model] = current_status
-
-        # Render current status (will only cause visual update if changed)
         try:
-            st.markdown(current_status, unsafe_allow_html=True)
+            model_statuses[model] = _get_model_status(model, latest_file, config)
         except Exception as e:
-            st.markdown(f"- ⚠️ **{model}**: Error", unsafe_allow_html=True)
+            model_statuses[model] = f"- ⚠️ **{model}**: Error"
+            logger.error(f"Error getting status for {model}: {e}")
+
+    # STEP 2: Render all models at once with pre-computed statuses
+    # This is fast - just outputting strings, no PBS checks or file I/O
+    for model in model_list:
+        st.markdown(model_statuses[model], unsafe_allow_html=True)
 
 
 @st.fragment
@@ -150,11 +147,11 @@ def render_status_panel(model_list):
 
     st.markdown("---")
 
-    # Model Prediction Status - monitored fragment updates only changed models
+    # Model Prediction Status - updates all models together every 5 seconds
     st.markdown("**Model Predictions:**")
 
-    # Fragment monitors all models and updates only those that changed
-    update_model_statuses_fragment(model_list)
+    # Fragment pre-computes all statuses then renders all at once
+    update_model_predictions(model_list)
 
     st.markdown("---")
 
