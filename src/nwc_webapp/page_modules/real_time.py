@@ -220,7 +220,10 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
         st.session_state["page_initialized"] = True
         if "all_predictions_data" in st.session_state:
             del st.session_state["all_predictions_data"]
-        st.session_state["new_prediction"] = False
+        # Only set new_prediction to False if it doesn't already exist
+        # (don't override True value set by completed jobs!)
+        if "new_prediction" not in st.session_state:
+            st.session_state["new_prediction"] = False
 
     model_options = model_list
     # Include ground truth times (-30 to 0) and prediction times (+5 to +60)
