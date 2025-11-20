@@ -11,7 +11,11 @@ import numpy as np
 import streamlit as st
 from matplotlib import pyplot as plt
 from nwc_webapp.utils import compute_figure_gpd
+from nwc_webapp.logging_config import setup_logger
 from PIL import Image
+
+# Set up logger
+logger = setup_logger(__name__)
 
 
 def create_diff_dict_in_parallel(diff_array, sidebar_args, save_on_disk=False):
@@ -181,22 +185,44 @@ def create_single_gif_for_parallel(queue, start_pos, figures_dict, window_size, 
     queue.put(('complete', process_idx, buf.getvalue()))
 
     if save_on_disk:
-        home_dir = Path.home()
-        save_path = f"{home_dir}/demo_sole/data/output/gifs/{sidebar_args['model_name']}/{name}"
-        os.makedirs(save_path, exist_ok=True)
+        from nwc_webapp.config.config import get_config
+        config = get_config()
+
+        # Use new path structure
+        if name == "gt":
+            save_dir = config.gif_storage / "groundtruth"
+        elif name == "diff":
+            save_dir = config.gif_storage / "difference" / sidebar_args['model_name']
+        else:
+            save_dir = config.gif_storage / "prediction" / sidebar_args['model_name']
+
+        save_dir.mkdir(parents=True, exist_ok=True)
         file_name = f"{window_keys[0]}_{window_keys[-1]}"
-        save_path = os.path.join(save_path, file_name + '.gif')
+
+        # Add suffix based on start position to match naming convention
+        if 'gif_suffix' in sidebar_args:
+            file_name += sidebar_args['gif_suffix']
+
+        save_path = save_dir / f"{file_name}.gif"
         imageio.mimsave(save_path, frames, format='GIF', fps=fps_gif, loop=0)
-        logger.info(f"GIF save @ path {save_path}")
+        logger.info(f"GIF saved @ {save_path}")
 
 
 def create_sliding_window_gifs(figures_dict, sidebar_args, start_positions=[0, 6, 12], save_on_disk=True,
                                fps_gif=3, name="gt"):
     """
     Create multiple GIFs in parallel with progress tracking.
+
+    GIF suffixes are added based on start_position:
+    - Position 0: no suffix (full sequence)
+    - Position 6: _+30m suffix
+    - Position 12: _+60m suffix
     """
     window_size = len(figures_dict) - 12
     sorted_keys = sorted(figures_dict.keys())
+
+    # Define suffixes for each start position
+    suffix_map = {0: "", 6: "_+30m", 12: "_+60m"}
 
     # Create progress bars and text containers
     progress_bars = []
@@ -211,9 +237,13 @@ def create_sliding_window_gifs(figures_dict, sidebar_args, start_positions=[0, 6
     queue = Manager().Queue()
     processes = []
     for idx, start_pos in enumerate(start_positions):
+        # Create a copy of sidebar_args with the gif_suffix added
+        args_with_suffix = sidebar_args.copy()
+        args_with_suffix['gif_suffix'] = suffix_map.get(start_pos, "")
+
         p = Process(
             target=create_single_gif_for_parallel,
-            args=(queue, start_pos, figures_dict, window_size, sorted_keys, idx, sidebar_args, save_on_disk, fps_gif, name)
+            args=(queue, start_pos, figures_dict, window_size, sorted_keys, idx, args_with_suffix, save_on_disk, fps_gif, name)
         )
         processes.append(p)
 
@@ -289,13 +319,20 @@ def create_single_gif(queue, figures, gif_type, process_idx, start_key, end_key,
     queue.put(('complete', process_idx, buf.getvalue()))
 
     if save_on_disk:
-        home_dir = Path.home()
-        save_path = f"{home_dir}/demo_sole/data/output/gifs/{sidebar_args['model_name']}/pred"
-        os.makedirs(save_path, exist_ok=True)
-        file_name = f"{start_key}_{end_key}_{gif_type}"
-        save_path = os.path.join(save_path, file_name + '.gif')
+        from nwc_webapp.config.config import get_config
+        config = get_config()
+
+        # Use new path structure for predictions
+        save_dir = config.gif_storage / "prediction" / sidebar_args['model_name']
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        # Convert gif_type "+30 mins" -> "_+30m", "+60 mins" -> "_+60m"
+        suffix = gif_type.replace(" mins", "m").replace(" ", "")
+        file_name = f"{start_key}_{end_key}{suffix}"
+
+        save_path = save_dir / f"{file_name}.gif"
         imageio.mimsave(save_path, frames, format='GIF', fps=fps_gif, loop=0)
-        logger.info(f"GIF save @ path {save_path}")
+        logger.info(f"GIF saved @ {save_path}")
 
 
 def create_sliding_window_gifs_for_predictions(prediction_dict, sidebar_args, save_on_disk=True, fps_gif=3):

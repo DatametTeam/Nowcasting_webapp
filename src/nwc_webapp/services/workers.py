@@ -181,26 +181,17 @@ def worker_thread(event, latest_file, model, ctx):
                 last_status = current_status
                 # Fragment updates independently every 2s - no manual rerun needed!
 
-            # Job disappeared from queue - check if prediction exists
+            # Job disappeared from queue - immediately check result
             if last_status and not current_status:
-                logger.info(f"[{model}] Job no longer in queue - polling for output file...")
+                logger.info(f"[{model}] Job finished - checking for output file")
 
-                # Poll for up to 10 seconds to detect failures faster
-                max_polls = 5  # 5 polls * 2 seconds = 10 seconds
-                for poll_attempt in range(max_polls):
-                    time.sleep(2)
+                # Give it one brief moment for filesystem sync (1 second)
+                time.sleep(1)
 
-                    if model_output.exists():
-                        logger.info(f"[{model}] SUCCESS - Prediction file found after job completion!")
-                        # Fragment will pick up the change automatically - no rerun needed!
-                        # Exit the wait loop - file is ready
-                        break
-
-                    logger.debug(f"[{model}] Poll {poll_attempt + 1}/{max_polls}: File not found yet...")
-
-                # Final check after polling
-                if not model_output.exists():
-                    logger.warning(f"[{model}] Job ended but no prediction file after 10s - marking as failed")
+                if model_output.exists():
+                    logger.info(f"[{model}] ✅ SUCCESS - Prediction ready at {model_output}")
+                else:
+                    logger.error(f"[{model}] ❌ FAILED - Can't find prediction at path: {model_output}")
                     # Add to failed models set
                     if "failed_models" not in ctx.session_state:
                         ctx.session_state["failed_models"] = set()
@@ -208,15 +199,6 @@ def worker_thread(event, latest_file, model, ctx):
 
                 # Exit the main wait loop since job is done
                 break
-
-        # Check if job never appeared in queue after 30 seconds - likely failed at submission
-        if check_count > 15 and last_status is None and not model_output.exists():
-            logger.warning(f"[{model}] Job never appeared in queue after 30s - marking as failed")
-            if "failed_models" not in ctx.session_state:
-                ctx.session_state["failed_models"] = set()
-            ctx.session_state["failed_models"].add(model)
-            # Fragment will show failed status automatically - no rerun needed!
-            break
 
         # Log progress every 60 seconds (reduced from 30s to reduce noise)
         if check_count % 30 == 0:
@@ -226,9 +208,9 @@ def worker_thread(event, latest_file, model, ctx):
 
     # STEP 4: Final check and cleanup
     if model_output.exists():
-        logger.info(f"[{model}] SUCCESS - Prediction file ready!")
+        logger.info(f"[{model}] ✅ SUCCESS - Prediction file ready!")
     else:
-        logger.error(f"[{model}] TIMEOUT or FAILED - No prediction after {check_count * 2}s")
+        logger.error(f"[{model}] ❌ TIMEOUT - Can't find prediction at path: {model_output} (waited {check_count * 2}s)")
 
     # Remove model from computing set
     if model in ctx.session_state["computing_models"]:

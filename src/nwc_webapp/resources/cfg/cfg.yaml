@@ -18,6 +18,7 @@ hpc_paths:
   prediction_output: "/davinci-1/work/protezionecivile/nwc_webapp/"
   data_root: "/davinci-1/work/protezionecivile"
   real_time_pred: "/davinci-1/work/protezionecivile/nwc_webapp/real_time_results"
+  gif_storage: "/davinci-1/work/protezionecivile/nwc_webapp/prediction_GIFs"
 
 # Local paths (used for development)
 local_paths:
@@ -25,6 +26,7 @@ local_paths:
   prediction_output: "data/predictions"
   data_root: "data"
   real_time_pred: "data/predictions/real_time_pred"
+  gif_storage: "data/predictions/gifs"
 
 # Radar mask (relative to package root)
 radar_mask_path: "resources/mask/radar_mask.hdf"

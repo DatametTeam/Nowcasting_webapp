@@ -116,7 +116,7 @@ def get_model_job_status(model):
                             logger.info(f"[QSTAT-SLOW] Model {model}: FOUND - Status={status}")
                             return status
 
-        logger.debug(f"[QSTAT] Model {model}: No job found in queue")
+        # Job not in queue - return None silently (already logged in workers.py)
         return None
 
     except subprocess.CalledProcessError:

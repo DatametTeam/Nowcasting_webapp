@@ -160,6 +160,11 @@ class Config:
         return Path(self.get_paths().get("real_time_pred", "data/predictions/real_time_pred"))
 
     @property
+    def gif_storage(self) -> Path:
+        """Get GIF storage folder path."""
+        return Path(self.get_paths().get("gif_storage", "data/predictions/gifs"))
+
+    @property
     def radar_mask_path(self) -> Path:
         """Get radar mask file path (relative to package root)."""
         rel_path = self._config.get("radar_mask_path", "resources/mask/radar_mask.hdf")
