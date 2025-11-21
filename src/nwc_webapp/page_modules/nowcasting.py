@@ -303,11 +303,21 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
                     logger.info(f"Looking for log file: {log_file}")
 
                     if os.path.exists(log_file):
-                        st.error(f"**PBS Job Log** (`{log_file}`):")
                         try:
                             with open(log_file, 'r') as f:
                                 log_content = f.read()
-                            st.code(log_content, language="text")
+                            # Display in red error container
+                            st.markdown("---")
+                            st.markdown("### ❌ PBS Job Error Log")
+                            st.markdown(f"**Log file**: `{log_file}`")
+                            # Use error container with code block inside
+                            with st.container():
+                                st.markdown(
+                                    f'<div style="background-color: #ffebee; border-left: 5px solid #f44336; padding: 10px; border-radius: 5px;">'
+                                    f'<pre style="color: #c62828; margin: 0; white-space: pre-wrap; word-wrap: break-word;">{log_content}</pre>'
+                                    f'</div>',
+                                    unsafe_allow_html=True
+                                )
                         except Exception as e:
                             st.warning(f"Could not read log file: {e}")
                     else:
@@ -326,8 +336,8 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
             if current_status is not None:
                 last_status = current_status
 
-            # Check prediction progress (count existing files) every 2 seconds
-            missing_timestamps, existing_timestamps = check_missing_predictions(model_name, start_dt, end_dt)
+            # Check prediction progress (count existing files) every 2 seconds - don't log during monitoring
+            missing_timestamps, existing_timestamps = check_missing_predictions(model_name, start_dt, end_dt, verbose=False)
             completed = len(existing_timestamps)
             progress = completed / total_count if total_count > 0 else 0
 

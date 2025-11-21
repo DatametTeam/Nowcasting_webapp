@@ -237,13 +237,14 @@ def extract_timestamp_slices(pred_array: np.ndarray) -> Tuple[np.ndarray, np.nda
     return t0, t30, t60
 
 
-def generate_timestamp_range(start_dt: datetime, end_dt: datetime) -> List[datetime]:
+def generate_timestamp_range(start_dt: datetime, end_dt: datetime, verbose: bool = True) -> List[datetime]:
     """
     Generate all timestamps in a range with 5-minute intervals.
 
     Args:
         start_dt: Start datetime
         end_dt: End datetime
+        verbose: If True, log the generation (default: True)
 
     Returns:
         List of datetime objects with 5-minute intervals
@@ -257,11 +258,12 @@ def generate_timestamp_range(start_dt: datetime, end_dt: datetime) -> List[datet
         timestamps.append(current)
         current += timedelta(minutes=5)
 
-    logger.info(f"Generated {len(timestamps)} timestamps from {start_dt} to {end_dt}")
+    if verbose:
+        logger.info(f"Generated {len(timestamps)} timestamps from {start_dt} to {end_dt}")
     return timestamps
 
 
-def check_missing_predictions(model_name: str, start_dt: datetime, end_dt: datetime) -> Tuple[List[datetime], List[datetime]]:
+def check_missing_predictions(model_name: str, start_dt: datetime, end_dt: datetime, verbose: bool = True) -> Tuple[List[datetime], List[datetime]]:
     """
     Check which prediction files are missing in the specified range.
 
@@ -269,6 +271,7 @@ def check_missing_predictions(model_name: str, start_dt: datetime, end_dt: datet
         model_name: Name of the prediction model
         start_dt: Start datetime
         end_dt: End datetime
+        verbose: If True, log the check results (default: True)
 
     Returns:
         Tuple of (missing_timestamps, existing_timestamps)
@@ -276,8 +279,8 @@ def check_missing_predictions(model_name: str, start_dt: datetime, end_dt: datet
     config = get_config()
     pred_dir = config.real_time_pred / model_name
 
-    # Generate all expected timestamps
-    all_timestamps = generate_timestamp_range(start_dt, end_dt)
+    # Generate all expected timestamps (don't log during monitoring)
+    all_timestamps = generate_timestamp_range(start_dt, end_dt, verbose=verbose)
 
     missing = []
     existing = []
@@ -293,7 +296,8 @@ def check_missing_predictions(model_name: str, start_dt: datetime, end_dt: datet
         else:
             missing.append(timestamp)
 
-    logger.info(f"[{model_name}] Range check: {len(existing)}/{len(all_timestamps)} predictions exist, {len(missing)} missing")
+    if verbose:
+        logger.info(f"[{model_name}] Range check: {len(existing)}/{len(all_timestamps)} predictions exist, {len(missing)} missing")
 
     return missing, existing
 
@@ -370,8 +374,9 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
 
     This function:
     1. Modifies the YAML config with start/end dates
-    2. Submits the PBS job using the script from start_end_pred_scripts/
-    3. Returns the job ID
+    2. Modifies the PBS script to use absolute path for config
+    3. Submits the PBS job using the modified script
+    4. Returns the job ID
 
     Args:
         model_name: Model name (e.g., 'ConvLSTM', 'IAM4VP', 'PredFormer', 'SPROG')
@@ -382,6 +387,7 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
         Job ID string if successful, None if failed
     """
     import subprocess
+    import tempfile
 
     # Step 1: Modify the YAML config with date range
     try:
@@ -398,12 +404,32 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
         logger.error(f"PBS script not found: {pbs_script_path}")
         return None
 
-    # Step 3: Submit the PBS job
-    command = ["qsub", str(pbs_script_path)]
+    # Step 3: Modify PBS script to use absolute config path
+    try:
+        with open(pbs_script_path, 'r') as f:
+            script_content = f.read()
+
+        # Replace $CFG_PATH with absolute path
+        modified_script = script_content.replace('--cfg_path "$CFG_PATH"', f'--cfg_path "{config_path}"')
+
+        # Write modified script to temp file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as tmp:
+            tmp.write(modified_script)
+            tmp_script_path = tmp.name
+
+        logger.info(f"Created modified PBS script: {tmp_script_path}")
+
+    except Exception as e:
+        logger.error(f"Failed to modify PBS script: {e}")
+        return None
+
+    # Step 4: Submit the modified PBS job
+    command = ["qsub", tmp_script_path]
 
     try:
         logger.info(f"Submitting PBS job for {model_name} (range: {start_dt} to {end_dt})")
         logger.info(f"Command: {' '.join(command)}")
+        logger.info(f"Config path: {config_path}")
 
         result = subprocess.run(command, check=True, text=True, capture_output=True)
 
@@ -411,14 +437,30 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
         job_id = result.stdout.strip().split(".")[0]
         logger.info(f"✅ [{model_name}] Job submitted successfully! Job ID: {job_id}")
 
+        # Clean up temp file
+        try:
+            Path(tmp_script_path).unlink()
+        except:
+            pass
+
         return job_id
 
     except subprocess.CalledProcessError as e:
         logger.error(f"❌ [{model_name}] Failed to submit PBS job!")
         logger.error(f"Error: {e.stderr.strip() if e.stderr else 'Unknown error'}")
+        # Clean up temp file
+        try:
+            Path(tmp_script_path).unlink()
+        except:
+            pass
         return None
     except Exception as e:
         logger.error(f"❌ [{model_name}] Unexpected error submitting job: {e}")
+        # Clean up temp file
+        try:
+            Path(tmp_script_path).unlink()
+        except:
+            pass
         return None
 
 
