@@ -287,19 +287,9 @@ def check_missing_predictions(model_name: str, start_dt: datetime, end_dt: datet
     missing = []
     existing = []
 
-    # DEBUG: On first verbose call, log the directory and list actual files
-    if verbose:
-        logger.info(f"[{model_name}] Checking prediction directory: {pred_dir}")
-        if pred_dir.exists():
-            try:
-                actual_files = sorted([f for f in os.listdir(pred_dir) if f.endswith('.npy')])
-                logger.info(f"[{model_name}] Found {len(actual_files)} .npy files in directory")
-                if actual_files:
-                    logger.info(f"[{model_name}] Sample files: {actual_files[:5]}")  # Show first 5
-            except Exception as e:
-                logger.error(f"[{model_name}] Error listing directory: {e}")
-        else:
-            logger.warning(f"[{model_name}] Prediction directory does not exist: {pred_dir}")
+    # Check directory exists (only log if verbose and directory missing)
+    if verbose and not pred_dir.exists():
+        logger.warning(f"[{model_name}] Prediction directory does not exist: {pred_dir}")
 
     for timestamp in all_timestamps:
         # Format: DD-MM-YYYY-HH-MM.npy (same as real-time predictions)
@@ -313,10 +303,6 @@ def check_missing_predictions(model_name: str, start_dt: datetime, end_dt: datet
             existing.append(timestamp)
         else:
             missing.append(timestamp)
-
-        # DEBUG: Log first few checks when verbose
-        if verbose and len(existing) + len(missing) <= 3:
-            logger.debug(f"[{model_name}] Checking {filename}: {'EXISTS' if file_exists else 'MISSING'}")
 
     if verbose:
         logger.info(f"[{model_name}] Range check: {len(existing)}/{len(all_timestamps)} predictions exist, {len(missing)} missing")
@@ -564,8 +550,19 @@ def create_gifs_from_prediction_range(model_name: str, start_dt: datetime, end_d
         gt_figures = {}
         pred_figures = {}
 
+        # Store raw data for difference calculation
+        gt_raw_data = {}  # frame_time -> numpy array
+        pred_raw_data = {}  # frame_time -> numpy array
+
+        # Track GT file status
+        gt_found_count = 0
+        gt_missing_count = 0
+
+        logger.info(f"Loading {len(all_timestamps)} prediction(s) and corresponding ground truth data...")
+
         # Load all predictions and ground truth data
-        for timestamp in all_timestamps:
+        for idx, timestamp in enumerate(all_timestamps, 1):
+            logger.info(f"Processing prediction {idx}/{len(all_timestamps)}: {timestamp.strftime('%d/%m/%Y %H:%M')}")
             # Format: DD-MM-YYYY-HH-MM.npy (same as check_missing_predictions)
             filename = timestamp.strftime('%d-%m-%Y-%H-%M') + '.npy'
             pred_path = config.real_time_pred / model_name / filename
@@ -581,28 +578,57 @@ def create_gifs_from_prediction_range(model_name: str, start_dt: datetime, end_d
             time_str = timestamp.strftime('%H%M')
 
             # Load ground truth (SRI data) for all 12 timesteps
+            # Note: Predictions start at t+5, so pred[0]=t+5, pred[5]=t+30, pred[11]=t+60
             for t in range(12):
                 # Calculate timestamp for this frame (t * 5 minutes ahead)
-                frame_time = timestamp + timedelta(minutes=t * 5)
+                # But since predictions start at t+5, we need to offset by 5 minutes
+                frame_time = timestamp + timedelta(minutes=(t + 1) * 5)  # t+5, t+10, ..., t+60
                 frame_date_str = frame_time.strftime('%d%m%Y')
                 frame_time_str = frame_time.strftime('%H%M')
 
-                # Ground truth path
-                gt_path = config.sri_folder / f"SRI_{frame_date_str}_{frame_time_str}.hdf"
+                # Try to find GT file in two locations (data1 first, then data)
+                # Path format: DD-MM-YYYY-HH-MM.hdf
+                gt_filename = frame_time.strftime('%d-%m-%Y-%H-%M') + '.hdf'
 
-                if gt_path.exists():
+                # Location 1: Recent data (faster to check)
+                gt_path_data1 = Path('/davinci-1/work/protezionecivile/data1/SRI_adj') / gt_filename
+
+                # Location 2: Archived data (organized by year/month/day)
+                year = frame_time.strftime('%Y')
+                month = frame_time.strftime('%m')
+                day = frame_time.strftime('%d')
+                gt_path_data = Path(f'/davinci-1/work/protezionecivile/data/{year}/{month}/{day}/SRI_adj') / gt_filename
+
+                # Check data1 first (smaller, faster), then data
+                gt_path = None
+                if gt_path_data1.exists():
+                    gt_path = gt_path_data1
+                elif gt_path_data.exists():
+                    gt_path = gt_path_data
+
+                if gt_path:
                     try:
                         with h5py.File(gt_path, 'r') as hdf:
                             gt_data = hdf['/dataset1/data1/data'][:]
+                            # Store raw data for difference calculation
+                            gt_raw_data[frame_time] = gt_data
                             # Create figure for ground truth
                             fig = compute_figure_gpd(gt_data, frame_time.strftime('%d/%m/%Y %H:%M'))
                             gt_figures[frame_time] = fig
+                            gt_found_count += 1
                     except Exception as e:
                         logger.warning(f"Error loading GT at {gt_path}: {e}")
+                        gt_missing_count += 1
+                else:
+                    gt_missing_count += 1
 
-                # Create figure for prediction
+                # Create figure for prediction and store raw data
                 try:
-                    fig = compute_figure_gpd(pred_data[t], frame_time.strftime('%d/%m/%Y %H:%M'))
+                    pred_array = pred_data[t]
+                    # Store raw data for difference calculation
+                    pred_raw_data[frame_time] = pred_array
+                    # Create figure
+                    fig = compute_figure_gpd(pred_array, frame_time.strftime('%d/%m/%Y %H:%M'))
                     pred_figures[frame_time] = fig
                 except Exception as e:
                     logger.warning(f"Error creating pred figure at {frame_time}: {e}")
@@ -612,6 +638,12 @@ def create_gifs_from_prediction_range(model_name: str, start_dt: datetime, end_d
             logger.error(f"No prediction data loaded for {model_name} in range {start_dt} to {end_dt}")
             logger.error("Cannot create GIFs without prediction data")
             return False
+
+        # Log GT status
+        total_gt_expected = len(all_timestamps) * 12  # 12 timesteps per prediction
+        logger.info(f"Ground truth status: {gt_found_count} found, {gt_missing_count} missing (out of {total_gt_expected} expected)")
+        if gt_missing_count > 0:
+            logger.warning(f"⚠️ Missing {gt_missing_count} ground truth files - GT GIFs may be incomplete")
 
         # Create sidebar_args for GIF creation
         sidebar_args = {
@@ -625,36 +657,80 @@ def create_gifs_from_prediction_range(model_name: str, start_dt: datetime, end_d
         # Create sliding window GIFs
         logger.info(f"Creating sliding window GIFs: {len(gt_figures)} GT frames, {len(pred_figures)} pred frames")
 
-        # Create GIFs for ground truth
+        # Get GIF paths for displaying later
+        gif_paths = get_gif_paths(model_name, start_dt.strftime('%d%m%Y'), start_dt.strftime('%H%M'))
+
+        # Create GIFs for ground truth (targets)
         if gt_figures:
+            logger.info("Creating ground truth (target) GIFs...")
+            # GT start_positions: 5 (t+30) and 11 (t+60) to match predictions
             create_sliding_window_gifs(
                 figures_dict=gt_figures,
                 sidebar_args=sidebar_args,
-                start_positions=[0, 6, 12],
+                start_positions=[5, 11],
                 save_on_disk=True,
                 fps_gif=3,
                 name="gt"
             )
-            logger.info("Ground truth GIFs created")
+            logger.info("✅ Ground truth (target) GIFs created")
+        else:
+            logger.warning("⚠️ No ground truth data available - skipping GT GIF creation")
 
         # Create GIFs for predictions
         if pred_figures:
+            logger.info("Creating prediction GIFs...")
+            # Predictions: pred[5]=t+30, pred[11]=t+60, so start_positions=[5, 11]
             create_sliding_window_gifs(
                 figures_dict=pred_figures,
                 sidebar_args=sidebar_args,
-                start_positions=[6, 12],
+                start_positions=[5, 11],
                 save_on_disk=True,
                 fps_gif=3,
                 name="pred"
             )
-            logger.info("Prediction GIFs created")
+            logger.info("✅ Prediction GIFs created")
 
-        # Create difference GIFs
-        # TODO: Implement difference GIF creation
-        logger.info("Difference GIFs creation not yet implemented")
+        # Create difference GIFs (only if we have both GT and pred with raw data)
+        if gt_raw_data and pred_raw_data:
+            logger.info("Creating difference GIFs...")
+            from nwc_webapp.services.parallel_code import create_diff_dict_in_parallel
+
+            # Compute difference arrays
+            diff_figures = {}
+            for frame_time in pred_raw_data.keys():
+                if frame_time in gt_raw_data:
+                    try:
+                        # Compute difference: GT - Prediction
+                        gt_array = gt_raw_data[frame_time]
+                        pred_array = pred_raw_data[frame_time]
+                        diff_array = np.abs(gt_array - pred_array)
+
+                        # Create figure for difference (using compute_figure_gpd might not be ideal for differences)
+                        # For now, use the same function - you might want a specialized colormap for differences
+                        fig = compute_figure_gpd(diff_array, frame_time.strftime('%d/%m/%Y %H:%M'))
+                        diff_figures[frame_time] = fig
+                    except Exception as e:
+                        logger.warning(f"Error creating difference for {frame_time}: {e}")
+
+            if diff_figures:
+                logger.info(f"Created {len(diff_figures)} difference frames")
+                # Create difference GIFs with same start positions as pred/gt
+                create_sliding_window_gifs(
+                    figures_dict=diff_figures,
+                    sidebar_args=sidebar_args,
+                    start_positions=[5, 11],
+                    save_on_disk=True,
+                    fps_gif=3,
+                    name="diff"
+                )
+                logger.info("✅ Difference GIFs created")
+            else:
+                logger.warning("⚠️ No difference frames created - cannot create diff GIFs")
+        else:
+            logger.info("⚠️ Skipping difference GIFs (need both GT and prediction raw data)")
 
         logger.info(f"✅ GIF creation completed for {model_name}")
-        return True
+        return gif_paths
 
     except Exception as e:
         logger.error(f"❌ Error creating GIFs for {model_name}: {e}")

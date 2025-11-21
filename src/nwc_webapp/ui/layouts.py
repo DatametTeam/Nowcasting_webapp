@@ -28,33 +28,49 @@ def configure_sidebar(model_list):
 
         st.markdown("<h1 style='font-size: 32px; font-weight: bold;'>NOWCASTING</h1>", unsafe_allow_html=True)
         with st.form("weather_prediction_form"):
-            # Get current date and rounded time
+            # Get current date and rounded time as fallback
             current_date = datetime.now().date()
             rounded_time = round_to_previous_5_minutes()
 
+            # Use session state to persist values across reloads, or use current date/time as default
+            default_start_date = st.session_state.get('sidebar_start_date', current_date)
+            default_start_time = st.session_state.get('sidebar_start_time', rounded_time)
+            default_end_date = st.session_state.get('sidebar_end_date', current_date)
+            default_end_time = st.session_state.get('sidebar_end_time', rounded_time)
+            default_model = st.session_state.get('sidebar_model', model_list[0] if model_list else None)
+
             # Date inputs
-            start_date = st.date_input("Select a start date", value=current_date,
+            start_date = st.date_input("Select a start date", value=default_start_date,
                                        format="DD/MM/YYYY")
             # Time inputs
             start_time = st.time_input(
                 "Select a start time",
-                value=rounded_time,
+                value=default_start_time,
                 step=timedelta(minutes=5)  # 5-minute intervals
             )
-            end_date = st.date_input("Select an end date", value=current_date,
+            end_date = st.date_input("Select an end date", value=default_end_date,
                                      format="DD/MM/YYYY")
 
             end_time = st.time_input(
                 "Select an end time",
-                value=rounded_time,
+                value=default_end_time,
                 step=timedelta(minutes=5)  # 5-minute intervals
             )
 
             # Model selection
-            model_name = st.selectbox("Select a model", model_list)
+            model_name = st.selectbox("Select a model", model_list,
+                                     index=model_list.index(default_model) if default_model in model_list else 0)
 
             # Form submission
             submitted = st.form_submit_button("Submit", type="primary", width='content')
+
+            # Store values in session state when form is submitted
+            if submitted:
+                st.session_state['sidebar_start_date'] = start_date
+                st.session_state['sidebar_start_time'] = start_time
+                st.session_state['sidebar_end_date'] = end_date
+                st.session_state['sidebar_end_time'] = end_time
+                st.session_state['sidebar_model'] = model_name
 
         return {"start_date": start_date, "end_date": end_date, "start_time": start_time, "end_time": end_time,
                 "model_name": model_name, "submitted": submitted}

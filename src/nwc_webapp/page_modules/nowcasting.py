@@ -297,6 +297,7 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
         iteration = 0
         last_status = None
         job_completed = False
+        consecutive_none_count = 0  # Track consecutive None statuses to avoid false positives
 
         while iteration < max_iterations and not job_completed:
             # Check job status (only if PBS is available)
@@ -317,68 +318,76 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
                 elif current_status == 'R':
                     status_placeholder.markdown(f"⚙️ **Job <span class='running-text'>running</span>**<br>Results will be saved in `{out_folder_path}`", unsafe_allow_html=True)
                     logger.info(f"Job {job_id} is running")
+                # Reset consecutive None counter when we get a valid status
+                consecutive_none_count = 0
 
             # Check if job disappeared from queue (was running, now gone)
-            # This check is OUTSIDE the PBS availability check to ensure we catch it
+            # Only trigger after 3 consecutive None checks to avoid false positives from transient errors
             if last_status is not None and current_status is None:
-                logger.info(f"Job {job_id} disappeared from queue (was: {last_status}) - doing final verification")
-                job_completed = True
+                consecutive_none_count += 1
+                logger.debug(f"Job status None (consecutive: {consecutive_none_count}/3)")
 
-                # Wait 5 seconds for filesystem sync
-                status_placeholder.info("⏳ **Job finished - verifying results...**")
-                time.sleep(5)
+                if consecutive_none_count >= 3:
+                    logger.info(f"Job {job_id} disappeared from queue (was: {last_status}) - doing final verification")
+                    job_completed = True
 
-                # Final check of predictions
-                missing_timestamps, existing_timestamps = check_missing_predictions(model_name, start_dt, end_dt)
-                completed = len(existing_timestamps)
+                    # Wait 5 seconds for filesystem sync
+                    status_placeholder.info("⏳ **Job finished - verifying results...**")
+                    time.sleep(5)
 
-                if len(missing_timestamps) > 0:
-                    # Error occurred - not all predictions were created
-                    status_placeholder.error("❌ **Error doing prediction!**")
+                    # Final check of predictions
+                    missing_timestamps, existing_timestamps = check_missing_predictions(model_name, start_dt, end_dt)
+                    completed = len(existing_timestamps)
 
-                    # Try to read PBS output log
-                    home_dir = os.path.expanduser("~")
-                    log_file = os.path.join(home_dir, f"nwc_{model_name}_range.o{job_id}")
+                    if len(missing_timestamps) > 0:
+                        # Error occurred - not all predictions were created
+                        status_placeholder.error("❌ **Error doing prediction!**")
 
-                    logger.error(f"Job failed - missing {len(missing_timestamps)} predictions")
-                    logger.info(f"Looking for log file: {log_file}")
+                        # Try to read PBS output log
+                        home_dir = os.path.expanduser("~")
+                        log_file = os.path.join(home_dir, f"nwc_{model_name}_range.o{job_id}")
 
-                    if os.path.exists(log_file):
-                        try:
-                            with open(log_file, 'r') as f:
-                                log_content = f.read()
-                            # Display error log with proper formatting
-                            st.markdown("---")
-                            st.error("### ❌ PBS Job Error Log")
-                            st.markdown(f"**Log file**: `{log_file}`")
-                            # Use code block for proper formatting and readability
-                            st.code(log_content, language="text")
-                        except Exception as e:
-                            st.warning(f"Could not read log file: {e}")
+                        logger.error(f"Job failed - missing {len(missing_timestamps)} predictions")
+                        logger.info(f"Looking for log file: {log_file}")
+
+                        if os.path.exists(log_file):
+                            try:
+                                with open(log_file, 'r') as f:
+                                    log_content = f.read()
+                                # Display error log with proper formatting
+                                st.markdown("---")
+                                st.error("### ❌ PBS Job Error Log")
+                                st.markdown(f"**Log file**: `{log_file}`")
+                                # Use code block for proper formatting and readability
+                                st.code(log_content, language="text")
+                            except Exception as e:
+                                st.warning(f"Could not read log file: {e}")
+                        else:
+                            st.warning(f"Could not find PBS log file at: `{log_file}`")
+                            st.info(f"Check PBS logs manually in your home directory")
                     else:
-                        st.warning(f"Could not find PBS log file at: `{log_file}`")
-                        st.info(f"Check PBS logs manually in your home directory")
-                else:
-                    # Success - all predictions created
-                    status_placeholder.success("✅ **All predictions completed!**")
-                    progress_placeholder.progress(1.0, text=f"Predictions: {total_count}/{total_count}")
-                    st.success("🎉 Prediction job completed successfully!")
+                        # Success - all predictions created
+                        status_placeholder.success("✅ **All predictions completed!**")
+                        progress_placeholder.progress(1.0, text=f"Predictions: {total_count}/{total_count}")
+                        st.success("🎉 Prediction job completed successfully!")
 
-                    # Automatically start GIF creation
-                    st.info("🎬 Creating GIFs from predictions...")
-                    logger.info(f"Auto-starting GIF creation for {model_name}")
+                        # Automatically start GIF creation
+                        st.info("🎬 Creating GIFs from predictions...")
+                        logger.info(f"Auto-starting GIF creation for {model_name}")
 
-                    with st.spinner("Creating GIFs..."):
-                        success = create_gifs_from_prediction_range(model_name, start_dt, end_dt, sri_folder_dir)
+                        with st.spinner("Creating GIFs..."):
+                            success = create_gifs_from_prediction_range(model_name, start_dt, end_dt, sri_folder_dir)
 
-                    if success:
-                        st.success("✅ GIFs created successfully!")
-                        logger.info(f"GIF creation completed for {model_name}")
-                    else:
-                        st.error("❌ Failed to create GIFs. Check logs for details.")
-                        logger.error(f"GIF creation failed for {model_name}")
+                        if success:
+                            st.success("✅ GIFs created successfully!")
+                            logger.info(f"GIF creation completed for {model_name}")
+                        else:
+                            st.error("❌ Failed to create GIFs. Check logs for details.")
+                            logger.error(f"GIF creation failed for {model_name}")
 
-                break
+                    break
+            else:
+                consecutive_none_count = 0
 
             # Update last_status for next iteration
             if current_status is not None:
