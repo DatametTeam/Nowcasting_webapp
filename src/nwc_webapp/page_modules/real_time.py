@@ -212,9 +212,9 @@ def render_status_panel(model_list):
     st.markdown("---")
     st.markdown("**Debug Controls:**")
 
-    # Initialize pause state if not exists
+    # Initialize pause state if not exists (default to paused)
     if "realtime_paused" not in st.session_state:
-        st.session_state["realtime_paused"] = False
+        st.session_state["realtime_paused"] = True
 
     is_paused = st.session_state["realtime_paused"]
 

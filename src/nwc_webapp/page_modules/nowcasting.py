@@ -242,11 +242,17 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
         progress_placeholder = st.empty()
         details_placeholder = st.empty()
 
+        # Get output folder path
+        from nwc_webapp.config.config import get_config
+        config = get_config()
+        out_folder_path = config.real_time_pred / model_name
+
         # Monitor job status and progress
         import time
+        import os
         from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
 
-        max_iterations = 3600  # 1 hour max (3600 * 1 second checks)
+        max_iterations = 1800  # 1 hour max (1800 * 2 second checks)
         iteration = 0
         last_status = None
 
@@ -257,19 +263,55 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
 
                 if current_status != last_status:
                     if current_status == 'Q':
-                        status_placeholder.info(f"⏳ **Status**: Queued (waiting to start)")
+                        status_placeholder.info("⏳ **Job in queue!**")
                     elif current_status == 'R':
-                        status_placeholder.success(f"⚙️ **Status**: Running")
-                    elif current_status is None and last_status:
-                        status_placeholder.success(f"✅ **Status**: Completed")
+                        status_placeholder.success(f"⚙️ **Job running!** Results will be saved in `{out_folder_path}`")
 
                     last_status = current_status
 
                 # If job disappeared from queue, it's done
                 if last_status and not current_status:
+                    logger.info(f"Job {job_id} disappeared from queue - doing final check")
+
+                    # Wait 5 seconds for filesystem sync
+                    time.sleep(5)
+
+                    # Final check of predictions
+                    missing_timestamps, existing_timestamps = check_missing_predictions(model_name, start_dt, end_dt)
+                    completed = len(existing_timestamps)
+
+                    if len(missing_timestamps) > 0:
+                        # Error occurred - not all predictions were created
+                        status_placeholder.error("❌ **Error doing prediction!**")
+
+                        # Try to read PBS output log
+                        home_dir = os.path.expanduser("~")
+                        log_file = os.path.join(home_dir, f"nwc_{model_name}_range.o{job_id}")
+
+                        logger.error(f"Job failed - missing {len(missing_timestamps)} predictions")
+                        logger.info(f"Looking for log file: {log_file}")
+
+                        if os.path.exists(log_file):
+                            st.error(f"**PBS Job Log** (`{log_file}`):")
+                            try:
+                                with open(log_file, 'r') as f:
+                                    log_content = f.read()
+                                st.code(log_content, language="text")
+                            except Exception as e:
+                                st.warning(f"Could not read log file: {e}")
+                        else:
+                            st.warning(f"Could not find PBS log file at: `{log_file}`")
+                            st.info(f"Check PBS logs manually in your home directory")
+                    else:
+                        # Success - all predictions created
+                        status_placeholder.success("✅ **All predictions completed!**")
+                        progress_placeholder.progress(1.0, text=f"Predictions: {total_count}/{total_count}")
+                        st.success("🎉 Prediction job completed successfully!")
+                        st.info("You can now create GIFs from the predictions by clicking Submit again.")
+
                     break
 
-            # Check prediction progress (count existing files)
+            # Check prediction progress (count existing files) every 2 seconds
             missing_timestamps, existing_timestamps = check_missing_predictions(model_name, start_dt, end_dt)
             completed = len(existing_timestamps)
             progress = completed / total_count if total_count > 0 else 0
@@ -277,24 +319,15 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
             # Update progress bar
             progress_placeholder.progress(progress, text=f"Predictions: {completed}/{total_count}")
 
-            # Show details
-            if completed > 0:
+            # Show details only when job is running
+            if last_status == 'R' and completed > 0:
                 details_placeholder.write(f"✅ {completed} prediction(s) completed, {len(missing_timestamps)} remaining")
-
-            # If all predictions are complete, exit
-            if completed >= total_count:
-                status_placeholder.success(f"✅ **Status**: All predictions completed!")
-                progress_placeholder.progress(1.0, text=f"Predictions: {total_count}/{total_count}")
-                break
 
             time.sleep(2)  # Check every 2 seconds
             iteration += 1
 
         if iteration >= max_iterations:
             st.warning("⚠️ Monitoring timeout reached (1 hour). Check job status manually.")
-        else:
-            st.success("🎉 Prediction job completed successfully!")
-            st.info("You can now create GIFs from the predictions by clicking Submit again.")
 
     else:
         st.error(f"❌ Failed to submit job for {model_name}. Check logs for details.")
