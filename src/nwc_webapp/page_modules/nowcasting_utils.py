@@ -276,6 +276,8 @@ def check_missing_predictions(model_name: str, start_dt: datetime, end_dt: datet
     Returns:
         Tuple of (missing_timestamps, existing_timestamps)
     """
+    import os
+
     config = get_config()
     pred_dir = config.real_time_pred / model_name
 
@@ -285,15 +287,36 @@ def check_missing_predictions(model_name: str, start_dt: datetime, end_dt: datet
     missing = []
     existing = []
 
+    # DEBUG: On first verbose call, log the directory and list actual files
+    if verbose:
+        logger.info(f"[{model_name}] Checking prediction directory: {pred_dir}")
+        if pred_dir.exists():
+            try:
+                actual_files = sorted([f for f in os.listdir(pred_dir) if f.endswith('.npy')])
+                logger.info(f"[{model_name}] Found {len(actual_files)} .npy files in directory")
+                if actual_files:
+                    logger.info(f"[{model_name}] Sample files: {actual_files[:5]}")  # Show first 5
+            except Exception as e:
+                logger.error(f"[{model_name}] Error listing directory: {e}")
+        else:
+            logger.warning(f"[{model_name}] Prediction directory does not exist: {pred_dir}")
+
     for timestamp in all_timestamps:
         # Format: DD-MM-YYYY-HH-MM.npy (same as real-time predictions)
         filename = timestamp.strftime('%d-%m-%Y-%H-%M') + '.npy'
         pred_file = pred_dir / filename
 
-        if pred_file.exists():
+        # Use os.path.exists() to avoid any Path caching issues
+        file_exists = os.path.exists(str(pred_file))
+
+        if file_exists:
             existing.append(timestamp)
         else:
             missing.append(timestamp)
+
+        # DEBUG: Log first few checks when verbose
+        if verbose and len(existing) + len(missing) <= 3:
+            logger.debug(f"[{model_name}] Checking {filename}: {'EXISTS' if file_exists else 'MISSING'}")
 
     if verbose:
         logger.info(f"[{model_name}] Range check: {len(existing)}/{len(all_timestamps)} predictions exist, {len(missing)} missing")
@@ -317,6 +340,48 @@ def get_missing_range(missing_timestamps: List[datetime]) -> Tuple[Optional[date
     # Sort to ensure correct order
     sorted_missing = sorted(missing_timestamps)
     return sorted_missing[0], sorted_missing[-1]
+
+
+def delete_predictions_in_range(model_name: str, start_dt: datetime, end_dt: datetime) -> int:
+    """
+    Delete all prediction files in the specified date range.
+
+    Args:
+        model_name: Name of the prediction model
+        start_dt: Start datetime
+        end_dt: End datetime
+
+    Returns:
+        Number of files deleted
+    """
+    import os
+
+    config = get_config()
+    pred_dir = config.real_time_pred / model_name
+
+    if not pred_dir.exists():
+        logger.warning(f"Prediction directory does not exist: {pred_dir}")
+        return 0
+
+    # Generate all timestamps in the range
+    all_timestamps = generate_timestamp_range(start_dt, end_dt, verbose=False)
+
+    deleted_count = 0
+    for timestamp in all_timestamps:
+        # Format: DD-MM-YYYY-HH-MM.npy (same as real-time predictions)
+        filename = timestamp.strftime('%d-%m-%Y-%H-%M') + '.npy'
+        pred_file = pred_dir / filename
+
+        if pred_file.exists():
+            try:
+                pred_file.unlink()
+                deleted_count += 1
+                logger.debug(f"Deleted prediction file: {filename}")
+            except Exception as e:
+                logger.error(f"Failed to delete {filename}: {e}")
+
+    logger.info(f"[{model_name}] Deleted {deleted_count} prediction files from range {start_dt} to {end_dt}")
+    return deleted_count
 
 
 def modify_yaml_config_for_date_range(model_name: str, start_dt: datetime, end_dt: datetime) -> Path:

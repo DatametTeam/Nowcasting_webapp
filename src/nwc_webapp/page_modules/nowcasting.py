@@ -15,6 +15,7 @@ from nwc_webapp.page_modules.nowcasting_utils import (
     get_missing_range,
     submit_date_range_prediction_job,
     create_gifs_from_prediction_range,
+    delete_predictions_in_range,
 )
 from nwc_webapp.prediction.visualization import (
     compute_prediction_results,
@@ -134,6 +135,9 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
     # Display status to user
     total_count = len(missing_timestamps) + len(existing_timestamps)
 
+    # Track if user wants to recompute (delete old predictions)
+    should_delete_old = False
+
     if not missing_timestamps:
         # All predictions exist
         st.success(f"✅ All {total_count} predictions exist for {model_name}")
@@ -157,8 +161,8 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
 
         with col2:
             if st.button("🔄 Recompute All", key="recompute_all", use_container_width=True):
-                # Continue to recompute
-                pass
+                # Continue to recompute - will delete old predictions
+                should_delete_old = True
             else:
                 return  # Wait for user decision
 
@@ -220,7 +224,23 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
         if not (compute_missing or recompute_all):
             return  # Wait for user decision
 
-    # Step 3: Submit PBS job for the range
+        # If recompute all is clicked, set flag to delete old predictions
+        if recompute_all:
+            should_delete_old = True
+
+    # Step 3: Delete old predictions if recompute all was clicked
+    if should_delete_old:
+        st.info(f"🗑️ Deleting old predictions for {model_name}...")
+        deleted_count = delete_predictions_in_range(model_name, start_dt, end_dt)
+        if deleted_count > 0:
+            st.success(f"✅ Deleted {deleted_count} old prediction(s)")
+            logger.info(f"Deleted {deleted_count} old predictions for {model_name}")
+
+        # Reset the count since we deleted everything
+        missing_timestamps, existing_timestamps = check_missing_predictions(model_name, start_dt, end_dt)
+        total_count = len(missing_timestamps) + len(existing_timestamps)
+
+    # Step 4: Submit PBS job for the range
     st.info(f"🚀 Submitting PBS job for {model_name}...")
 
     with st.spinner(f"Submitting job for {model_name} (range: {start_dt} to {end_dt})..."):
@@ -290,7 +310,7 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
                     status_placeholder.markdown("⏳ **Job in <span class='queue-text'>queue</span>**", unsafe_allow_html=True)
                     logger.info(f"Job {job_id} is in queue")
                 elif current_status == 'R':
-                    status_placeholder.markdown(f"⚙️ **Job <span class='running-text'>running</span>** Results will be saved in `{out_folder_path}`", unsafe_allow_html=True)
+                    status_placeholder.markdown(f"⚙️ **Job <span class='running-text'>running</span>**&nbsp;&nbsp;&nbsp; Results will be saved in `{out_folder_path}`", unsafe_allow_html=True)
                     logger.info(f"Job {job_id} is running")
 
             # Check if job disappeared from queue (was running, now gone)
