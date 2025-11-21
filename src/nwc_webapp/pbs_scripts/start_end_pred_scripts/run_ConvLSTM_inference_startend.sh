@@ -4,11 +4,15 @@
 #PBS -l select=1:ncpus=0:ngpus=0
 #PBS -k oe
 #PBS -j oe
-#PBS -o /davinci-1/home/guidim/pbs_logs/pbs.log 
+#PBS -o /davinci-1/home/guidim/pbs_logs/pbs.log
 
 module load proxy
 module load anaconda3
 source activate nowcasting3.12
 
+# Construct cfg_path dynamically relative to script location
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+CFG_PATH="${SCRIPT_DIR}/../../resources/cfg/start_end_prediction_cfg/ConvLSTM.yaml"
+
 # Uses config from start_end_prediction_cfg (modified at runtime with start/end dates)
-python "/davinci-1/home/guidim/spatiotemporal-nowcast/spatiotemporal_forecast/scripts/webapp_predictions.py" --cfg_path "/davinci-1/work/protezionecivile/nwc_webapp/src/nwc_webapp/resources/cfg/start_end_prediction_cfg/ConvLSTM.yaml"
+python "/davinci-1/home/guidim/spatiotemporal-nowcast/spatiotemporal_forecast/scripts/webapp_predictions.py" --cfg_path "$CFG_PATH"

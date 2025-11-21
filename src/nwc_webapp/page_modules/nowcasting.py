@@ -228,10 +228,74 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
 
     if job_id:
         st.success(f"✅ Job submitted successfully! Job ID: {job_id}")
-        st.info(f"The prediction job is running. Results will be saved to the real_time_pred folder.")
         st.write(f"**Model**: {model_name}")
         st.write(f"**Range**: {start_dt.strftime('%d/%m/%Y %H:%M')} to {end_dt.strftime('%d/%m/%Y %H:%M')}")
         st.write(f"**Total predictions**: {total_count}")
+
+        st.markdown("---")
+
+        # Monitor job progress
+        st.subheader("📊 Job Progress")
+
+        # Create placeholders for dynamic updates
+        status_placeholder = st.empty()
+        progress_placeholder = st.empty()
+        details_placeholder = st.empty()
+
+        # Monitor job status and progress
+        import time
+        from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
+
+        max_iterations = 3600  # 1 hour max (3600 * 1 second checks)
+        iteration = 0
+        last_status = None
+
+        while iteration < max_iterations:
+            # Check job status
+            if is_pbs_available():
+                current_status = get_model_job_status(model_name)
+
+                if current_status != last_status:
+                    if current_status == 'Q':
+                        status_placeholder.info(f"⏳ **Status**: Queued (waiting to start)")
+                    elif current_status == 'R':
+                        status_placeholder.success(f"⚙️ **Status**: Running")
+                    elif current_status is None and last_status:
+                        status_placeholder.success(f"✅ **Status**: Completed")
+
+                    last_status = current_status
+
+                # If job disappeared from queue, it's done
+                if last_status and not current_status:
+                    break
+
+            # Check prediction progress (count existing files)
+            missing_timestamps, existing_timestamps = check_missing_predictions(model_name, start_dt, end_dt)
+            completed = len(existing_timestamps)
+            progress = completed / total_count if total_count > 0 else 0
+
+            # Update progress bar
+            progress_placeholder.progress(progress, text=f"Predictions: {completed}/{total_count}")
+
+            # Show details
+            if completed > 0:
+                details_placeholder.write(f"✅ {completed} prediction(s) completed, {len(missing_timestamps)} remaining")
+
+            # If all predictions are complete, exit
+            if completed >= total_count:
+                status_placeholder.success(f"✅ **Status**: All predictions completed!")
+                progress_placeholder.progress(1.0, text=f"Predictions: {total_count}/{total_count}")
+                break
+
+            time.sleep(2)  # Check every 2 seconds
+            iteration += 1
+
+        if iteration >= max_iterations:
+            st.warning("⚠️ Monitoring timeout reached (1 hour). Check job status manually.")
+        else:
+            st.success("🎉 Prediction job completed successfully!")
+            st.info("You can now create GIFs from the predictions by clicking Submit again.")
+
     else:
         st.error(f"❌ Failed to submit job for {model_name}. Check logs for details.")
         logger.error(f"Job submission failed for {model_name}")
