@@ -255,61 +255,76 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
         max_iterations = 1800  # 1 hour max (1800 * 2 second checks)
         iteration = 0
         last_status = None
+        job_completed = False
 
-        while iteration < max_iterations:
-            # Check job status
+        while iteration < max_iterations and not job_completed:
+            # Check job status (only if PBS is available)
+            current_status = None
             if is_pbs_available():
-                current_status = get_model_job_status(model_name)
+                try:
+                    current_status = get_model_job_status(model_name)
+                    logger.debug(f"Job status check: {current_status}")
+                except Exception as e:
+                    logger.error(f"Error checking job status: {e}")
+                    current_status = None
 
-                if current_status != last_status:
-                    if current_status == 'Q':
-                        status_placeholder.info("⏳ **Job in queue!**")
-                    elif current_status == 'R':
-                        status_placeholder.success(f"⚙️ **Job running!** Results will be saved in `{out_folder_path}`")
+            # Update status display when status changes
+            if current_status != last_status and current_status is not None:
+                if current_status == 'Q':
+                    status_placeholder.info("⏳ **Job in queue!**")
+                    logger.info(f"Job {job_id} is in queue")
+                elif current_status == 'R':
+                    status_placeholder.success(f"⚙️ **Job running!** Results will be saved in `{out_folder_path}`")
+                    logger.info(f"Job {job_id} is running")
 
-                    last_status = current_status
+            # Check if job disappeared from queue (was running, now gone)
+            # This check is OUTSIDE the PBS availability check to ensure we catch it
+            if last_status is not None and current_status is None:
+                logger.info(f"Job {job_id} disappeared from queue (was: {last_status}) - doing final verification")
+                job_completed = True
 
-                # If job disappeared from queue, it's done
-                if last_status and not current_status:
-                    logger.info(f"Job {job_id} disappeared from queue - doing final check")
+                # Wait 5 seconds for filesystem sync
+                status_placeholder.info("⏳ **Job finished - verifying results...**")
+                time.sleep(5)
 
-                    # Wait 5 seconds for filesystem sync
-                    time.sleep(5)
+                # Final check of predictions
+                missing_timestamps, existing_timestamps = check_missing_predictions(model_name, start_dt, end_dt)
+                completed = len(existing_timestamps)
 
-                    # Final check of predictions
-                    missing_timestamps, existing_timestamps = check_missing_predictions(model_name, start_dt, end_dt)
-                    completed = len(existing_timestamps)
+                if len(missing_timestamps) > 0:
+                    # Error occurred - not all predictions were created
+                    status_placeholder.error("❌ **Error doing prediction!**")
 
-                    if len(missing_timestamps) > 0:
-                        # Error occurred - not all predictions were created
-                        status_placeholder.error("❌ **Error doing prediction!**")
+                    # Try to read PBS output log
+                    home_dir = os.path.expanduser("~")
+                    log_file = os.path.join(home_dir, f"nwc_{model_name}_range.o{job_id}")
 
-                        # Try to read PBS output log
-                        home_dir = os.path.expanduser("~")
-                        log_file = os.path.join(home_dir, f"nwc_{model_name}_range.o{job_id}")
+                    logger.error(f"Job failed - missing {len(missing_timestamps)} predictions")
+                    logger.info(f"Looking for log file: {log_file}")
 
-                        logger.error(f"Job failed - missing {len(missing_timestamps)} predictions")
-                        logger.info(f"Looking for log file: {log_file}")
-
-                        if os.path.exists(log_file):
-                            st.error(f"**PBS Job Log** (`{log_file}`):")
-                            try:
-                                with open(log_file, 'r') as f:
-                                    log_content = f.read()
-                                st.code(log_content, language="text")
-                            except Exception as e:
-                                st.warning(f"Could not read log file: {e}")
-                        else:
-                            st.warning(f"Could not find PBS log file at: `{log_file}`")
-                            st.info(f"Check PBS logs manually in your home directory")
+                    if os.path.exists(log_file):
+                        st.error(f"**PBS Job Log** (`{log_file}`):")
+                        try:
+                            with open(log_file, 'r') as f:
+                                log_content = f.read()
+                            st.code(log_content, language="text")
+                        except Exception as e:
+                            st.warning(f"Could not read log file: {e}")
                     else:
-                        # Success - all predictions created
-                        status_placeholder.success("✅ **All predictions completed!**")
-                        progress_placeholder.progress(1.0, text=f"Predictions: {total_count}/{total_count}")
-                        st.success("🎉 Prediction job completed successfully!")
-                        st.info("You can now create GIFs from the predictions by clicking Submit again.")
+                        st.warning(f"Could not find PBS log file at: `{log_file}`")
+                        st.info(f"Check PBS logs manually in your home directory")
+                else:
+                    # Success - all predictions created
+                    status_placeholder.success("✅ **All predictions completed!**")
+                    progress_placeholder.progress(1.0, text=f"Predictions: {total_count}/{total_count}")
+                    st.success("🎉 Prediction job completed successfully!")
+                    st.info("You can now create GIFs from the predictions by clicking Submit again.")
 
-                    break
+                break
+
+            # Update last_status for next iteration
+            if current_status is not None:
+                last_status = current_status
 
             # Check prediction progress (count existing files) every 2 seconds
             missing_timestamps, existing_timestamps = check_missing_predictions(model_name, start_dt, end_dt)

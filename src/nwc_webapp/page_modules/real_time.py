@@ -321,8 +321,14 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
 
         latest_file = st.session_state["latest_thread"]
         if latest_file != st.session_state.latest_file:
+            # Check if real-time is paused before launching predictions
+            is_paused = st.session_state.get("realtime_paused", False)
+            if is_paused:
+                logger.warning(f"Real-time is paused - skipping prediction launch for {latest_file}")
+                # Mark file as seen so we don't try to process old files when unpaused
+                st.session_state.latest_file = latest_file
             # calcolo della previsione in background
-            if st.session_state["launch_prediction_thread"] is None:
+            elif st.session_state["launch_prediction_thread"] is None:
                 logger.info(f"Launching predictions for all models for {latest_file}")
 
                 # Mark that prediction threads are launching

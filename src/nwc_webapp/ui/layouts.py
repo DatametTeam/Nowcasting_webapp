@@ -14,6 +14,13 @@ from nwc_webapp.utils import compute_figure_gpd, create_colorbar_fig
 from streamlit_folium import st_folium
 
 
+def round_to_previous_5_minutes():
+    """Round current time to the previous 5-minute interval"""
+    now = datetime.now()
+    minutes = (now.minute // 5) * 5
+    return time(now.hour, minutes)
+
+
 def configure_sidebar(model_list):
     with st.sidebar:
         root_dir = Path(__file__).resolve().parent.parent.parent
@@ -21,21 +28,25 @@ def configure_sidebar(model_list):
 
         st.markdown("<h1 style='font-size: 32px; font-weight: bold;'>NOWCASTING</h1>", unsafe_allow_html=True)
         with st.form("weather_prediction_form"):
+            # Get current date and rounded time
+            current_date = datetime.now().date()
+            rounded_time = round_to_previous_5_minutes()
+
             # Date inputs
-            start_date = st.date_input("Select a start date", value=datetime(2025, 1, 31).date(),
-                                       format="DD/MM/YYYY")  # TODO: rimettere now
+            start_date = st.date_input("Select a start date", value=current_date,
+                                       format="DD/MM/YYYY")
             # Time inputs
             start_time = st.time_input(
                 "Select a start time",
-                value=time(1, 0),
+                value=rounded_time,
                 step=timedelta(minutes=5)  # 5-minute intervals
             )
-            end_date = st.date_input("Select an end date", value=datetime(2025, 1, 31).date(),
-                                     format="DD/MM/YYYY")  # TODO: da rimettere now
+            end_date = st.date_input("Select an end date", value=current_date,
+                                     format="DD/MM/YYYY")
 
             end_time = st.time_input(
                 "Select an end time",
-                value=time(1, 55),
+                value=rounded_time,
                 step=timedelta(minutes=5)  # 5-minute intervals
             )
 
