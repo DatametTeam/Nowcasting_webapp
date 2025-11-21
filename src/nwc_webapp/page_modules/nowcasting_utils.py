@@ -566,16 +566,19 @@ def create_gifs_from_prediction_range(model_name: str, start_dt: datetime, end_d
 
         # Load all predictions and ground truth data
         for timestamp in all_timestamps:
-            date_str = timestamp.strftime('%d%m%Y')
-            time_str = timestamp.strftime('%H%M')
+            # Format: DD-MM-YYYY-HH-MM.npy (same as check_missing_predictions)
+            filename = timestamp.strftime('%d-%m-%Y-%H-%M') + '.npy'
+            pred_path = config.real_time_pred / model_name / filename
 
-            # Load prediction
-            pred_path = get_realtime_prediction_path(model_name, date_str, time_str)
             if not pred_path.exists():
                 logger.warning(f"Prediction not found: {pred_path}")
                 continue
 
             pred_data = np.load(pred_path)  # Shape: (12, 1400, 1200)
+
+            # Also get date_str and time_str for ground truth paths (old format for SRI files)
+            date_str = timestamp.strftime('%d%m%Y')
+            time_str = timestamp.strftime('%H%M')
 
             # Load ground truth (SRI data) for all 12 timesteps
             for t in range(12):
@@ -603,6 +606,12 @@ def create_gifs_from_prediction_range(model_name: str, start_dt: datetime, end_d
                     pred_figures[frame_time] = fig
                 except Exception as e:
                     logger.warning(f"Error creating pred figure at {frame_time}: {e}")
+
+        # Check if we loaded any predictions
+        if not pred_figures:
+            logger.error(f"No prediction data loaded for {model_name} in range {start_dt} to {end_dt}")
+            logger.error("Cannot create GIFs without prediction data")
+            return False
 
         # Create sidebar_args for GIF creation
         sidebar_args = {

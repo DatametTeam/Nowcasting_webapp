@@ -236,9 +236,14 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
             st.success(f"✅ Deleted {deleted_count} old prediction(s)")
             logger.info(f"Deleted {deleted_count} old predictions for {model_name}")
 
+        # Wait for filesystem sync
+        import time
+        time.sleep(2)
+
         # Reset the count since we deleted everything
         missing_timestamps, existing_timestamps = check_missing_predictions(model_name, start_dt, end_dt)
         total_count = len(missing_timestamps) + len(existing_timestamps)
+        logger.info(f"After deletion: {len(existing_timestamps)} existing, {len(missing_timestamps)} missing")
 
     # Step 4: Submit PBS job for the range
     st.info(f"🚀 Submitting PBS job for {model_name}...")
@@ -310,7 +315,7 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
                     status_placeholder.markdown("⏳ **Job in <span class='queue-text'>queue</span>**", unsafe_allow_html=True)
                     logger.info(f"Job {job_id} is in queue")
                 elif current_status == 'R':
-                    status_placeholder.markdown(f"⚙️ **Job <span class='running-text'>running</span>**&nbsp;&nbsp;&nbsp; Results will be saved in `{out_folder_path}`", unsafe_allow_html=True)
+                    status_placeholder.markdown(f"⚙️ **Job <span class='running-text'>running</span>**<br>Results will be saved in `{out_folder_path}`", unsafe_allow_html=True)
                     logger.info(f"Job {job_id} is running")
 
             # Check if job disappeared from queue (was running, now gone)
@@ -358,7 +363,20 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
                     status_placeholder.success("✅ **All predictions completed!**")
                     progress_placeholder.progress(1.0, text=f"Predictions: {total_count}/{total_count}")
                     st.success("🎉 Prediction job completed successfully!")
-                    st.info("You can now create GIFs from the predictions by clicking Submit again.")
+
+                    # Automatically start GIF creation
+                    st.info("🎬 Creating GIFs from predictions...")
+                    logger.info(f"Auto-starting GIF creation for {model_name}")
+
+                    with st.spinner("Creating GIFs..."):
+                        success = create_gifs_from_prediction_range(model_name, start_dt, end_dt, sri_folder_dir)
+
+                    if success:
+                        st.success("✅ GIFs created successfully!")
+                        logger.info(f"GIF creation completed for {model_name}")
+                    else:
+                        st.error("❌ Failed to create GIFs. Check logs for details.")
+                        logger.error(f"GIF creation failed for {model_name}")
 
                 break
 
