@@ -237,6 +237,22 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
         # Monitor job progress
         st.subheader("📊 Job Progress")
 
+        # Add CSS for animated dots
+        st.markdown("""
+        <style>
+        .queue-text::after, .running-text::after {
+            content: '';
+            animation: dots 1.5s steps(4, end) infinite;
+        }
+        @keyframes dots {
+            0%, 24% { content: ''; }
+            25%, 49% { content: '.'; }
+            50%, 74% { content: '..'; }
+            75%, 100% { content: '...'; }
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
         # Create placeholders for dynamic updates
         status_placeholder = st.empty()
         progress_placeholder = st.empty()
@@ -271,10 +287,10 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
             # Update status display when status changes
             if current_status != last_status and current_status is not None:
                 if current_status == 'Q':
-                    status_placeholder.info("⏳ **Job in queue!**")
+                    status_placeholder.markdown("⏳ **Job in <span class='queue-text'>queue</span>**", unsafe_allow_html=True)
                     logger.info(f"Job {job_id} is in queue")
                 elif current_status == 'R':
-                    status_placeholder.success(f"⚙️ **Job running!** Results will be saved in `{out_folder_path}`")
+                    status_placeholder.markdown(f"⚙️ **Job <span class='running-text'>running</span>** Results will be saved in `{out_folder_path}`", unsafe_allow_html=True)
                     logger.info(f"Job {job_id} is running")
 
             # Check if job disappeared from queue (was running, now gone)
@@ -306,18 +322,12 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
                         try:
                             with open(log_file, 'r') as f:
                                 log_content = f.read()
-                            # Display in red error container
+                            # Display error log with proper formatting
                             st.markdown("---")
-                            st.markdown("### ❌ PBS Job Error Log")
+                            st.error("### ❌ PBS Job Error Log")
                             st.markdown(f"**Log file**: `{log_file}`")
-                            # Use error container with code block inside
-                            with st.container():
-                                st.markdown(
-                                    f'<div style="background-color: #ffebee; border-left: 5px solid #f44336; padding: 10px; border-radius: 5px;">'
-                                    f'<pre style="color: #c62828; margin: 0; white-space: pre-wrap; word-wrap: break-word;">{log_content}</pre>'
-                                    f'</div>',
-                                    unsafe_allow_html=True
-                                )
+                            # Use code block for proper formatting and readability
+                            st.code(log_content, language="text")
                         except Exception as e:
                             st.warning(f"Could not read log file: {e}")
                     else:
