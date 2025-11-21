@@ -1,5 +1,5 @@
 """
-Nowcasting page - main prediction interface.
+Nowcasting page - main prediction interface with date range support.
 """
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +11,10 @@ from nwc_webapp.page_modules.nowcasting_utils import (
     check_gifs_exist,
     check_realtime_prediction_exists,
     load_realtime_prediction,
+    check_missing_predictions,
+    get_missing_range,
+    submit_date_range_prediction_job,
+    create_gifs_from_prediction_range,
 )
 from nwc_webapp.prediction.visualization import (
     compute_prediction_results,
@@ -57,35 +61,44 @@ def show_training_date_warning() -> bool:
 
 def main_page(sidebar_args, sri_folder_dir) -> None:
     """
-    Main nowcasting page with prediction submission and visualization.
+    Main nowcasting page with date range prediction support.
 
-    New workflow:
-    1. Check if date is before Jan 1, 2025 → show warning
-    2. Check if GIFs already exist → load and display
-    3. Check if real-time predictions exist → create GIFs from them
-    4. Submit prediction job → create GIFs from results
+    Workflow:
+    1. Check if date range is before Jan 1, 2025 → show warning
+    2. Check which predictions exist in the range
+    3. Show smart dialog: "Predictions from X to Y exist. Missing from A to B. Recompute? YES/NO"
+    4. Submit job for date range if needed
+    5. Create sliding window GIFs from all predictions
 
     Args:
-        sidebar_args: Dictionary with sidebar configuration
+        sidebar_args: Dictionary with sidebar configuration (includes start/end dates)
         sri_folder_dir: Path to SRI folder directory
     """
     # Check if form was submitted
     if not sidebar_args.get('submitted', False):
-        st.info("👈 Please select a model, date, and time from the sidebar, then click 'Submit'")
+        st.info("👈 Please select a model, start/end date and time from the sidebar, then click 'Submit'")
         return
 
     # Extract parameters
     model_name = sidebar_args['model_name']
     start_date = sidebar_args['start_date']
     start_time = sidebar_args['start_time']
+    end_date = sidebar_args['end_date']
+    end_time = sidebar_args['end_time']
 
     # Combine date and time
-    selected_datetime = datetime.combine(start_date, start_time)
-    date_str = selected_datetime.strftime('%d%m%Y')  # DDMMYYYY format
-    time_str = selected_datetime.strftime('%H%M')
+    start_dt = datetime.combine(start_date, start_time)
+    end_dt = datetime.combine(end_date, end_time)
+
+    # Validate date range
+    if end_dt < start_dt:
+        st.error("❌ End date/time must be after start date/time!")
+        return
+
+    logger.info(f"Nowcasting request: {model_name} from {start_dt} to {end_dt}")
 
     # Step 1: Date validation for training data
-    if is_training_date(selected_datetime):
+    if is_training_date(start_dt) or is_training_date(end_dt):
         # Check if warning was already shown and accepted in this session
         if 'training_warning_accepted' not in st.session_state:
             st.session_state.training_warning_accepted = None
@@ -97,78 +110,94 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
                 return  # Stop if user cancels
         elif not st.session_state.training_warning_accepted:
             # User previously declined
-            st.info("Operation cancelled. Please select a date after 1st January 2025.")
+            st.info("Operation cancelled. Please select dates after 1st January 2025.")
             return
 
         # If we reach here, user has accepted the warning
-        logger.info(f"User accepted training date warning for {date_str}_{time_str}")
+        logger.info(f"User accepted training date warning for range {start_dt} to {end_dt}")
 
-    # Step 2: Check if GIFs already exist
-    gif_paths = get_gif_paths(model_name, date_str, time_str)
-    gt_exist, pred_exist, diff_exist = check_gifs_exist(gif_paths)
+    # Step 2: Check which predictions exist in the range
+    missing_timestamps, existing_timestamps = check_missing_predictions(model_name, start_dt, end_dt)
 
-    if gt_exist and pred_exist and diff_exist:
-        logger.info(f"Found existing GIFs for {model_name} at {date_str}_{time_str}")
+    # Display status to user
+    total_count = len(missing_timestamps) + len(existing_timestamps)
 
-        # Ask user if they want to recompute
-        st.success("✅ Prediction GIFs found!")
-        st.info("Do you want to load existing GIFs or recompute?")
+    if not missing_timestamps:
+        # All predictions exist
+        st.success(f"✅ All {total_count} predictions exist for {model_name}")
+        st.info(f"**Range**: {start_dt.strftime('%d/%m/%Y %H:%M')} to {end_dt.strftime('%d/%m/%Y %H:%M')}")
 
+        # Ask if they want to recompute
         col1, col2, _ = st.columns([1, 1, 3])
 
         with col1:
-            if st.button("📂 Load Existing", key="load_existing", use_container_width=True):
-                # Load and display existing GIFs
-                gif_paths_list = [
-                    gif_paths['gt_t0'],
-                    gif_paths['gt_t6'],
-                    gif_paths['gt_t12'],
-                ]
-                pred_paths_list = [
-                    gif_paths['pred_t6'],
-                    gif_paths['pred_t12'],
-                ]
-                diff_paths_list = [
-                    gif_paths['diff_t6'],
-                    gif_paths['diff_t12'],
-                ]
+            if st.button("📊 Create GIFs", key="create_gifs", use_container_width=True):
+                st.info("🎬 Creating sliding window GIFs from predictions...")
 
-                gt_gifs = load_gif_as_bytesio(gif_paths_list)
-                pred_gifs = load_gif_as_bytesio(pred_paths_list)
-                diff_gifs = load_gif_as_bytesio(diff_paths_list)
+                with st.spinner("Creating GIFs..."):
+                    success = create_gifs_from_prediction_range(model_name, start_dt, end_dt, sri_folder_dir)
 
-                display_results(gt_gifs, pred_gifs, diff_gifs)
+                if success:
+                    st.success("✅ GIFs created successfully!")
+                else:
+                    st.error("❌ Failed to create GIFs. Check logs for details.")
                 return
 
         with col2:
-            if st.button("🔄 Recompute", key="recompute", use_container_width=True):
+            if st.button("🔄 Recompute All", key="recompute_all", use_container_width=True):
                 # Continue to recompute
                 pass
             else:
                 return  # Wait for user decision
 
-    # Step 3: Check if real-time predictions exist
-    if check_realtime_prediction_exists(model_name, date_str, time_str):
-        logger.info(f"Found real-time predictions for {model_name} at {date_str}_{time_str}")
-        st.info("🔍 Found real-time prediction data. Creating GIFs...")
+    elif not existing_timestamps:
+        # No predictions exist
+        st.warning(f"⚠️ No predictions found for {model_name} in this range")
+        st.info(f"**Missing**: {total_count} predictions from {start_dt.strftime('%d/%m/%Y %H:%M')} to {end_dt.strftime('%d/%m/%Y %H:%M')}")
 
-        # Load real-time prediction data
-        pred_data = load_realtime_prediction(model_name, date_str, time_str)
-
-        if pred_data is not None:
-            # Create GIFs from real-time data
-            create_gifs_from_realtime_data(
-                pred_data=pred_data,
-                sidebar_args=sidebar_args,
-                sri_folder_dir=sri_folder_dir,
-                gif_paths=gif_paths,
-            )
-            return
+        if st.button("▶️ Compute Predictions", key="compute_missing", use_container_width=True):
+            # Submit job
+            pass
         else:
-            st.error("Failed to load real-time prediction data. Will submit new prediction job.")
+            return  # Wait for user decision
 
-    # Step 4: No GIFs or predictions found → submit job
-    logger.info(f"No existing data found for {model_name} at {date_str}_{time_str}. Submitting job...")
-    st.info("📝 No existing predictions found. Submitting new prediction job...")
+    else:
+        # Some predictions exist, some are missing
+        first_missing, last_missing = get_missing_range(missing_timestamps)
 
-    compute_prediction_results(sidebar_args, sri_folder_dir)
+        st.info(f"📊 **Prediction Status for {model_name}**")
+        st.write(f"✅ **Existing**: {len(existing_timestamps)}/{total_count} predictions")
+        st.write(f"❌ **Missing**: {len(missing_timestamps)}/{total_count} predictions")
+        st.write(f"   └─ From {first_missing.strftime('%d/%m/%Y %H:%M')} to {last_missing.strftime('%d/%m/%Y %H:%M')}")
+
+        col1, col2, _ = st.columns([1, 1, 3])
+
+        with col1:
+            if st.button("▶️ Compute Missing", key="compute_partial", use_container_width=True):
+                # Continue to compute missing
+                pass
+            else:
+                return  # Wait for user decision
+
+        with col2:
+            if st.button("🔄 Recompute All", key="recompute_all_partial", use_container_width=True):
+                # Continue to recompute all
+                pass
+            else:
+                return  # Wait for user decision
+
+    # Step 3: Submit PBS job for the range
+    st.info(f"🚀 Submitting PBS job for {model_name}...")
+
+    with st.spinner(f"Submitting job for {model_name} (range: {start_dt} to {end_dt})..."):
+        job_id = submit_date_range_prediction_job(model_name, start_dt, end_dt)
+
+    if job_id:
+        st.success(f"✅ Job submitted successfully! Job ID: {job_id}")
+        st.info(f"The prediction job is running. Results will be saved to the real_time_pred folder.")
+        st.write(f"**Model**: {model_name}")
+        st.write(f"**Range**: {start_dt.strftime('%d/%m/%Y %H:%M')} to {end_dt.strftime('%d/%m/%Y %H:%M')}")
+        st.write(f"**Total predictions**: {total_count}")
+    else:
+        st.error(f"❌ Failed to submit job for {model_name}. Check logs for details.")
+        logger.error(f"Job submission failed for {model_name}")

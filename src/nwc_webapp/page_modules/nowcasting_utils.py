@@ -235,3 +235,312 @@ def extract_timestamp_slices(pred_array: np.ndarray) -> Tuple[np.ndarray, np.nda
     t60 = pred_array[11]    # t+60 minutes (index 11, last one)
 
     return t0, t30, t60
+
+
+def generate_timestamp_range(start_dt: datetime, end_dt: datetime) -> List[datetime]:
+    """
+    Generate all timestamps in a range with 5-minute intervals.
+
+    Args:
+        start_dt: Start datetime
+        end_dt: End datetime
+
+    Returns:
+        List of datetime objects with 5-minute intervals
+    """
+    from datetime import timedelta
+
+    timestamps = []
+    current = start_dt
+
+    while current <= end_dt:
+        timestamps.append(current)
+        current += timedelta(minutes=5)
+
+    logger.info(f"Generated {len(timestamps)} timestamps from {start_dt} to {end_dt}")
+    return timestamps
+
+
+def check_missing_predictions(model_name: str, start_dt: datetime, end_dt: datetime) -> Tuple[List[datetime], List[datetime]]:
+    """
+    Check which prediction files are missing in the specified range.
+
+    Args:
+        model_name: Name of the prediction model
+        start_dt: Start datetime
+        end_dt: End datetime
+
+    Returns:
+        Tuple of (missing_timestamps, existing_timestamps)
+    """
+    config = get_config()
+    pred_dir = config.real_time_pred / model_name
+
+    # Generate all expected timestamps
+    all_timestamps = generate_timestamp_range(start_dt, end_dt)
+
+    missing = []
+    existing = []
+
+    for timestamp in all_timestamps:
+        # Format: DDMMYYYY_HHMM_prediction.npy
+        date_str = timestamp.strftime('%d%m%Y')
+        time_str = timestamp.strftime('%H%M')
+        pred_file = pred_dir / f"{date_str}_{time_str}_prediction.npy"
+
+        if pred_file.exists():
+            existing.append(timestamp)
+        else:
+            missing.append(timestamp)
+
+    logger.info(f"[{model_name}] Range check: {len(existing)}/{len(all_timestamps)} predictions exist, {len(missing)} missing")
+
+    return missing, existing
+
+
+def get_missing_range(missing_timestamps: List[datetime]) -> Tuple[Optional[datetime], Optional[datetime]]:
+    """
+    Get the start and end of the missing timestamp range.
+
+    Args:
+        missing_timestamps: List of missing datetime objects
+
+    Returns:
+        Tuple of (first_missing, last_missing) or (None, None) if all exist
+    """
+    if not missing_timestamps:
+        return None, None
+
+    # Sort to ensure correct order
+    sorted_missing = sorted(missing_timestamps)
+    return sorted_missing[0], sorted_missing[-1]
+
+
+def modify_yaml_config_for_date_range(model_name: str, start_dt: datetime, end_dt: datetime) -> Path:
+    """
+    Modify YAML config with start/end dates for date-range predictions.
+
+    Reads the config from start_end_prediction_cfg/{model_name}.yaml,
+    modifies the start_date and end_date fields, and overwrites the file.
+
+    Args:
+        model_name: Model name (e.g., 'ConvLSTM', 'IAM4VP', 'PredFormer', 'SPROG')
+        start_dt: Start datetime
+        end_dt: End datetime
+
+    Returns:
+        Path to the modified YAML config file
+    """
+    import yaml
+
+    # Source YAML path
+    config_path = Path(__file__).parent.parent / "resources" / "cfg" / "start_end_prediction_cfg" / f"{model_name}.yaml"
+
+    if not config_path.exists():
+        logger.error(f"Config file not found: {config_path}")
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+
+    # Read the YAML file
+    with open(config_path, 'r') as f:
+        config_data = yaml.safe_load(f)
+
+    # Format dates as "YYYY-MM-DD HH:MM"
+    start_str = start_dt.strftime("%Y-%m-%d %H:%M")
+    end_str = end_dt.strftime("%Y-%m-%d %H:%M")
+
+    # Modify the start_date and end_date fields
+    if 'dataframe_strategy' in config_data and 'args' in config_data['dataframe_strategy']:
+        config_data['dataframe_strategy']['args']['start_date'] = start_str
+        config_data['dataframe_strategy']['args']['end_date'] = end_str
+        logger.info(f"Modified {model_name} config: start={start_str}, end={end_str}")
+    else:
+        logger.warning(f"Could not find dataframe_strategy.args in {model_name} config")
+
+    # Overwrite the original file
+    with open(config_path, 'w') as f:
+        yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
+
+    logger.info(f"Overwritten config at: {config_path}")
+    return config_path
+
+
+def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt: datetime) -> Optional[str]:
+    """
+    Submit PBS job for date-range predictions.
+
+    This function:
+    1. Modifies the YAML config with start/end dates
+    2. Submits the PBS job using the script from start_end_pred_scripts/
+    3. Returns the job ID
+
+    Args:
+        model_name: Model name (e.g., 'ConvLSTM', 'IAM4VP', 'PredFormer', 'SPROG')
+        start_dt: Start datetime
+        end_dt: End datetime
+
+    Returns:
+        Job ID string if successful, None if failed
+    """
+    import subprocess
+
+    # Step 1: Modify the YAML config with date range
+    try:
+        config_path = modify_yaml_config_for_date_range(model_name, start_dt, end_dt)
+        logger.info(f"Modified config for {model_name}: {config_path}")
+    except Exception as e:
+        logger.error(f"Failed to modify config for {model_name}: {e}")
+        return None
+
+    # Step 2: Get the PBS script path
+    pbs_script_path = Path(__file__).parent.parent / "pbs_scripts" / "start_end_pred_scripts" / f"run_{model_name}_inference_startend.sh"
+
+    if not pbs_script_path.exists():
+        logger.error(f"PBS script not found: {pbs_script_path}")
+        return None
+
+    # Step 3: Submit the PBS job
+    command = ["qsub", str(pbs_script_path)]
+
+    try:
+        logger.info(f"Submitting PBS job for {model_name} (range: {start_dt} to {end_dt})")
+        logger.info(f"Command: {' '.join(command)}")
+
+        result = subprocess.run(command, check=True, text=True, capture_output=True)
+
+        # Extract job ID from output (format: "123456.davinci-mgt01")
+        job_id = result.stdout.strip().split(".")[0]
+        logger.info(f"✅ [{model_name}] Job submitted successfully! Job ID: {job_id}")
+
+        return job_id
+
+    except subprocess.CalledProcessError as e:
+        logger.error(f"❌ [{model_name}] Failed to submit PBS job!")
+        logger.error(f"Error: {e.stderr.strip() if e.stderr else 'Unknown error'}")
+        return None
+    except Exception as e:
+        logger.error(f"❌ [{model_name}] Unexpected error submitting job: {e}")
+        return None
+
+
+def create_gifs_from_prediction_range(model_name: str, start_dt: datetime, end_dt: datetime, sri_folder_dir: str) -> bool:
+    """
+    Create sliding window GIFs from a range of prediction files.
+
+    This function:
+    1. Loads all predictions in the range
+    2. Loads corresponding ground truth data
+    3. Creates sliding window GIFs for the entire sequence
+    4. Saves GIFs to gif_storage location
+
+    Args:
+        model_name: Model name
+        start_dt: Start datetime
+        end_dt: End datetime
+        sri_folder_dir: Path to SRI folder
+
+    Returns:
+        True if successful, False otherwise
+    """
+    from datetime import timedelta
+    from nwc_webapp.services.parallel_code import create_sliding_window_gifs
+    from nwc_webapp.utils import compute_figure_gpd
+    import h5py
+
+    config = get_config()
+
+    logger.info(f"Creating GIFs for {model_name} from {start_dt} to {end_dt}")
+
+    try:
+        # Generate all timestamps in the range
+        all_timestamps = generate_timestamp_range(start_dt, end_dt)
+
+        # Dictionary to store figures for ground truth and predictions
+        gt_figures = {}
+        pred_figures = {}
+
+        # Load all predictions and ground truth data
+        for timestamp in all_timestamps:
+            date_str = timestamp.strftime('%d%m%Y')
+            time_str = timestamp.strftime('%H%M')
+
+            # Load prediction
+            pred_path = get_realtime_prediction_path(model_name, date_str, time_str)
+            if not pred_path.exists():
+                logger.warning(f"Prediction not found: {pred_path}")
+                continue
+
+            pred_data = np.load(pred_path)  # Shape: (12, 1400, 1200)
+
+            # Load ground truth (SRI data) for all 12 timesteps
+            for t in range(12):
+                # Calculate timestamp for this frame (t * 5 minutes ahead)
+                frame_time = timestamp + timedelta(minutes=t * 5)
+                frame_date_str = frame_time.strftime('%d%m%Y')
+                frame_time_str = frame_time.strftime('%H%M')
+
+                # Ground truth path
+                gt_path = config.sri_folder / f"SRI_{frame_date_str}_{frame_time_str}.hdf"
+
+                if gt_path.exists():
+                    try:
+                        with h5py.File(gt_path, 'r') as hdf:
+                            gt_data = hdf['/dataset1/data1/data'][:]
+                            # Create figure for ground truth
+                            fig = compute_figure_gpd(gt_data, frame_time.strftime('%d/%m/%Y %H:%M'))
+                            gt_figures[frame_time] = fig
+                    except Exception as e:
+                        logger.warning(f"Error loading GT at {gt_path}: {e}")
+
+                # Create figure for prediction
+                try:
+                    fig = compute_figure_gpd(pred_data[t], frame_time.strftime('%d/%m/%Y %H:%M'))
+                    pred_figures[frame_time] = fig
+                except Exception as e:
+                    logger.warning(f"Error creating pred figure at {frame_time}: {e}")
+
+        # Create sidebar_args for GIF creation
+        sidebar_args = {
+            'model_name': model_name,
+            'start_date': start_dt.date(),
+            'start_time': start_dt.time(),
+            'end_date': end_dt.date(),
+            'end_time': end_dt.time(),
+        }
+
+        # Create sliding window GIFs
+        logger.info(f"Creating sliding window GIFs: {len(gt_figures)} GT frames, {len(pred_figures)} pred frames")
+
+        # Create GIFs for ground truth
+        if gt_figures:
+            create_sliding_window_gifs(
+                figures_dict=gt_figures,
+                sidebar_args=sidebar_args,
+                start_positions=[0, 6, 12],
+                save_on_disk=True,
+                fps_gif=3,
+                name="gt"
+            )
+            logger.info("Ground truth GIFs created")
+
+        # Create GIFs for predictions
+        if pred_figures:
+            create_sliding_window_gifs(
+                figures_dict=pred_figures,
+                sidebar_args=sidebar_args,
+                start_positions=[6, 12],
+                save_on_disk=True,
+                fps_gif=3,
+                name="pred"
+            )
+            logger.info("Prediction GIFs created")
+
+        # Create difference GIFs
+        # TODO: Implement difference GIF creation
+        logger.info("Difference GIFs creation not yet implemented")
+
+        logger.info(f"✅ GIF creation completed for {model_name}")
+        return True
+
+    except Exception as e:
+        logger.error(f"❌ Error creating GIFs for {model_name}: {e}")
+        return False
