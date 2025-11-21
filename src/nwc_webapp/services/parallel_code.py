@@ -24,7 +24,7 @@ def create_diff_dict_in_parallel(diff_array, sidebar_args, save_on_disk=False):
     start_date = sidebar_args['start_date']
     start_time = sidebar_args['start_time']
     combined_start = datetime.combine(start_date, start_time)
-    logger.info(combined_start)
+    logger.debug(f"Starting from: {combined_start}")
     time_step = timedelta(minutes=5)
 
     max_workers = os.cpu_count()
@@ -58,7 +58,7 @@ def create_fig_dict_in_parallel(gt_data, pred_data, sidebar_args, save_on_disk=F
     start_date = sidebar_args['start_date']
     start_time = sidebar_args['start_time']
     combined_start = datetime.combine(start_date, start_time)
-    logger.info(combined_start)
+    logger.debug(f"Starting from: {combined_start}")
     time_step = timedelta(minutes=5)
 
     max_workers = os.cpu_count()
@@ -163,9 +163,9 @@ def create_single_gif_for_parallel(queue, start_pos, figures_dict, window_size, 
     """
     buf = io.BytesIO()
     frames = []
-    logger.info(f"{start_pos} / {start_pos + window_size}")
+    logger.debug(f"Creating GIF from position {start_pos} to {start_pos + window_size}")
     window_keys = sorted_keys[start_pos:start_pos + window_size]
-    logger.info(window_keys)
+    logger.debug(f"Window keys: {len(window_keys)} frames")
 
     for i, key in enumerate(window_keys):
         fig = figures_dict[key]

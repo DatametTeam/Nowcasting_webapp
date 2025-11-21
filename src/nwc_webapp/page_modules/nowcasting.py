@@ -148,16 +148,51 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
 
         with col1:
             if st.button("📊 Create GIFs", key="create_gifs", use_container_width=True):
-                st.info("🎬 Creating sliding window GIFs from predictions...")
+                # Check if GIFs already exist
+                gif_paths = get_gif_paths(model_name, start_dt.strftime('%d%m%Y'), start_dt.strftime('%H%M'))
+                gt_exist, pred_exist, diff_exist = check_gifs_exist(gif_paths)
 
-                with st.spinner("Creating GIFs..."):
-                    success = create_gifs_from_prediction_range(model_name, start_dt, end_dt, sri_folder_dir)
+                if gt_exist or pred_exist or diff_exist:
+                    # GIFs already exist - ask user if they want to recompute
+                    st.warning("⚠️ **GIFs already exist!** Do you want to recompute them?")
 
-                if success:
-                    st.success("✅ GIFs created successfully!")
+                    col_yes, col_no, _ = st.columns([1, 1, 3])
+                    with col_yes:
+                        if st.button("✅ YES, Recompute", key="recompute_gifs_yes", use_container_width=True):
+                            st.info("🗑️ Deleting old GIFs and creating new ones...")
+                            # Delete old GIFs
+                            for path in [gif_paths['gt_t6'], gif_paths['gt_t12'],
+                                        gif_paths['pred_t6'], gif_paths['pred_t12'],
+                                        gif_paths['diff_t6'], gif_paths['diff_t12']]:
+                                if path.exists():
+                                    path.unlink()
+
+                            with st.spinner("Creating GIFs..."):
+                                success = create_gifs_from_prediction_range(model_name, start_dt, end_dt, sri_folder_dir)
+
+                            if success:
+                                st.success("✅ GIFs created successfully!")
+                            else:
+                                st.error("❌ Failed to create GIFs. Check logs for details.")
+
+                    with col_no:
+                        if st.button("❌ NO, Display existing", key="recompute_gifs_no", use_container_width=True):
+                            st.success("📺 Displaying existing GIFs...")
+                            # TODO: Display the GIFs here
+                            st.info("GIF display functionality coming soon!")
+                    return
                 else:
-                    st.error("❌ Failed to create GIFs. Check logs for details.")
-                return
+                    # GIFs don't exist - create them
+                    st.info("🎬 Creating sliding window GIFs from predictions...")
+
+                    with st.spinner("Creating GIFs..."):
+                        success = create_gifs_from_prediction_range(model_name, start_dt, end_dt, sri_folder_dir)
+
+                    if success:
+                        st.success("✅ GIFs created successfully!")
+                    else:
+                        st.error("❌ Failed to create GIFs. Check logs for details.")
+                    return
 
         with col2:
             if st.button("🔄 Recompute All", key="recompute_all", use_container_width=True):

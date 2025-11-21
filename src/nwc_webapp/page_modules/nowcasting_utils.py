@@ -558,11 +558,11 @@ def create_gifs_from_prediction_range(model_name: str, start_dt: datetime, end_d
         gt_found_count = 0
         gt_missing_count = 0
 
-        logger.info(f"Loading {len(all_timestamps)} prediction(s) and corresponding ground truth data...")
+        logger.info(f"Loading {len(all_timestamps)} prediction(s) - extracting +30m and +60m forecasts...")
 
         # Load all predictions and ground truth data
         for idx, timestamp in enumerate(all_timestamps, 1):
-            logger.info(f"Processing prediction {idx}/{len(all_timestamps)}: {timestamp.strftime('%d/%m/%Y %H:%M')}")
+            logger.info(f"Loading prediction {idx}/{len(all_timestamps)}: {timestamp.strftime('%d/%m/%Y %H:%M')} → +30m & +60m")
             # Format: DD-MM-YYYY-HH-MM.npy (same as check_missing_predictions)
             filename = timestamp.strftime('%d-%m-%Y-%H-%M') + '.npy'
             pred_path = config.real_time_pred / model_name / filename
@@ -573,33 +573,22 @@ def create_gifs_from_prediction_range(model_name: str, start_dt: datetime, end_d
 
             pred_data = np.load(pred_path)  # Shape: (12, 1400, 1200)
 
-            # Also get date_str and time_str for ground truth paths (old format for SRI files)
-            date_str = timestamp.strftime('%d%m%Y')
-            time_str = timestamp.strftime('%H%M')
+            # Load ONLY pred[5] (t+30) and pred[11] (t+60), not the whole array!
+            # pred[5] = 30 minutes ahead, pred[11] = 60 minutes ahead
+            for pred_idx, offset_min in [(5, 30), (11, 60)]:
+                # Calculate target timestamp
+                target_time = timestamp + timedelta(minutes=offset_min)
 
-            # Load ground truth (SRI data) for all 12 timesteps
-            # Note: Predictions start at t+5, so pred[0]=t+5, pred[5]=t+30, pred[11]=t+60
-            for t in range(12):
-                # Calculate timestamp for this frame (t * 5 minutes ahead)
-                # But since predictions start at t+5, we need to offset by 5 minutes
-                frame_time = timestamp + timedelta(minutes=(t + 1) * 5)  # t+5, t+10, ..., t+60
-                frame_date_str = frame_time.strftime('%d%m%Y')
-                frame_time_str = frame_time.strftime('%H%M')
+                # Load GT (target) for this timestamp
+                gt_filename = target_time.strftime('%d-%m-%Y-%H-%M') + '.hdf'
 
-                # Try to find GT file in two locations (data1 first, then data)
-                # Path format: DD-MM-YYYY-HH-MM.hdf
-                gt_filename = frame_time.strftime('%d-%m-%Y-%H-%M') + '.hdf'
-
-                # Location 1: Recent data (faster to check)
+                # Try data1 first (recent data, faster), then data (archived)
                 gt_path_data1 = Path('/davinci-1/work/protezionecivile/data1/SRI_adj') / gt_filename
-
-                # Location 2: Archived data (organized by year/month/day)
-                year = frame_time.strftime('%Y')
-                month = frame_time.strftime('%m')
-                day = frame_time.strftime('%d')
+                year = target_time.strftime('%Y')
+                month = target_time.strftime('%m')
+                day = target_time.strftime('%d')
                 gt_path_data = Path(f'/davinci-1/work/protezionecivile/data/{year}/{month}/{day}/SRI_adj') / gt_filename
 
-                # Check data1 first (smaller, faster), then data
                 gt_path = None
                 if gt_path_data1.exists():
                     gt_path = gt_path_data1
@@ -611,27 +600,28 @@ def create_gifs_from_prediction_range(model_name: str, start_dt: datetime, end_d
                         with h5py.File(gt_path, 'r') as hdf:
                             gt_data = hdf['/dataset1/data1/data'][:]
                             # Store raw data for difference calculation
-                            gt_raw_data[frame_time] = gt_data
-                            # Create figure for ground truth
-                            fig = compute_figure_gpd(gt_data, frame_time.strftime('%d/%m/%Y %H:%M'))
-                            gt_figures[frame_time] = fig
+                            gt_raw_data[target_time] = gt_data
+                            # Create figure for ground truth (target)
+                            fig = compute_figure_gpd(gt_data, target_time.strftime('%d/%m/%Y %H:%M'))
+                            gt_figures[target_time] = fig
                             gt_found_count += 1
                     except Exception as e:
                         logger.warning(f"Error loading GT at {gt_path}: {e}")
                         gt_missing_count += 1
                 else:
                     gt_missing_count += 1
+                    logger.debug(f"GT not found for {target_time}: {gt_filename}")
 
-                # Create figure for prediction and store raw data
+                # Extract prediction for this timestep (pred[5] or pred[11])
                 try:
-                    pred_array = pred_data[t]
+                    pred_array = pred_data[pred_idx]
                     # Store raw data for difference calculation
-                    pred_raw_data[frame_time] = pred_array
+                    pred_raw_data[target_time] = pred_array
                     # Create figure
-                    fig = compute_figure_gpd(pred_array, frame_time.strftime('%d/%m/%Y %H:%M'))
-                    pred_figures[frame_time] = fig
+                    fig = compute_figure_gpd(pred_array, target_time.strftime('%d/%m/%Y %H:%M'))
+                    pred_figures[target_time] = fig
                 except Exception as e:
-                    logger.warning(f"Error creating pred figure at {frame_time}: {e}")
+                    logger.warning(f"Error creating pred figure at {target_time}: {e}")
 
         # Check if we loaded any predictions
         if not pred_figures:
