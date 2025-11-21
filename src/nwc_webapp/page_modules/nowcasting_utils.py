@@ -286,10 +286,9 @@ def check_missing_predictions(model_name: str, start_dt: datetime, end_dt: datet
     existing = []
 
     for timestamp in all_timestamps:
-        # Format: DDMMYYYY_HHMM_prediction.npy
-        date_str = timestamp.strftime('%d%m%Y')
-        time_str = timestamp.strftime('%H%M')
-        pred_file = pred_dir / f"{date_str}_{time_str}_prediction.npy"
+        # Format: DD-MM-YYYY-HH-MM.npy (same as real-time predictions)
+        filename = timestamp.strftime('%d-%m-%Y-%H-%M') + '.npy'
+        pred_file = pred_dir / filename
 
         if pred_file.exists():
             existing.append(timestamp)
