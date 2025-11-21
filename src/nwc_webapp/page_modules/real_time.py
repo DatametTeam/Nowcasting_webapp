@@ -32,6 +32,14 @@ def _get_model_status(model, latest_file, config):
     Returns:
         str: Formatted status text for the model
     """
+    # Check if real-time is paused first
+    try:
+        is_paused = st.session_state.get("realtime_paused", False)
+        if is_paused:
+            return f"- ⏸️ **{model}**: Paused"
+    except RuntimeError:
+        pass  # Session state not available
+
     if latest_file == "N/A":
         return f"- ⏹️ **{model}**: Waiting for data"
 
@@ -162,7 +170,8 @@ def render_status_panel(model_list):
 
     # System Info - static section
     st.markdown("**System Info:**")
-    checking_status = "🔄 Active" if st.session_state.get("run_get_latest_file") else "⏸️ Paused"
+    is_paused = st.session_state.get("realtime_paused", False)
+    checking_status = "⏸️ Paused" if is_paused else ("🔄 Active" if st.session_state.get("run_get_latest_file") else "⏸️ Paused")
     st.markdown(f"- Data Monitor: {checking_status}")
 
     if "all_predictions_data" in st.session_state and st.session_state["all_predictions_data"]:

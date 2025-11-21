@@ -88,6 +88,12 @@ def get_latest_file(folder_path, terminate_event):
 
             time.sleep(1)
 
+        # Check if real-time is paused before rerunning
+        if ctx.session_state.get("realtime_paused", False):
+            logger.info("Real-time paused - skipping rerun")
+            time.sleep(5)  # Wait a bit before checking again
+            continue
+
         # Restart the application to force the refresh of the main loop
         logger.info("Rerun main")
         session_info = runtime._session_mgr.get_active_session_info(ctx.session_id)

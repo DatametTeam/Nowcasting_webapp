@@ -155,10 +155,24 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
         st.warning(f"⚠️ No predictions found for {model_name} in this range")
         st.info(f"**Missing**: {total_count} predictions from {start_dt.strftime('%d/%m/%Y %H:%M')} to {end_dt.strftime('%d/%m/%Y %H:%M')}")
 
-        if st.button("▶️ Compute Predictions", key="compute_missing", use_container_width=True):
-            # Submit job
-            pass
-        else:
+        # Center the button in a half-width column
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col2:
+            # Custom CSS for taller button
+            st.markdown("""
+                <style>
+                .stButton > button {
+                    height: 60px;
+                    font-weight: bold;
+                    font-size: 18px;
+                }
+                </style>
+            """, unsafe_allow_html=True)
+
+            compute_clicked = st.button("▶️ Compute Predictions", key="compute_missing",
+                                       use_container_width=True, type="primary")
+
+        if not compute_clicked:
             return  # Wait for user decision
 
     else:
@@ -170,21 +184,29 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
         st.write(f"❌ **Missing**: {len(missing_timestamps)}/{total_count} predictions")
         st.write(f"   └─ From {first_missing.strftime('%d/%m/%Y %H:%M')} to {last_missing.strftime('%d/%m/%Y %H:%M')}")
 
-        col1, col2, _ = st.columns([1, 1, 3])
+        # Custom CSS for taller buttons
+        st.markdown("""
+            <style>
+            div[data-testid="column"] .stButton > button {
+                height: 60px;
+                font-weight: bold;
+                font-size: 18px;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+
+        col1, col2, col3 = st.columns([1, 1, 1])
 
         with col1:
-            if st.button("▶️ Compute Missing", key="compute_partial", use_container_width=True):
-                # Continue to compute missing
-                pass
-            else:
-                return  # Wait for user decision
+            compute_missing = st.button("▶️ Compute Missing", key="compute_partial",
+                                       use_container_width=True, type="primary")
 
         with col2:
-            if st.button("🔄 Recompute All", key="recompute_all_partial", use_container_width=True):
-                # Continue to recompute all
-                pass
-            else:
-                return  # Wait for user decision
+            recompute_all = st.button("🔄 Recompute All", key="recompute_all_partial",
+                                     use_container_width=True, type="primary")
+
+        if not (compute_missing or recompute_all):
+            return  # Wait for user decision
 
     # Step 3: Submit PBS job for the range
     st.info(f"🚀 Submitting PBS job for {model_name}...")
