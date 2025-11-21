@@ -210,10 +210,6 @@ def worker_thread(event, latest_file, model, ctx):
                 # Exit the main wait loop since job is done
                 break
 
-        # Log progress every 60 seconds (reduced from 30s to reduce noise)
-        if check_count % 30 == 0:
-            logger.info(f"[{model}] Still waiting for output... ({check_count * 2}s elapsed)")
-
         time.sleep(2)
 
     # STEP 4: Final check and cleanup

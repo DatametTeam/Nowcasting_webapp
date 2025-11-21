@@ -212,11 +212,8 @@ def render_status_panel(model_list):
     st.markdown("---")
     st.markdown("**Debug Controls:**")
 
-    # Initialize pause state if not exists (default to paused)
-    if "realtime_paused" not in st.session_state:
-        st.session_state["realtime_paused"] = True
-
-    is_paused = st.session_state["realtime_paused"]
+    # Pause state is initialized at the start of show_real_time_prediction()
+    is_paused = st.session_state.get("realtime_paused", False)
 
     if is_paused:
         if st.button("▶️ Resume Real-Time", use_container_width=True, type="primary"):
@@ -237,6 +234,11 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
         sri_folder_dir: Path to SRI folder directory
         COUNT: Optional count value for auto-refresh
     """
+    # Initialize pause state FIRST (before any prediction logic runs)
+    if "realtime_paused" not in st.session_state:
+        st.session_state["realtime_paused"] = True
+        logger.warning("Real-time initialized as PAUSED (default)")
+
     columns = st.columns([0.7, 0.3])  # 70% map, 30% status panel
     st.session_state["sync_end"] = 1
 
