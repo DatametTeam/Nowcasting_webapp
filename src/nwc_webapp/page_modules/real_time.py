@@ -199,6 +199,25 @@ def render_status_panel(model_list):
             st.markdown("---")
             st.warning(f"⚠️ **Partial Ground Truth**  \nOnly {status.get('ground_truth_count', 0)}/7 frames loaded")
 
+    # Pause/Resume button for debugging
+    st.markdown("---")
+    st.markdown("**Debug Controls:**")
+
+    # Initialize pause state if not exists
+    if "realtime_paused" not in st.session_state:
+        st.session_state["realtime_paused"] = False
+
+    is_paused = st.session_state["realtime_paused"]
+
+    if is_paused:
+        if st.button("▶️ Resume Real-Time", use_container_width=True, type="primary"):
+            st.session_state["realtime_paused"] = False
+            st.rerun()
+    else:
+        if st.button("⏸️ Pause Real-Time", use_container_width=True):
+            st.session_state["realtime_paused"] = True
+            st.rerun()
+
 
 def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
     """

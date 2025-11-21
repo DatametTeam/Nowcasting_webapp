@@ -57,9 +57,22 @@ def monitor_time():
     """
     Monitor time and trigger app rerun at specific intervals.
     Checks if current minute is a multiple of 5 to force new predictions.
+    Respects realtime_paused flag for debugging.
     """
     logger.debug("Starting Monitor time thread")
     while True:
+        # Check if real-time is paused
+        try:
+            is_paused = st.session_state.get("realtime_paused", False)
+            if is_paused:
+                logger.debug("Real-time paused - skipping auto-rerun check")
+                time.sleep(5)
+                continue
+        except RuntimeError:
+            # Session state not available yet - skip this iteration
+            time.sleep(2)
+            continue
+
         now = datetime.now()
         # Check if the current minute is a multiple of 5 and seconds are close to 0
         if now.minute % 5 == 0 and now.second < 5:
@@ -67,4 +80,4 @@ def monitor_time():
             time.sleep(5)
             st.rerun()
 
-        time.sleep(2)  # Check every second
+        time.sleep(2)  # Check every 2 seconds
