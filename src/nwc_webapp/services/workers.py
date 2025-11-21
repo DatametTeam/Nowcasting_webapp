@@ -89,10 +89,14 @@ def get_latest_file(folder_path, terminate_event):
             time.sleep(1)
 
         # Check if real-time is paused before rerunning
-        if ctx.session_state.get("realtime_paused", False):
-            logger.info("Real-time paused - skipping rerun")
-            time.sleep(5)  # Wait a bit before checking again
-            continue
+        try:
+            if "realtime_paused" in ctx.session_state and ctx.session_state["realtime_paused"]:
+                logger.info("Real-time paused - skipping rerun")
+                time.sleep(5)  # Wait a bit before checking again
+                continue
+        except (KeyError, AttributeError):
+            # Session state not accessible or key doesn't exist - continue normally
+            pass
 
         # Restart the application to force the refresh of the main loop
         logger.info("Rerun main")

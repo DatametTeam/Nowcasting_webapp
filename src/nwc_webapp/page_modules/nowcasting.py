@@ -74,17 +74,29 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
         sidebar_args: Dictionary with sidebar configuration (includes start/end dates)
         sri_folder_dir: Path to SRI folder directory
     """
-    # Check if form was submitted
-    if not sidebar_args.get('submitted', False):
+    # Check if form was submitted or if we have cached params from previous submission
+    if sidebar_args.get('submitted', False):
+        # Store params in session state for persistence across reruns
+        st.session_state['nowcasting_params'] = {
+            'model_name': sidebar_args['model_name'],
+            'start_date': sidebar_args['start_date'],
+            'start_time': sidebar_args['start_time'],
+            'end_date': sidebar_args['end_date'],
+            'end_time': sidebar_args['end_time'],
+        }
+
+    # Use cached params if available
+    if 'nowcasting_params' not in st.session_state:
         st.info("👈 Please select a model, start/end date and time from the sidebar, then click 'Submit'")
         return
 
-    # Extract parameters
-    model_name = sidebar_args['model_name']
-    start_date = sidebar_args['start_date']
-    start_time = sidebar_args['start_time']
-    end_date = sidebar_args['end_date']
-    end_time = sidebar_args['end_time']
+    # Extract parameters from session state
+    params = st.session_state['nowcasting_params']
+    model_name = params['model_name']
+    start_date = params['start_date']
+    start_time = params['start_time']
+    end_date = params['end_date']
+    end_time = params['end_time']
 
     # Combine date and time
     start_dt = datetime.combine(start_date, start_time)
