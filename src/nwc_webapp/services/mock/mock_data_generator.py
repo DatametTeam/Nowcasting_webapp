@@ -107,7 +107,9 @@ def generate_temporal_sequence(num_timesteps=12,
 
 def create_mock_hdf_file(output_path: Path, timestamp: datetime):
     """
-    Create a mock HDF5 file similar to real SRI data.
+    Create a mock HDF5 file matching real SRI data structure.
+
+    Real SRI structure: /dataset1/data1/data
 
     Args:
         output_path: Path where to save the HDF5 file
@@ -122,8 +124,12 @@ def create_mock_hdf_file(output_path: Path, timestamp: datetime):
     )
 
     with h5py.File(output_path, 'w') as f:
-        # Create datasets similar to real SRI files
-        f.create_dataset('precipitation', data=data, compression='gzip')
+        # Create nested group structure to match real SRI files
+        dataset1 = f.create_group('dataset1')
+        data1 = dataset1.create_group('data1')
+
+        # Create the data dataset at the correct path
+        data1.create_dataset('data', data=data, compression='gzip')
 
         # Add metadata
         f.attrs['timestamp'] = timestamp.isoformat()
@@ -193,6 +199,63 @@ def setup_mock_sri_data(sri_folder: Path, num_files=10):
         if not filepath.exists():
             create_mock_hdf_file(filepath, timestamp)
             logger.info(f"Created mock SRI file: {filename}")
+
+
+def generate_mock_predictions_for_range(model_name: str, start_dt: datetime, end_dt: datetime) -> int:
+    """
+    Generate mock prediction files for a date range (for local development).
+
+    Creates prediction files in format: DD-MM-YYYY-HH-MM.npy
+    Each file has shape (12, 1400, 1200) with 5-minute forecast intervals.
+
+    Args:
+        model_name: Model name
+        start_dt: Start datetime
+        end_dt: End datetime
+
+    Returns:
+        Number of prediction files created
+    """
+    from nwc_webapp.config.config import get_config
+
+    config = get_config()
+    pred_folder = config.real_time_pred / model_name
+    pred_folder.mkdir(parents=True, exist_ok=True)
+
+    # Generate all timestamps with 5-minute intervals
+    timestamps = []
+    current = start_dt
+    while current <= end_dt:
+        timestamps.append(current)
+        current += timedelta(minutes=5)
+
+    logger.info(f"Generating {len(timestamps)} mock prediction files for {model_name}...")
+
+    created_count = 0
+    for timestamp in timestamps:
+        # Create filename in format: DD-MM-YYYY-HH-MM.npy
+        filename = timestamp.strftime('%d-%m-%Y-%H-%M') + '.npy'
+        filepath = pred_folder / filename
+
+        # Skip if file already exists
+        if filepath.exists():
+            logger.debug(f"Skipping existing file: {filename}")
+            continue
+
+        # Generate mock prediction sequence (12 timesteps, shape: 12x1400x1200)
+        prediction = generate_temporal_sequence(
+            num_timesteps=12,
+            shape=(1400, 1200),
+            base_seed=int(timestamp.timestamp())
+        )
+
+        # Save as NPY file
+        np.save(filepath, prediction)
+        created_count += 1
+        logger.debug(f"Created mock prediction: {filename}")
+
+    logger.info(f"✅ Created {created_count}/{len(timestamps)} mock prediction files for {model_name}")
+    return created_count
 
 
 def setup_mock_prediction_data(pred_folder: Path, model_names: list):

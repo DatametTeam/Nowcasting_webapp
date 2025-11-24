@@ -9,8 +9,6 @@ from nwc_webapp.page_modules.nowcasting_utils import (
     is_training_date,
     get_gif_paths,
     check_gifs_exist,
-    check_realtime_prediction_exists,
-    load_realtime_prediction,
     check_missing_predictions,
     get_missing_range,
     submit_date_range_prediction_job,
@@ -28,6 +26,22 @@ from nwc_webapp.logging_config import setup_logger
 
 # Set up logger
 logger = setup_logger(__name__)
+
+
+def load_and_display_gifs(gif_paths):
+    """
+    Load GIFs from paths and display them using the visualization layout.
+    Triggers clear page mode to show only GIFs.
+
+    Args:
+        gif_paths: Dictionary with GIF paths from get_gif_paths()
+    """
+    # Cache the GIF paths and trigger "show only GIFs" mode
+    st.session_state['gif_paths_cache'] = gif_paths
+    st.session_state['show_gifs_only'] = True
+
+    # Trigger rerun to display only GIFs
+    st.rerun()
 
 
 def show_training_date_warning() -> bool:
@@ -75,6 +89,46 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
         sidebar_args: Dictionary with sidebar configuration (includes start/end dates)
         sri_folder_dir: Path to SRI folder directory
     """
+    # Check if we should display GIFs only (clear page mode)
+    if st.session_state.get('show_gifs_only', False) and st.session_state.get('gif_paths_cache'):
+        # Display only GIFs, skip all other UI
+        gif_paths = st.session_state['gif_paths_cache']
+
+        try:
+            # Load GIFs from disk into BytesIO objects
+            gt_gifs = load_gif_as_bytesio([
+                gif_paths['gt_t0'],   # Groundtruth
+                gif_paths['gt_t6'],   # Target +30
+                gif_paths['gt_t12'],  # Target +60
+            ])
+
+            pred_gifs = load_gif_as_bytesio([
+                gif_paths['pred_t6'],   # Prediction +30
+                gif_paths['pred_t12'],  # Prediction +60
+            ])
+
+            diff_gifs = load_gif_as_bytesio([
+                gif_paths['diff_t6'],   # Difference +30
+                gif_paths['diff_t12'],  # Difference +60
+            ])
+
+            # Display only the GIFs
+            display_results(gt_gifs, pred_gifs, diff_gifs)
+
+            # Add a button to go back
+            if st.button("🔙 Back to Prediction Setup", use_container_width=True):
+                st.session_state['show_gifs_only'] = False
+                st.rerun()
+
+            return  # Don't show any other UI
+
+        except Exception as e:
+            logger.error(f"Error displaying GIFs: {e}")
+            st.error(f"❌ Error displaying GIFs: {e}")
+            st.session_state['show_gifs_only'] = False
+            st.rerun()
+            return
+
     # Check if form was submitted or if we have cached params from previous submission
     if sidebar_args.get('submitted', False):
         # Store params in session state for persistence across reruns
@@ -149,7 +203,7 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
         with col1:
             if st.button("📊 Create GIFs", key="create_gifs", use_container_width=True):
                 # Check if GIFs already exist
-                gif_paths = get_gif_paths(model_name, start_dt.strftime('%d%m%Y'), start_dt.strftime('%H%M'))
+                gif_paths = get_gif_paths(model_name, start_dt, end_dt)
                 gt_exist, pred_exist, diff_exist = check_gifs_exist(gif_paths)
 
                 if gt_exist or pred_exist or diff_exist:
@@ -168,28 +222,31 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
                                     path.unlink()
 
                             with st.spinner("Creating GIFs..."):
-                                success = create_gifs_from_prediction_range(model_name, start_dt, end_dt, sri_folder_dir)
+                                gif_paths = create_gifs_from_prediction_range(model_name, start_dt, end_dt, sri_folder_dir)
 
-                            if success:
+                            if gif_paths:
                                 st.success("✅ GIFs created successfully!")
+                                # Display the GIFs
+                                load_and_display_gifs(gif_paths)
                             else:
                                 st.error("❌ Failed to create GIFs. Check logs for details.")
 
                     with col_no:
                         if st.button("❌ NO, Display existing", key="recompute_gifs_no", use_container_width=True):
                             st.success("📺 Displaying existing GIFs...")
-                            # TODO: Display the GIFs here
-                            st.info("GIF display functionality coming soon!")
+                            load_and_display_gifs(gif_paths)
                     return
                 else:
                     # GIFs don't exist - create them
                     st.info("🎬 Creating sliding window GIFs from predictions...")
 
                     with st.spinner("Creating GIFs..."):
-                        success = create_gifs_from_prediction_range(model_name, start_dt, end_dt, sri_folder_dir)
+                        gif_paths = create_gifs_from_prediction_range(model_name, start_dt, end_dt, sri_folder_dir)
 
-                    if success:
+                    if gif_paths:
                         st.success("✅ GIFs created successfully!")
+                        # Display the GIFs
+                        load_and_display_gifs(gif_paths)
                     else:
                         st.error("❌ Failed to create GIFs. Check logs for details.")
                     return
@@ -294,7 +351,34 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
 
         st.markdown("---")
 
-        # Monitor job progress
+        # Check if this is a mock job (local mode)
+        from nwc_webapp.config.environment import is_hpc
+
+        if not is_hpc() or job_id.startswith("mock_"):
+            # Local mode: predictions already created, skip monitoring and create GIFs immediately
+            logger.info("🖥️  Local mode detected - skipping job monitoring")
+            st.success("✅ Mock predictions created instantly!")
+
+            # Automatically start GIF creation
+            st.info("🎬 Creating GIFs from predictions...")
+            logger.info(f"Auto-starting GIF creation for {model_name}")
+
+            with st.spinner("Creating GIFs..."):
+                gif_paths = create_gifs_from_prediction_range(model_name, start_dt, end_dt, sri_folder_dir)
+
+            if gif_paths:
+                st.success("✅ GIFs created successfully!")
+                logger.info(f"GIF creation completed for {model_name}")
+                # Display the GIFs
+                load_and_display_gifs(gif_paths)
+            else:
+                st.error("❌ Failed to create GIFs. Check logs for details.")
+                logger.error(f"GIF creation failed for {model_name}")
+
+            # Exit early - no need to monitor
+            return
+
+        # HPC mode: Monitor job progress
         st.subheader("📊 Job Progress")
 
         # Add CSS for animated dots
@@ -411,11 +495,13 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
                         logger.info(f"Auto-starting GIF creation for {model_name}")
 
                         with st.spinner("Creating GIFs..."):
-                            success = create_gifs_from_prediction_range(model_name, start_dt, end_dt, sri_folder_dir)
+                            gif_paths = create_gifs_from_prediction_range(model_name, start_dt, end_dt, sri_folder_dir)
 
-                        if success:
+                        if gif_paths:
                             st.success("✅ GIFs created successfully!")
                             logger.info(f"GIF creation completed for {model_name}")
+                            # Display the GIFs
+                            load_and_display_gifs(gif_paths)
                         else:
                             st.error("❌ Failed to create GIFs. Check logs for details.")
                             logger.error(f"GIF creation failed for {model_name}")

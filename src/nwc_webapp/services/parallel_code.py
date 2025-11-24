@@ -335,6 +335,69 @@ def create_single_gif(queue, figures, gif_type, process_idx, start_key, end_key,
         logger.info(f"GIF saved @ {save_path}")
 
 
+def create_single_gif_from_dict(figures_dict, save_path, sidebar_args, fps_gif=3, show_progress=True):
+    """
+    Create a single GIF from all figures in a dictionary.
+
+    Args:
+        figures_dict: Dictionary where keys are timestamps and values are matplotlib figures
+        save_path: Path where to save the GIF file
+        sidebar_args: Sidebar arguments (unused, kept for compatibility)
+        fps_gif: Frames per second for the GIF
+        show_progress: Whether to show progress in Streamlit UI
+
+    Returns:
+        Path to the saved GIF file, or None if failed
+    """
+    if not figures_dict:
+        logger.warning("Empty figures dictionary - cannot create GIF")
+        return None
+
+    try:
+        # Sort keys to ensure correct temporal order
+        sorted_keys = sorted(figures_dict.keys())
+        frames = []
+
+        # Create progress indicator if requested
+        if show_progress:
+            progress_bar = st.progress(0)
+            progress_text = st.empty()
+
+        # Convert each figure to a frame
+        for idx, key in enumerate(sorted_keys):
+            fig = figures_dict[key]
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+            buf.seek(0)
+            img = Image.open(buf)
+            frames.append(np.array(img))
+            buf.close()
+
+            # Update progress
+            if show_progress:
+                progress = (idx + 1) / len(sorted_keys)
+                progress_bar.progress(progress)
+                progress_text.text(f"Processing frame {idx + 1}/{len(sorted_keys)}")
+
+        # Ensure the parent directory exists
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Save the GIF
+        imageio.mimsave(save_path, frames, format='GIF', fps=fps_gif, loop=0)
+        logger.info(f"GIF saved @ {save_path}")
+
+        # Clear progress indicators
+        if show_progress:
+            progress_bar.empty()
+            progress_text.empty()
+
+        return save_path
+
+    except Exception as e:
+        logger.error(f"Error creating GIF: {e}")
+        return None
+
+
 def create_sliding_window_gifs_for_predictions(prediction_dict, sidebar_args, save_on_disk=True, fps_gif=3):
     """
     Create GIFs for the predictions dictionary. Each GIF corresponds to:
