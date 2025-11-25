@@ -1,18 +1,19 @@
 """
 Centralized logging configuration with colored output for the nowcasting webapp.
 """
+
 import logging
 import sys
 
 
 # ANSI color codes
 class Colors:
-    RED = '\033[91m'
-    YELLOW = '\033[93m'
-    BLUE = '\033[94m'
-    GREEN = '\033[92m'
-    RESET = '\033[0m'
-    BOLD = '\033[1m'
+    RED = "\033[91m"
+    YELLOW = "\033[93m"
+    BLUE = "\033[94m"
+    GREEN = "\033[92m"
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
 
 
 class ColoredFormatter(logging.Formatter):
@@ -25,10 +26,7 @@ class ColoredFormatter(logging.Formatter):
     """
 
     def __init__(self):
-        super().__init__(
-            fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
+        super().__init__(fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 
     def format(self, record):
         # Store original values
@@ -47,7 +45,7 @@ class ColoredFormatter(logging.Formatter):
             return f"{Colors.YELLOW}{formatted}{Colors.RESET}"
         elif record.levelno == logging.DEBUG:
             # Only "DEBUG" prefix in BLUE
-            return formatted.replace('DEBUG', f"{Colors.BLUE}DEBUG{Colors.RESET}")
+            return formatted.replace("DEBUG", f"{Colors.BLUE}DEBUG{Colors.RESET}")
         else:
             # INFO and others: no color
             return formatted
@@ -87,4 +85,4 @@ def setup_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
 
 
 # Create a default logger for quick imports
-default_logger = setup_logger('nwc_webapp')
+default_logger = setup_logger("nwc_webapp")

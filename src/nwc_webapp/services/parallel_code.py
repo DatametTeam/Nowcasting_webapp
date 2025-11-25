@@ -2,17 +2,18 @@ import io
 import os
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timedelta
-from pathlib import Path
 from functools import partial
 from multiprocessing import Manager, Process
-import imageio
+from pathlib import Path
 
+import imageio
 import numpy as np
 import streamlit as st
 from matplotlib import pyplot as plt
-from nwc_webapp.utils import compute_figure_gpd
-from nwc_webapp.logging_config import setup_logger
 from PIL import Image
+
+from nwc_webapp.logging_config import setup_logger
+from nwc_webapp.utils import compute_figure_gpd
 
 # Set up logger
 logger = setup_logger(__name__)
@@ -21,8 +22,8 @@ logger = setup_logger(__name__)
 def create_diff_dict_in_parallel(diff_array, sidebar_args, save_on_disk=False):
     home_dir = Path.home()
     diff_img_out_dir = Path(f"{home_dir}/demo_sole/data/output/imgs/{sidebar_args['model_name']}/diff")
-    start_date = sidebar_args['start_date']
-    start_time = sidebar_args['start_time']
+    start_date = sidebar_args["start_date"]
+    start_time = sidebar_args["start_time"]
     combined_start = datetime.combine(start_date, start_time)
     logger.debug(f"Starting from: {combined_start}")
     time_step = timedelta(minutes=5)
@@ -37,11 +38,20 @@ def create_diff_dict_in_parallel(diff_array, sidebar_args, save_on_disk=False):
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         diff_results = []
 
-        for i, result in enumerate(executor.map(
-                partial(save_figure, base_date=combined_start, time_step=time_step, out_dir=diff_img_out_dir,
-                        save_on_disk=save_on_disk, name="diff"),
-                diff_array[:, 0], range(diff_array.shape[0])
-        )):
+        for i, result in enumerate(
+            executor.map(
+                partial(
+                    save_figure,
+                    base_date=combined_start,
+                    time_step=time_step,
+                    out_dir=diff_img_out_dir,
+                    save_on_disk=save_on_disk,
+                    name="diff",
+                ),
+                diff_array[:, 0],
+                range(diff_array.shape[0]),
+            )
+        ):
             diff_results.append(result)
             diff_progress.progress((i + 1) / len(diff_array[:, 0]))
             diff_status.text(f"Processed {i + 1}/{len(diff_array[:, 0])} Diff images")
@@ -55,8 +65,8 @@ def create_fig_dict_in_parallel(gt_data, pred_data, sidebar_args, save_on_disk=F
     gt_img_out_dir = Path(f"{home_dir}/demo_sole/data/output/imgs/{sidebar_args['model_name']}/gt")
     pred_img_out_dir = Path(f"{home_dir}/demo_sole/data/output/imgs/{sidebar_args['model_name']}/pred")
 
-    start_date = sidebar_args['start_date']
-    start_time = sidebar_args['start_time']
+    start_date = sidebar_args["start_date"]
+    start_time = sidebar_args["start_time"]
     combined_start = datetime.combine(start_date, start_time)
     logger.debug(f"Starting from: {combined_start}")
     time_step = timedelta(minutes=5)
@@ -70,11 +80,20 @@ def create_fig_dict_in_parallel(gt_data, pred_data, sidebar_args, save_on_disk=F
 
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         gt_results = []
-        for i, result in enumerate(executor.map(
-                partial(save_figure, base_date=combined_start, time_step=time_step, out_dir=gt_img_out_dir,
-                        save_on_disk=save_on_disk, name=""),
-                gt_data[:, 0], range(gt_data.shape[0])
-        )):
+        for i, result in enumerate(
+            executor.map(
+                partial(
+                    save_figure,
+                    base_date=combined_start,
+                    time_step=time_step,
+                    out_dir=gt_img_out_dir,
+                    save_on_disk=save_on_disk,
+                    name="",
+                ),
+                gt_data[:, 0],
+                range(gt_data.shape[0]),
+            )
+        ):
             gt_results.append(result)
             gt_progress.progress((i + 1) / len(gt_data[:, 0]))
             gt_status.text(f"Processed {i + 1}/{len(gt_data[:, 0])} GT images")
@@ -90,12 +109,19 @@ def create_fig_dict_in_parallel(gt_data, pred_data, sidebar_args, save_on_disk=F
         pred_results = []
         total_sequences = pred_data.shape[0]
 
-        for i, result in enumerate(executor.map(
-                partial(save_prediction_sequence, base_date=combined_start, time_step=time_step,
-                        out_dir=pred_img_out_dir,
-                        save_on_disk=save_on_disk),
-                pred_data, range(total_sequences)
-        )):
+        for i, result in enumerate(
+            executor.map(
+                partial(
+                    save_prediction_sequence,
+                    base_date=combined_start,
+                    time_step=time_step,
+                    out_dir=pred_img_out_dir,
+                    save_on_disk=save_on_disk,
+                ),
+                pred_data,
+                range(total_sequences),
+            )
+        ):
             pred_results.append(result)
             pred_progress.progress((i + 1) / total_sequences)
             pred_status.text(f"Processed {i + 1}/{total_sequences} prediction sequences")
@@ -107,30 +133,24 @@ def create_fig_dict_in_parallel(gt_data, pred_data, sidebar_args, save_on_disk=F
     return gt_figures, pred_figures
 
 
-def save_figure(data_slice,
-                index,
-                base_date,
-                time_step,
-                out_dir,
-                save_on_disk,
-                name=""):
+def save_figure(data_slice, index, base_date, time_step, out_dir, save_on_disk, name=""):
     actual_date = base_date + index * time_step
-    fig = compute_figure_gpd(data_slice, actual_date.strftime('%d-%m-%Y %H:%M'), name=name)
+    fig = compute_figure_gpd(data_slice, actual_date.strftime("%d-%m-%Y %H:%M"), name=name)
 
     if save_on_disk:
         file_name = f"{actual_date.strftime('%d%m%Y_%H%M')}.png"
         file_path = os.path.join(out_dir, file_name)
-        plt.savefig(file_path, dpi=300, bbox_inches='tight')
+        plt.savefig(file_path, dpi=300, bbox_inches="tight")
         plt.close(fig)
-        return {actual_date.strftime('%d%m%Y_%H%M'): fig}
+        return {actual_date.strftime("%d%m%Y_%H%M"): fig}
     else:
         plt.close(fig)
-        return {actual_date.strftime('%d%m%Y_%H%M'): fig}
+        return {actual_date.strftime("%d%m%Y_%H%M"): fig}
 
 
 def save_prediction_sequence(data_series, element_index, base_date, time_step, out_dir, save_on_disk):
     actual_date = base_date + element_index * time_step
-    folder_name = actual_date.strftime('%d%m%Y_%H%M')
+    folder_name = actual_date.strftime("%d%m%Y_%H%M")
     results = {}
 
     for i, sequence in enumerate(data_series):  # Iterate over sequence_len
@@ -138,15 +158,16 @@ def save_prediction_sequence(data_series, element_index, base_date, time_step, o
         if timestamp_offset not in [30, 60]:
             continue  # Skip if timestamp_offset is not 30 or 60
 
-        fig = compute_figure_gpd(sequence, ('PRED @ ' + (actual_date + timedelta(minutes=timestamp_offset)).strftime(
-            '%d-%m-%Y %H:%M')))  # Compute figure
+        fig = compute_figure_gpd(
+            sequence, ("PRED @ " + (actual_date + timedelta(minutes=timestamp_offset)).strftime("%d-%m-%Y %H:%M"))
+        )  # Compute figure
 
         if save_on_disk:
-            folder_path = os.path.join(out_dir, 'pred', folder_name)
+            folder_path = os.path.join(out_dir, "pred", folder_name)
             os.makedirs(folder_path, exist_ok=True)
             file_name = f"{folder_name}_+{timestamp_offset}min.png"
             file_path = os.path.join(folder_path, file_name)
-            plt.savefig(file_path, dpi=300, bbox_inches='tight')
+            plt.savefig(file_path, dpi=300, bbox_inches="tight")
             plt.close(fig)
 
         # Add to the nested dictionary
@@ -156,60 +177,72 @@ def save_prediction_sequence(data_series, element_index, base_date, time_step, o
     return {folder_name: results}
 
 
-def create_single_gif_for_parallel(queue, start_pos, figures_dict, window_size, sorted_keys, process_idx, sidebar_args,
-                                   save_on_disk=True, fps_gif=3, name="gt"):
+def create_single_gif_for_parallel(
+    queue,
+    start_pos,
+    figures_dict,
+    window_size,
+    sorted_keys,
+    process_idx,
+    sidebar_args,
+    save_on_disk=True,
+    fps_gif=3,
+    name="gt",
+):
     """
     Create a single GIF and send progress updates through a queue.
     """
     buf = io.BytesIO()
     frames = []
     logger.debug(f"Creating GIF from position {start_pos} to {start_pos + window_size}")
-    window_keys = sorted_keys[start_pos:start_pos + window_size]
+    window_keys = sorted_keys[start_pos : start_pos + window_size]
     logger.debug(f"Window keys: {len(window_keys)} frames")
 
     for i, key in enumerate(window_keys):
         fig = figures_dict[key]
         buf_tracked = io.BytesIO()
-        fig.savefig(buf_tracked, format='png', bbox_inches='tight', pad_inches=0)
+        fig.savefig(buf_tracked, format="png", bbox_inches="tight", pad_inches=0)
         buf_tracked.seek(0)
         img = Image.open(buf_tracked)
         frames.append(np.array(img))
 
         # Send progress update through queue
         progress = (i + 1) / len(window_keys)
-        queue.put(('progress', process_idx, progress))
+        queue.put(("progress", process_idx, progress))
 
-    imageio.mimsave(buf, frames, format='GIF', fps=fps_gif, loop=0)
+    imageio.mimsave(buf, frames, format="GIF", fps=fps_gif, loop=0)
     buf.seek(0)
     # Send completed GIF through queue
-    queue.put(('complete', process_idx, buf.getvalue()))
+    queue.put(("complete", process_idx, buf.getvalue()))
 
     if save_on_disk:
         from nwc_webapp.config.config import get_config
+
         config = get_config()
 
         # Use new path structure
         if name == "gt":
             save_dir = config.gif_storage / "groundtruth"
         elif name == "diff":
-            save_dir = config.gif_storage / "difference" / sidebar_args['model_name']
+            save_dir = config.gif_storage / "difference" / sidebar_args["model_name"]
         else:
-            save_dir = config.gif_storage / "prediction" / sidebar_args['model_name']
+            save_dir = config.gif_storage / "prediction" / sidebar_args["model_name"]
 
         save_dir.mkdir(parents=True, exist_ok=True)
         file_name = f"{window_keys[0]}_{window_keys[-1]}"
 
         # Add suffix based on start position to match naming convention
-        if 'gif_suffix' in sidebar_args:
-            file_name += sidebar_args['gif_suffix']
+        if "gif_suffix" in sidebar_args:
+            file_name += sidebar_args["gif_suffix"]
 
         save_path = save_dir / f"{file_name}.gif"
-        imageio.mimsave(save_path, frames, format='GIF', fps=fps_gif, loop=0)
+        imageio.mimsave(save_path, frames, format="GIF", fps=fps_gif, loop=0)
         logger.info(f"GIF saved @ {save_path}")
 
 
-def create_sliding_window_gifs(figures_dict, sidebar_args, start_positions=[0, 6, 12], save_on_disk=True,
-                               fps_gif=3, name="gt"):
+def create_sliding_window_gifs(
+    figures_dict, sidebar_args, start_positions=[0, 6, 12], save_on_disk=True, fps_gif=3, name="gt"
+):
     """
     Create multiple GIFs in parallel with progress tracking.
 
@@ -239,11 +272,22 @@ def create_sliding_window_gifs(figures_dict, sidebar_args, start_positions=[0, 6
     for idx, start_pos in enumerate(start_positions):
         # Create a copy of sidebar_args with the gif_suffix added
         args_with_suffix = sidebar_args.copy()
-        args_with_suffix['gif_suffix'] = suffix_map.get(start_pos, "")
+        args_with_suffix["gif_suffix"] = suffix_map.get(start_pos, "")
 
         p = Process(
             target=create_single_gif_for_parallel,
-            args=(queue, start_pos, figures_dict, window_size, sorted_keys, idx, args_with_suffix, save_on_disk, fps_gif, name)
+            args=(
+                queue,
+                start_pos,
+                figures_dict,
+                window_size,
+                sorted_keys,
+                idx,
+                args_with_suffix,
+                save_on_disk,
+                fps_gif,
+                name,
+            ),
         )
         processes.append(p)
 
@@ -260,13 +304,13 @@ def create_sliding_window_gifs(figures_dict, sidebar_args, start_positions=[0, 6
         try:
             msg_type, idx, data = queue.get(timeout=1)
 
-            if msg_type == 'progress':
+            if msg_type == "progress":
                 total_steps = window_size
                 current_step = int(data * total_steps)
                 progress_bars[idx].progress(data)
                 progress_texts[idx].text(f"GIF {idx + 1}: {current_step}/{total_steps} complete")
 
-            elif msg_type == 'complete':
+            elif msg_type == "complete":
                 completed_gifs[idx] = io.BytesIO(data)
                 completed_count += 1
                 progress_texts[idx].text(f"GIF {idx + 1}: Complete!")
@@ -289,22 +333,23 @@ def create_sliding_window_gifs(figures_dict, sidebar_args, start_positions=[0, 6
     return completed_gifs
 
 
-def create_single_gif(queue, figures, gif_type, process_idx, start_key, end_key, sidebar_args, fps_gif=3,
-                      save_on_disk=True):
+def create_single_gif(
+    queue, figures, gif_type, process_idx, start_key, end_key, sidebar_args, fps_gif=3, save_on_disk=True
+):
     buf = io.BytesIO()
     frames = []
 
     for idx, fig in enumerate(figures):
         try:
             buf_tracked = io.BytesIO()
-            fig.savefig(buf_tracked, format='png', bbox_inches='tight', pad_inches=0)
+            fig.savefig(buf_tracked, format="png", bbox_inches="tight", pad_inches=0)
             buf_tracked.seek(0)
             img = Image.open(buf_tracked)
             frames.append(np.array(img))
 
             # Update progress
             progress = (idx + 1) / len(figures)
-            queue.put(('progress', process_idx, progress))
+            queue.put(("progress", process_idx, progress))
 
         except Exception as e:
             logger.info(f"Error processing figure for {gif_type}, index {idx}: {e}")
@@ -314,16 +359,17 @@ def create_single_gif(queue, figures, gif_type, process_idx, start_key, end_key,
         raise ValueError(f"No frames generated for {gif_type}.")
 
     # Create the GIF
-    imageio.mimsave(buf, frames, format='GIF', fps=fps_gif, loop=0)
+    imageio.mimsave(buf, frames, format="GIF", fps=fps_gif, loop=0)
     buf.seek(0)
-    queue.put(('complete', process_idx, buf.getvalue()))
+    queue.put(("complete", process_idx, buf.getvalue()))
 
     if save_on_disk:
         from nwc_webapp.config.config import get_config
+
         config = get_config()
 
         # Use new path structure for predictions
-        save_dir = config.gif_storage / "prediction" / sidebar_args['model_name']
+        save_dir = config.gif_storage / "prediction" / sidebar_args["model_name"]
         save_dir.mkdir(parents=True, exist_ok=True)
 
         # Convert gif_type "+30 mins" -> "_+30m", "+60 mins" -> "_+60m"
@@ -331,7 +377,7 @@ def create_single_gif(queue, figures, gif_type, process_idx, start_key, end_key,
         file_name = f"{start_key}_{end_key}{suffix}"
 
         save_path = save_dir / f"{file_name}.gif"
-        imageio.mimsave(save_path, frames, format='GIF', fps=fps_gif, loop=0)
+        imageio.mimsave(save_path, frames, format="GIF", fps=fps_gif, loop=0)
         logger.info(f"GIF saved @ {save_path}")
 
 
@@ -367,7 +413,7 @@ def create_single_gif_from_dict(figures_dict, save_path, sidebar_args, fps_gif=3
         for idx, key in enumerate(sorted_keys):
             fig = figures_dict[key]
             buf = io.BytesIO()
-            fig.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+            fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
             buf.seek(0)
             img = Image.open(buf)
             frames.append(np.array(img))
@@ -383,7 +429,7 @@ def create_single_gif_from_dict(figures_dict, save_path, sidebar_args, fps_gif=3
         save_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Save the GIF
-        imageio.mimsave(save_path, frames, format='GIF', fps=fps_gif, loop=0)
+        imageio.mimsave(save_path, frames, format="GIF", fps=fps_gif, loop=0)
         logger.info(f"GIF saved @ {save_path}")
 
         # Clear progress indicators
@@ -444,8 +490,10 @@ def create_sliding_window_gifs_for_predictions(prediction_dict, sidebar_args, sa
     processes = []
 
     for idx, (figures, gif_type) in enumerate([(figures_30, "+30 mins"), (figures_60, "+60 mins")]):
-        p = Process(target=create_single_gif,
-                    args=(queue, figures, gif_type, idx, start_key, end_key, sidebar_args, fps_gif, save_on_disk))
+        p = Process(
+            target=create_single_gif,
+            args=(queue, figures, gif_type, idx, start_key, end_key, sidebar_args, fps_gif, save_on_disk),
+        )
         processes.append(p)
 
     # Start all processes
@@ -461,14 +509,14 @@ def create_sliding_window_gifs_for_predictions(prediction_dict, sidebar_args, sa
         try:
             msg_type, idx, data = queue.get(timeout=1)
 
-            if msg_type == 'progress':
+            if msg_type == "progress":
                 progress_bars[idx].progress(data)
                 total_steps = len(keys_except_last_12)
                 current_step = int(data * total_steps)
                 progress_bars[idx].progress(data)
                 progress_texts[idx].text(f"GIF {idx + 1}: {current_step}/{total_steps} complete")
 
-            elif msg_type == 'complete':
+            elif msg_type == "complete":
                 completed_gifs[idx] = io.BytesIO(data)
                 completed_count += 1
                 progress_texts[idx].text(f"GIF {idx + 1}: Complete!")

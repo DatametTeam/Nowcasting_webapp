@@ -1,28 +1,30 @@
 """
 Nowcasting page - main prediction interface with date range support.
 """
+
 from datetime import datetime
 from pathlib import Path
+
 import streamlit as st
 
+from nwc_webapp.logging_config import setup_logger
 from nwc_webapp.page_modules.nowcasting_utils import (
-    is_training_date,
-    get_gif_paths,
     check_gifs_exist,
     check_missing_predictions,
-    get_missing_range,
-    submit_date_range_prediction_job,
     create_gifs_from_prediction_range,
     delete_predictions_in_range,
+    get_gif_paths,
+    get_missing_range,
+    is_training_date,
+    submit_date_range_prediction_job,
 )
 from nwc_webapp.prediction.visualization import (
     compute_prediction_results,
+    create_gifs_from_realtime_data,
     display_results,
     update_prediction_visualization,
-    create_gifs_from_realtime_data,
 )
 from nwc_webapp.utils import load_gif_as_bytesio
-from nwc_webapp.logging_config import setup_logger
 
 # Set up logger
 logger = setup_logger(__name__)
@@ -37,8 +39,8 @@ def load_and_display_gifs(gif_paths):
         gif_paths: Dictionary with GIF paths from get_gif_paths()
     """
     # Cache the GIF paths and trigger "show only GIFs" mode
-    st.session_state['gif_paths_cache'] = gif_paths
-    st.session_state['show_gifs_only'] = True
+    st.session_state["gif_paths_cache"] = gif_paths
+    st.session_state["show_gifs_only"] = True
 
     # Trigger rerun to display only GIFs
     st.rerun()
@@ -90,34 +92,40 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
         sri_folder_dir: Path to SRI folder directory
     """
     # Check if we should display GIFs only (clear page mode)
-    if st.session_state.get('show_gifs_only', False) and st.session_state.get('gif_paths_cache'):
+    if st.session_state.get("show_gifs_only", False) and st.session_state.get("gif_paths_cache"):
         # Display only GIFs, skip all other UI
-        gif_paths = st.session_state['gif_paths_cache']
+        gif_paths = st.session_state["gif_paths_cache"]
 
         try:
             # Load GIFs from disk into BytesIO objects
-            gt_gifs = load_gif_as_bytesio([
-                gif_paths['gt_t0'],   # Groundtruth
-                gif_paths['gt_t6'],   # Target +30
-                gif_paths['gt_t12'],  # Target +60
-            ])
+            gt_gifs = load_gif_as_bytesio(
+                [
+                    gif_paths["gt_t0"],  # Groundtruth
+                    gif_paths["gt_t6"],  # Target +30
+                    gif_paths["gt_t12"],  # Target +60
+                ]
+            )
 
-            pred_gifs = load_gif_as_bytesio([
-                gif_paths['pred_t6'],   # Prediction +30
-                gif_paths['pred_t12'],  # Prediction +60
-            ])
+            pred_gifs = load_gif_as_bytesio(
+                [
+                    gif_paths["pred_t6"],  # Prediction +30
+                    gif_paths["pred_t12"],  # Prediction +60
+                ]
+            )
 
-            diff_gifs = load_gif_as_bytesio([
-                gif_paths['diff_t6'],   # Difference +30
-                gif_paths['diff_t12'],  # Difference +60
-            ])
+            diff_gifs = load_gif_as_bytesio(
+                [
+                    gif_paths["diff_t6"],  # Difference +30
+                    gif_paths["diff_t12"],  # Difference +60
+                ]
+            )
 
             # Display only the GIFs
             display_results(gt_gifs, pred_gifs, diff_gifs)
 
             # Add a button to go back
             if st.button("🔙 Back to Prediction Setup", use_container_width=True):
-                st.session_state['show_gifs_only'] = False
+                st.session_state["show_gifs_only"] = False
                 st.rerun()
 
             return  # Don't show any other UI
@@ -125,33 +133,33 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
         except Exception as e:
             logger.error(f"Error displaying GIFs: {e}")
             st.error(f"❌ Error displaying GIFs: {e}")
-            st.session_state['show_gifs_only'] = False
+            st.session_state["show_gifs_only"] = False
             st.rerun()
             return
 
     # Check if form was submitted or if we have cached params from previous submission
-    if sidebar_args.get('submitted', False):
+    if sidebar_args.get("submitted", False):
         # Store params in session state for persistence across reruns
-        st.session_state['nowcasting_params'] = {
-            'model_name': sidebar_args['model_name'],
-            'start_date': sidebar_args['start_date'],
-            'start_time': sidebar_args['start_time'],
-            'end_date': sidebar_args['end_date'],
-            'end_time': sidebar_args['end_time'],
+        st.session_state["nowcasting_params"] = {
+            "model_name": sidebar_args["model_name"],
+            "start_date": sidebar_args["start_date"],
+            "start_time": sidebar_args["start_time"],
+            "end_date": sidebar_args["end_date"],
+            "end_time": sidebar_args["end_time"],
         }
 
     # Use cached params if available
-    if 'nowcasting_params' not in st.session_state:
+    if "nowcasting_params" not in st.session_state:
         st.info("👈 Please select a model, start/end date and time from the sidebar, then click 'Submit'")
         return
 
     # Extract parameters from session state
-    params = st.session_state['nowcasting_params']
-    model_name = params['model_name']
-    start_date = params['start_date']
-    start_time = params['start_time']
-    end_date = params['end_date']
-    end_time = params['end_time']
+    params = st.session_state["nowcasting_params"]
+    model_name = params["model_name"]
+    start_date = params["start_date"]
+    start_time = params["start_time"]
+    end_date = params["end_date"]
+    end_time = params["end_time"]
 
     # Combine date and time
     start_dt = datetime.combine(start_date, start_time)
@@ -167,7 +175,7 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
     # Step 1: Date validation for training data
     if is_training_date(start_dt) or is_training_date(end_dt):
         # Check if warning was already shown and accepted in this session
-        if 'training_warning_accepted' not in st.session_state:
+        if "training_warning_accepted" not in st.session_state:
             st.session_state.training_warning_accepted = None
 
         # Show warning and wait for user decision
@@ -215,14 +223,21 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
                         if st.button("✅ YES, Recompute", key="recompute_gifs_yes", use_container_width=True):
                             st.info("🗑️ Deleting old GIFs and creating new ones...")
                             # Delete old GIFs
-                            for path in [gif_paths['gt_t6'], gif_paths['gt_t12'],
-                                        gif_paths['pred_t6'], gif_paths['pred_t12'],
-                                        gif_paths['diff_t6'], gif_paths['diff_t12']]:
+                            for path in [
+                                gif_paths["gt_t6"],
+                                gif_paths["gt_t12"],
+                                gif_paths["pred_t6"],
+                                gif_paths["pred_t12"],
+                                gif_paths["diff_t6"],
+                                gif_paths["diff_t12"],
+                            ]:
                                 if path.exists():
                                     path.unlink()
 
                             with st.spinner("Creating GIFs..."):
-                                gif_paths = create_gifs_from_prediction_range(model_name, start_dt, end_dt, sri_folder_dir)
+                                gif_paths = create_gifs_from_prediction_range(
+                                    model_name, start_dt, end_dt, sri_folder_dir
+                                )
 
                             if gif_paths:
                                 st.success("✅ GIFs created successfully!")
@@ -261,13 +276,16 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
     elif not existing_timestamps:
         # No predictions exist
         st.warning(f"⚠️ No predictions found for {model_name} in this range")
-        st.info(f"**Missing**: {total_count} predictions from {start_dt.strftime('%d/%m/%Y %H:%M')} to {end_dt.strftime('%d/%m/%Y %H:%M')}")
+        st.info(
+            f"**Missing**: {total_count} predictions from {start_dt.strftime('%d/%m/%Y %H:%M')} to {end_dt.strftime('%d/%m/%Y %H:%M')}"
+        )
 
         # Center the button in a half-width column
         col1, col2, col3 = st.columns([1, 1, 1])
         with col2:
             # Custom CSS for taller button
-            st.markdown("""
+            st.markdown(
+                """
                 <style>
                 .stButton > button {
                     height: 60px;
@@ -275,10 +293,13 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
                     font-size: 18px;
                 }
                 </style>
-            """, unsafe_allow_html=True)
+            """,
+                unsafe_allow_html=True,
+            )
 
-            compute_clicked = st.button("▶️ Compute Predictions", key="compute_missing",
-                                       use_container_width=True, type="primary")
+            compute_clicked = st.button(
+                "▶️ Compute Predictions", key="compute_missing", use_container_width=True, type="primary"
+            )
 
         if not compute_clicked:
             return  # Wait for user decision
@@ -293,7 +314,8 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
         st.write(f"   └─ From {first_missing.strftime('%d/%m/%Y %H:%M')} to {last_missing.strftime('%d/%m/%Y %H:%M')}")
 
         # Custom CSS for taller buttons
-        st.markdown("""
+        st.markdown(
+            """
             <style>
             div[data-testid="column"] .stButton > button {
                 height: 60px;
@@ -301,17 +323,21 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
                 font-size: 18px;
             }
             </style>
-        """, unsafe_allow_html=True)
+        """,
+            unsafe_allow_html=True,
+        )
 
         col1, col2, col3 = st.columns([1, 1, 1])
 
         with col1:
-            compute_missing = st.button("▶️ Compute Missing", key="compute_partial",
-                                       use_container_width=True, type="primary")
+            compute_missing = st.button(
+                "▶️ Compute Missing", key="compute_partial", use_container_width=True, type="primary"
+            )
 
         with col2:
-            recompute_all = st.button("🔄 Recompute All", key="recompute_all_partial",
-                                     use_container_width=True, type="primary")
+            recompute_all = st.button(
+                "🔄 Recompute All", key="recompute_all_partial", use_container_width=True, type="primary"
+            )
 
         if not (compute_missing or recompute_all):
             return  # Wait for user decision
@@ -330,6 +356,7 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
 
         # Wait for filesystem sync
         import time
+
         time.sleep(2)
 
         # Reset the count since we deleted everything
@@ -382,7 +409,8 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
         st.subheader("📊 Job Progress")
 
         # Add CSS for animated dots
-        st.markdown("""
+        st.markdown(
+            """
         <style>
         .queue-text::after, .running-text::after {
             content: '';
@@ -395,7 +423,9 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
             75%, 100% { content: '...'; }
         }
         </style>
-        """, unsafe_allow_html=True)
+        """,
+            unsafe_allow_html=True,
+        )
 
         # Create placeholders for dynamic updates
         status_placeholder = st.empty()
@@ -404,12 +434,14 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
 
         # Get output folder path
         from nwc_webapp.config.config import get_config
+
         config = get_config()
         out_folder_path = config.real_time_pred / model_name
 
         # Monitor job status and progress
-        import time
         import os
+        import time
+
         from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
 
         max_iterations = 1800  # 1 hour max (1800 * 2 second checks)
@@ -431,11 +463,16 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
 
             # Update status display when status changes
             if current_status != last_status and current_status is not None:
-                if current_status == 'Q':
-                    status_placeholder.markdown("⏳ **Job in <span class='queue-text'>queue</span>**", unsafe_allow_html=True)
+                if current_status == "Q":
+                    status_placeholder.markdown(
+                        "⏳ **Job in <span class='queue-text'>queue</span>**", unsafe_allow_html=True
+                    )
                     logger.info(f"Job {job_id} is in queue")
-                elif current_status == 'R':
-                    status_placeholder.markdown(f"⚙️ **Job <span class='running-text'>running</span>**<br>Results will be saved in `{out_folder_path}`", unsafe_allow_html=True)
+                elif current_status == "R":
+                    status_placeholder.markdown(
+                        f"⚙️ **Job <span class='running-text'>running</span>**<br>Results will be saved in `{out_folder_path}`",
+                        unsafe_allow_html=True,
+                    )
                     logger.info(f"Job {job_id} is running")
                 # Reset consecutive None counter when we get a valid status
                 consecutive_none_count = 0
@@ -471,7 +508,7 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
 
                         if os.path.exists(log_file):
                             try:
-                                with open(log_file, 'r') as f:
+                                with open(log_file, "r") as f:
                                     log_content = f.read()
                                 # Display error log with proper formatting
                                 st.markdown("---")
@@ -515,7 +552,9 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
                 last_status = current_status
 
             # Check prediction progress (count existing files) every 2 seconds - don't log during monitoring
-            missing_timestamps, existing_timestamps = check_missing_predictions(model_name, start_dt, end_dt, verbose=False)
+            missing_timestamps, existing_timestamps = check_missing_predictions(
+                model_name, start_dt, end_dt, verbose=False
+            )
             completed = len(existing_timestamps)
             progress = completed / total_count if total_count > 0 else 0
 
@@ -523,8 +562,10 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
             progress_placeholder.progress(progress, text=f"Predictions: {completed}/{total_count}")
 
             # Show details only when job is running
-            if last_status == 'R' and completed > 0:
-                details_placeholder.write(f"✅ {completed} prediction(s) completed, {len(missing_timestamps)} remaining")
+            if last_status == "R" and completed > 0:
+                details_placeholder.write(
+                    f"✅ {completed} prediction(s) completed, {len(missing_timestamps)} remaining"
+                )
 
             time.sleep(2)  # Check every 2 seconds
             iteration += 1

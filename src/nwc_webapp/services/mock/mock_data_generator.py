@@ -2,20 +2,21 @@
 Mock data generator for local development.
 Creates realistic-looking weather radar data without HPC/GPU.
 """
-import numpy as np
-import h5py
-from pathlib import Path
-from datetime import datetime, timedelta
+
 import os
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import h5py
+import numpy as np
+
 from nwc_webapp.logging_config import setup_logger
 
 # Set up logger
 logger = setup_logger(__name__)
 
-def generate_realistic_precipitation_field(shape=(1400, 1200),
-                                           intensity_scale=50.0,
-                                           num_cells=5,
-                                           seed=None):
+
+def generate_realistic_precipitation_field(shape=(1400, 1200), intensity_scale=50.0, num_cells=5, seed=None):
     """
     Generate a realistic-looking precipitation field.
 
@@ -45,13 +46,13 @@ def generate_realistic_precipitation_field(shape=(1400, 1200),
         intensity = np.random.uniform(0.3, 1.0) * intensity_scale
 
         # Create meshgrid for this cell
-        y, x = np.ogrid[:shape[0], :shape[1]]
+        y, x = np.ogrid[: shape[0], : shape[1]]
 
         # Calculate distance from center
-        dist = np.sqrt((y - center_y)**2 + (x - center_x)**2)
+        dist = np.sqrt((y - center_y) ** 2 + (x - center_x) ** 2)
 
         # Gaussian-like precipitation cell
-        cell = intensity * np.exp(-(dist / radius)**2)
+        cell = intensity * np.exp(-((dist / radius) ** 2))
 
         # Add some noise for realism
         noise = np.random.normal(0, 0.05 * intensity, shape)
@@ -70,9 +71,7 @@ def generate_realistic_precipitation_field(shape=(1400, 1200),
     return field
 
 
-def generate_temporal_sequence(num_timesteps=12,
-                               shape=(1400, 1200),
-                               base_seed=None):
+def generate_temporal_sequence(num_timesteps=12, shape=(1400, 1200), base_seed=None):
     """
     Generate a temporal sequence of precipitation fields.
     Fields evolve smoothly over time.
@@ -94,10 +93,7 @@ def generate_temporal_sequence(num_timesteps=12,
         # Generate field with time-varying intensity
         intensity = 30 + 20 * np.sin(2 * np.pi * t / num_timesteps)
         field = generate_realistic_precipitation_field(
-            shape=shape,
-            intensity_scale=intensity,
-            num_cells=3 + t % 3,  # Varying number of cells
-            seed=seed
+            shape=shape, intensity_scale=intensity, num_cells=3 + t % 3, seed=seed  # Varying number of cells
         )
 
         sequence.append(field)
@@ -118,35 +114,30 @@ def create_mock_hdf_file(output_path: Path, timestamp: datetime):
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Generate realistic precipitation field
-    data = generate_realistic_precipitation_field(
-        shape=(1400, 1200),
-        seed=int(timestamp.timestamp())
-    )
+    data = generate_realistic_precipitation_field(shape=(1400, 1200), seed=int(timestamp.timestamp()))
 
-    with h5py.File(output_path, 'w') as f:
+    with h5py.File(output_path, "w") as f:
         # Create nested group structure to match real SRI files
-        dataset1 = f.create_group('dataset1')
-        data1 = dataset1.create_group('data1')
+        dataset1 = f.create_group("dataset1")
+        data1 = dataset1.create_group("data1")
 
         # Create the data dataset at the correct path
-        data1.create_dataset('data', data=data, compression='gzip')
+        data1.create_dataset("data", data=data, compression="gzip")
 
         # Add metadata
-        f.attrs['timestamp'] = timestamp.isoformat()
-        f.attrs['format'] = 'mock_sri'
-        f.attrs['units'] = 'mm/h'
+        f.attrs["timestamp"] = timestamp.isoformat()
+        f.attrs["format"] = "mock_sri"
+        f.attrs["units"] = "mm/h"
 
         # Add coordinate information
         # Italy bounding box approximately
-        f.create_dataset('latitude', data=np.linspace(35.0, 47.6, 1400))
-        f.create_dataset('longitude', data=np.linspace(4.5, 20.5, 1200))
+        f.create_dataset("latitude", data=np.linspace(35.0, 47.6, 1400))
+        f.create_dataset("longitude", data=np.linspace(4.5, 20.5, 1200))
 
 
-def create_mock_prediction_file(output_path: Path,
-                                model_name: str,
-                                start_time: datetime,
-                                num_sequences=24,
-                                sequence_length=12):
+def create_mock_prediction_file(
+    output_path: Path, model_name: str, start_time: datetime, num_sequences=24, sequence_length=12
+):
     """
     Create a mock prediction NPY file.
 
@@ -164,9 +155,7 @@ def create_mock_prediction_file(output_path: Path,
 
     for i in range(num_sequences):
         sequence = generate_temporal_sequence(
-            num_timesteps=sequence_length,
-            shape=(1400, 1200),
-            base_seed=int(start_time.timestamp()) + i * 1000
+            num_timesteps=sequence_length, shape=(1400, 1200), base_seed=int(start_time.timestamp()) + i * 1000
         )
         predictions.append(sequence)
 
@@ -234,7 +223,7 @@ def generate_mock_predictions_for_range(model_name: str, start_dt: datetime, end
     created_count = 0
     for timestamp in timestamps:
         # Create filename in format: DD-MM-YYYY-HH-MM.npy
-        filename = timestamp.strftime('%d-%m-%Y-%H-%M') + '.npy'
+        filename = timestamp.strftime("%d-%m-%Y-%H-%M") + ".npy"
         filepath = pred_folder / filename
 
         # Skip if file already exists
@@ -244,9 +233,7 @@ def generate_mock_predictions_for_range(model_name: str, start_dt: datetime, end
 
         # Generate mock prediction sequence (12 timesteps, shape: 12x1400x1200)
         prediction = generate_temporal_sequence(
-            num_timesteps=12,
-            shape=(1400, 1200),
-            base_seed=int(timestamp.timestamp())
+            num_timesteps=12, shape=(1400, 1200), base_seed=int(timestamp.timestamp())
         )
 
         # Save as NPY file
@@ -278,13 +265,7 @@ def setup_mock_prediction_data(pred_folder: Path, model_names: list):
         # Create test predictions
         pred_file = model_folder / "predictions.npy"
         if not pred_file.exists():
-            create_mock_prediction_file(
-                pred_file,
-                model_name,
-                datetime.now(),
-                num_sequences=24,
-                sequence_length=12
-            )
+            create_mock_prediction_file(pred_file, model_name, datetime.now(), num_sequences=24, sequence_length=12)
             logger.info(f"Created mock prediction file for {model_name}")
 
         # Create real-time predictions folder using config
@@ -294,7 +275,7 @@ def setup_mock_prediction_data(pred_folder: Path, model_names: list):
 
 if __name__ == "__main__":
     # Example usage: set up mock data
-    from environment import get_data_root, get_sri_folder, get_prediction_output_dir
+    from environment import get_data_root, get_prediction_output_dir, get_sri_folder
 
     logger.info("Setting up mock data for local development...")
 

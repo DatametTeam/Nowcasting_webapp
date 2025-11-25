@@ -2,10 +2,12 @@
 Configuration management for the nowcasting application.
 Loads settings from YAML and provides easy access with type hints.
 """
+
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
 import yaml
-from dataclasses import dataclass
 
 from nwc_webapp.config.environment import is_hpc, is_local
 from nwc_webapp.logging_config import setup_logger
@@ -13,9 +15,11 @@ from nwc_webapp.logging_config import setup_logger
 # Set up logger
 logger = setup_logger(__name__)
 
+
 @dataclass
 class VisualizationConfig:
     """Visualization settings."""
+
     italy_bounds: Dict[str, float]
     map_center: List[float]
     zoom_start: int
@@ -28,6 +32,7 @@ class VisualizationConfig:
 @dataclass
 class SourceGridConfig:
     """Source grid navigation parameters (Transverse Mercator)."""
+
     projection: str
     prj_lat: float
     prj_lon: float
@@ -42,6 +47,7 @@ class SourceGridConfig:
 @dataclass
 class DestGridConfig:
     """Destination grid navigation parameters (Geographic lat/lon)."""
+
     projection: str
     prj_lat: float
     prj_lon: float
@@ -56,6 +62,7 @@ class DestGridConfig:
 @dataclass
 class PredictionConfig:
     """Prediction settings."""
+
     num_input_timesteps: int
     num_forecast_timesteps: int
     timestep_minutes: int
@@ -67,6 +74,7 @@ class PredictionConfig:
 @dataclass
 class PBSConfig:
     """PBS/HPC settings."""
+
     queue: str
     target_gpu: str
     walltime: str
@@ -77,6 +85,7 @@ class PBSConfig:
 @dataclass
 class AutoRefreshConfig:
     """Auto-refresh settings."""
+
     interval_seconds: int
     check_interval: int
     refresh_on_minute_multiple: int
@@ -85,6 +94,7 @@ class AutoRefreshConfig:
 @dataclass
 class LoggingConfig:
     """Logging settings."""
+
     level: str
     log_to_file: bool
     log_to_console: bool
@@ -113,7 +123,7 @@ class Config:
 
     def _load_config(self) -> None:
         """Load configuration from YAML file."""
-        with open(self.config_path, 'r') as f:
+        with open(self.config_path, "r") as f:
             self._config = yaml.safe_load(f)
 
     def reload(self) -> None:
@@ -285,7 +295,11 @@ if __name__ == "__main__":
     logger.info(f"SRI Folder: {config.sri_folder}")
     logger.info(f"Prediction Output: {config.prediction_output}")
     logger.info(f"Map Center: {config.visualization.map_center}")
-    logger.info(f"Source Grid: {config.source_grid.projection} at ({config.source_grid.prj_lat}, {config.source_grid.prj_lon})")
-    logger.info(f"Dest Grid: {config.dest_grid.minLat}-{config.dest_grid.maxLat}, {config.dest_grid.minLon}-{config.dest_grid.maxLon}")
+    logger.info(
+        f"Source Grid: {config.source_grid.projection} at ({config.source_grid.prj_lat}, {config.source_grid.prj_lon})"
+    )
+    logger.info(
+        f"Dest Grid: {config.dest_grid.minLat}-{config.dest_grid.maxLat}, {config.dest_grid.minLon}-{config.dest_grid.maxLon}"
+    )
     logger.info(f"PBS Queue: {config.pbs.queue}")
     logger.info(f"ED_ConvLSTM Environment: {config.get_model_pbs_env('ED_ConvLSTM')}")

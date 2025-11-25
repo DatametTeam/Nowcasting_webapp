@@ -2,17 +2,19 @@
 Evaluation plotting utilities.
 Generate plots for model evaluation metrics.
 """
+
 import io
 from datetime import datetime
 
 from matplotlib import pyplot as plt
-from nwc_webapp.evaluation.metrics import compute_CSI
-from nwc_webapp.data.loaders import read_groundtruth_and_target_data
 
+from nwc_webapp.data.loaders import read_groundtruth_and_target_data
+from nwc_webapp.evaluation.metrics import compute_CSI
 from nwc_webapp.logging_config import setup_logger
 
 # Set up logger
 logger = setup_logger(__name__)
+
 
 def generate_metrics_plot(selected_date, selected_time, selected_models, config):
     """
@@ -33,9 +35,7 @@ def generate_metrics_plot(selected_date, selected_time, selected_models, config)
 
     csi_df_total = {}
     for model in selected_models:
-        _, target_data, pred_dict = read_groundtruth_and_target_data(
-            selected_datetime.strftime("%d%m%Y_%H%M"), model
-        )
+        _, target_data, pred_dict = read_groundtruth_and_target_data(selected_datetime.strftime("%d%m%Y_%H%M"), model)
 
         csi_df_model = compute_CSI(target_data, pred_dict, thresholds=thresholds)
         csi_df_total[model] = csi_df_model
@@ -50,7 +50,7 @@ def generate_metrics_plot(selected_date, selected_time, selected_models, config)
         # Plot data for each model
         for model_name, model_df in csi_df_total.items():
             y_values = model_df.loc[index].values  # Get the row of the current model
-            plt.plot(x_values, y_values, label=model_name, marker='o', markersize=3)
+            plt.plot(x_values, y_values, label=model_name, marker="o", markersize=3)
 
         # Customize the plot
         plt.title(f"CSI @ {index} mm/h")

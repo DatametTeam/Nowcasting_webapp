@@ -1,11 +1,13 @@
 """
 Data service for loading and processing radar and prediction data.
 """
+
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
+
 import h5py
 import numpy as np
-from pathlib import Path
-from typing import Tuple, Optional, Dict, Any
-from datetime import datetime
 
 from nwc_webapp.config.config import get_config
 from nwc_webapp.config.logging_config import get_logger
@@ -53,14 +55,10 @@ class DataService:
             self.logger.error(f"Error loading radar mask: {e}", exc_info=True)
             # Return default mask (all ones)
             shape = self.config.visualization.data_shape
-            return np.ones((shape['height'], shape['width']), dtype=np.float32)
+            return np.ones((shape["height"], shape["width"]), dtype=np.float32)
 
     def load_prediction_data(
-        self,
-        model_name: str,
-        start_idx: int = 0,
-        end_idx: Optional[int] = None,
-        apply_mask: bool = True
+        self, model_name: str, start_idx: int = 0, end_idx: Optional[int] = None, apply_mask: bool = True
     ) -> np.ndarray:
         """
         Load prediction data for a model.
@@ -80,7 +78,7 @@ class DataService:
             self.logger.debug(f"Loading predictions from: {pred_path}")
 
             # Load with memory mapping for efficiency
-            data = np.load(pred_path, mmap_mode='r')
+            data = np.load(pred_path, mmap_mode="r")
 
             # Slice the data
             if end_idx is not None:
@@ -108,12 +106,7 @@ class DataService:
             self.logger.error(f"Error loading predictions: {e}", exc_info=True)
             raise
 
-    def load_ground_truth(
-        self,
-        start_idx: int = 12,
-        end_idx: int = 36,
-        apply_mask: bool = False
-    ) -> np.ndarray:
+    def load_ground_truth(self, start_idx: int = 12, end_idx: int = 36, apply_mask: bool = False) -> np.ndarray:
         """
         Load ground truth data (from Test model).
 
@@ -125,12 +118,7 @@ class DataService:
         Returns:
             Ground truth array
         """
-        return self.load_prediction_data(
-            model_name="Test",
-            start_idx=start_idx,
-            end_idx=end_idx,
-            apply_mask=apply_mask
-        )
+        return self.load_prediction_data(model_name="Test", start_idx=start_idx, end_idx=end_idx, apply_mask=apply_mask)
 
     def load_sri_file(self, file_path: Path) -> np.ndarray:
         """
@@ -145,12 +133,12 @@ class DataService:
         try:
             self.logger.debug(f"Loading SRI file: {file_path}")
 
-            with h5py.File(file_path, 'r') as f:
+            with h5py.File(file_path, "r") as f:
                 # Try common dataset names
-                if 'precipitation' in f:
-                    data = f['precipitation'][()]
-                elif 'data' in f:
-                    data = f['data'][()]
+                if "precipitation" in f:
+                    data = f["precipitation"][()]
+                elif "data" in f:
+                    data = f["data"][()]
                 else:
                     # Get first dataset
                     dataset_name = list(f.keys())[0]
@@ -181,10 +169,7 @@ class DataService:
                 return None
 
             # Sort by timestamp in filename (format: DD-MM-YYYY-HH-MM.hdf)
-            files.sort(
-                key=lambda x: datetime.strptime(x.split(".")[0], "%d-%m-%Y-%H-%M"),
-                reverse=True
-            )
+            files.sort(key=lambda x: datetime.strptime(x.split(".")[0], "%d-%m-%Y-%H-%M"), reverse=True)
 
             latest = files[0]
             self.logger.debug(f"Latest SRI file: {latest}")
@@ -195,10 +180,7 @@ class DataService:
             return None
 
     def preprocess_data(
-        self,
-        data: np.ndarray,
-        clip_range: Optional[Tuple[float, float]] = None,
-        normalize: bool = False
+        self, data: np.ndarray, clip_range: Optional[Tuple[float, float]] = None, normalize: bool = False
     ) -> np.ndarray:
         """
         Preprocess data array.

@@ -1,19 +1,21 @@
 """
 Real-time prediction page with live updates.
 """
-import os
-import time
-import threading
-import streamlit as st
-from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx, add_script_run_ctx
 
+import os
+import threading
+import time
 from pathlib import Path
-from nwc_webapp.ui.state import initial_state_management
-from nwc_webapp.ui.maps import create_only_map, create_animated_map_html
-from nwc_webapp.utils import get_latest_file, launch_thread_execution
+
+import streamlit as st
+from streamlit.runtime.scriptrunner_utils.script_run_context import add_script_run_ctx, get_script_run_ctx
+
+from nwc_webapp.config.config import get_config
 from nwc_webapp.data.loaders import load_all_predictions
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.config.config import get_config
+from nwc_webapp.ui.maps import create_animated_map_html, create_only_map
+from nwc_webapp.ui.state import initial_state_management
+from nwc_webapp.utils import get_latest_file, launch_thread_execution
 
 # Set up logger
 logger = setup_logger(__name__)
@@ -49,7 +51,7 @@ def _get_model_status(model, latest_file, config):
         pred_path = config.real_time_pred / "Test" / "predictions.npy"
     else:
         # Other models use date-based filename
-        latest_npy = Path(latest_file).stem + '.npy'
+        latest_npy = Path(latest_file).stem + ".npy"
         pred_path = config.real_time_pred / model / latest_npy
 
     if pred_path.exists():
@@ -70,6 +72,7 @@ def _get_model_status(model, latest_file, config):
     job_status = None
     try:
         from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
+
         if is_pbs_available():
             job_status = get_model_job_status(model)
     except Exception:
@@ -78,9 +81,9 @@ def _get_model_status(model, latest_file, config):
     # Determine display status (fast logic)
     if has_failed:
         return f"- ❌ **{model}**: Failed prediction!"
-    elif job_status == 'Q':
+    elif job_status == "Q":
         return f"- 📋 **{model}**: <span class='queue-text'>Queue</span>"
-    elif job_status == 'R':
+    elif job_status == "R":
         return f"- ⚙️ **{model}**: <span class='computing-text'>Computing</span>"
     elif is_computing:
         return f"- 🔄 **{model}**: Finalizing..."
@@ -122,7 +125,8 @@ def render_status_panel(model_list):
     Only Model Predictions section updates (every 2s), everything else is static.
     """
     # Add CSS for animated dots (only once)
-    st.markdown("""
+    st.markdown(
+        """
     <style>
     .queue-text::after, .computing-text::after {
         content: '';
@@ -135,7 +139,9 @@ def render_status_panel(model_list):
         75%, 100% { content: '...'; }
     }
     </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
     # Static header
     st.markdown("### System Status")
@@ -171,7 +177,9 @@ def render_status_panel(model_list):
     # System Info - static section
     st.markdown("**System Info:**")
     is_paused = st.session_state.get("realtime_paused", False)
-    checking_status = "⏸️ Paused" if is_paused else ("🔄 Active" if st.session_state.get("run_get_latest_file") else "⏸️ Paused")
+    checking_status = (
+        "⏸️ Paused" if is_paused else ("🔄 Active" if st.session_state.get("run_get_latest_file") else "⏸️ Paused")
+    )
     st.markdown(f"- Data Monitor: {checking_status}")
 
     if "all_predictions_data" in st.session_state and st.session_state["all_predictions_data"]:
@@ -185,7 +193,7 @@ def render_status_panel(model_list):
     # Display missing groundtruth data warnings
     if "data_load_status" in st.session_state:
         status = st.session_state["data_load_status"]
-        missing_gt = status.get('missing_groundtruth', [])
+        missing_gt = status.get("missing_groundtruth", [])
 
         if missing_gt:
             st.markdown("---")
@@ -198,13 +206,13 @@ def render_status_panel(model_list):
         status = st.session_state["data_load_status"]
 
         # Show ground truth status
-        if not status.get('ground_truth_available', False):
+        if not status.get("ground_truth_available", False):
             st.markdown("---")
             st.warning(f"⚠️ **Ground Truth Data Missing**")
-            if status.get('error'):
-                st.error(status['error'])
+            if status.get("error"):
+                st.error(status["error"])
             st.markdown("_Ground truth radar data is required for predictions. Please ensure SRI files are available._")
-        elif status.get('ground_truth_count', 0) < 7:
+        elif status.get("ground_truth_count", 0) < 7:
             st.markdown("---")
             st.warning(f"⚠️ **Partial Ground Truth**  \nOnly {status.get('ground_truth_count', 0)}/7 frames loaded")
 
@@ -218,6 +226,9 @@ def render_status_panel(model_list):
     if is_paused:
         if st.button("▶️ Resume Real-Time", use_container_width=True, type="primary"):
             st.session_state["realtime_paused"] = False
+            # Trigger immediate prediction check by clearing launch flag
+            st.session_state["launch_prediction_thread"] = None
+            logger.info("Resuming real-time predictions - will check for data immediately")
             st.rerun()
     else:
         if st.button("⏸️ Pause Real-Time", use_container_width=True):
@@ -257,18 +268,31 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
 
     model_options = model_list
     # Include ground truth times (-30 to 0) and prediction times (+5 to +60)
-    time_options = ["-30min", "-25min", "-20min", "-15min", "-10min", "-5min", "0min",
-                    "+5min", "+10min", "+15min", "+20min", "+25min",
-                    "+30min", "+35min", "+40min", "+45min", "+50min",
-                    "+55min", "+60min"]
+    time_options = [
+        "-30min",
+        "-25min",
+        "-20min",
+        "-15min",
+        "-10min",
+        "-5min",
+        "0min",
+        "+5min",
+        "+10min",
+        "+15min",
+        "+20min",
+        "+25min",
+        "+30min",
+        "+35min",
+        "+40min",
+        "+45min",
+        "+50min",
+        "+55min",
+        "+60min",
+    ]
 
-    with (columns[0]):
+    with columns[0]:
         # Select model only (time selection removed - animation shows all times)
-        st.selectbox(
-            "Select a model",
-            options=model_options,
-            key="selected_model"
-        )
+        st.selectbox("Select a model", options=model_options, key="selected_model")
 
         # THREAD per l'ottenimento automatico di nuovi file di input
         logger.debug("Entering get_latest_file_thread")
@@ -282,8 +306,8 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
             terminate_event = st.session_state["terminate_event"]
             terminate_event.set()
             time.sleep(0.5)
-            del (st.session_state["prev_thread_ID_get_latest_file"])
-            del (st.session_state["terminate_event"])
+            del st.session_state["prev_thread_ID_get_latest_file"]
+            del st.session_state["terminate_event"]
 
         # lanciato una volta sola questo thread gira autonomamente
         terminate_event = threading.Event()
@@ -297,7 +321,7 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
         if "thread_ID_get_latest_file" in st.session_state:
             thread_ID = st.session_state["thread_ID_get_latest_file"]
             logger.debug(f"thread_ID in main --> {thread_ID}")
-            del (st.session_state["thread_ID_get_latest_file"])
+            del st.session_state["thread_ID_get_latest_file"]
             st.session_state["prev_thread_ID_get_latest_file"] = thread_ID
 
         # Display date for the data that's ACTUALLY shown on the map (not latest available)
@@ -308,18 +332,19 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
         if latest_file_display and latest_file_display != "N/A":
             try:
                 from datetime import datetime
+
                 # Remove .hdf extension and parse
                 filename_clean = Path(latest_file_display).stem
                 dt = datetime.strptime(filename_clean, "%d-%m-%Y-%H-%M")
                 latest_file_display = dt.strftime("%H:%M %d-%m-%Y")
             except:
                 # Fallback to original if parsing fails
-                latest_file_display = latest_file_display.replace('.hdf', '')
+                latest_file_display = latest_file_display.replace(".hdf", "")
 
-        st.markdown("<div style='text-align: center; font-size: 24px;'>"
-                    f"<b>Map Data: {latest_file_display}</b>"
-                    "</div>",
-                    unsafe_allow_html=True)
+        st.markdown(
+            "<div style='text-align: center; font-size: 24px;'>" f"<b>Map Data: {latest_file_display}</b>" "</div>",
+            unsafe_allow_html=True,
+        )
 
         latest_file = st.session_state["latest_thread"]
         if latest_file != st.session_state.latest_file:
@@ -327,8 +352,7 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
             is_paused = st.session_state.get("realtime_paused", False)
             if is_paused:
                 logger.warning(f"Real-time is paused - skipping prediction launch for {latest_file}")
-                # Mark file as seen so we don't try to process old files when unpaused
-                st.session_state.latest_file = latest_file
+                # DON'T mark file as seen when paused - so it will be processed when resumed
             # calcolo della previsione in background
             elif st.session_state["launch_prediction_thread"] is None:
                 logger.info(f"Launching predictions for all models for {latest_file}")
@@ -353,9 +377,9 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
                     logger.info("Cleared computing_models set for new data processing")
 
                 ctx = get_script_run_ctx()
-                launch_thread = threading.Thread(target=launch_thread_execution,
-                                                 args=(st, latest_file, columns, model_list),
-                                                 daemon=True)
+                launch_thread = threading.Thread(
+                    target=launch_thread_execution, args=(st, latest_file, columns, model_list), daemon=True
+                )
                 add_script_run_ctx(launch_thread, ctx)
                 launch_thread.start()
 
@@ -366,9 +390,14 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
         # Load and display animated predictions
         if st.session_state.selected_model:
             # Check if we need to load new predictions (first time or model changed)
-            if ("new_prediction" in st.session_state and st.session_state["new_prediction"]) or \
-               ("previous_model" in st.session_state and st.session_state['previous_model'] != st.session_state['selected_model']) or \
-               "all_predictions_data" not in st.session_state:
+            if (
+                ("new_prediction" in st.session_state and st.session_state["new_prediction"])
+                or (
+                    "previous_model" in st.session_state
+                    and st.session_state["previous_model"] != st.session_state["selected_model"]
+                )
+                or "all_predictions_data" not in st.session_state
+            ):
 
                 st.session_state.previous_model = st.session_state.selected_model
 
@@ -377,14 +406,14 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
                     rgba_images_dict, status_info = load_all_predictions(st, time_options, latest_file)
 
                 # Store status information for display in status panel
-                st.session_state['data_load_status'] = status_info
+                st.session_state["data_load_status"] = status_info
 
                 if rgba_images_dict is not None:
-                    st.session_state['all_predictions_data'] = rgba_images_dict
-                    st.session_state['display_prediction'] = True
-                    st.session_state['new_prediction'] = False
+                    st.session_state["all_predictions_data"] = rgba_images_dict
+                    st.session_state["display_prediction"] = True
+                    st.session_state["new_prediction"] = False
                     # Update displayed_file to match what's actually shown on the map
-                    st.session_state['displayed_file'] = latest_file
+                    st.session_state["displayed_file"] = latest_file
                     logger.info(f"Map data loaded - updated displayed_file to {latest_file}")
                     create_animated_map_html(rgba_images_dict, st.session_state.latest_file)
                 else:
@@ -392,8 +421,8 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
                     create_only_map(None)
             else:
                 # Display existing predictions
-                if "all_predictions_data" in st.session_state and st.session_state['all_predictions_data'] is not None:
-                    create_animated_map_html(st.session_state['all_predictions_data'], st.session_state.latest_file)
+                if "all_predictions_data" in st.session_state and st.session_state["all_predictions_data"] is not None:
+                    create_animated_map_html(st.session_state["all_predictions_data"], st.session_state.latest_file)
                 else:
                     create_only_map(None)
         else:

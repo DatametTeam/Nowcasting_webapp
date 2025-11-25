@@ -2,25 +2,26 @@
 Coordinate transformation utilities for radar data.
 Handles conversions between linear/column coordinates, radar coordinates, and lat/lon.
 """
+
 import numpy as np
 import pyproj
 from numba import njit
 
 # Map projection constants
-par = np.array([600., 1000., 650., -1000.])
+par = np.array([600.0, 1000.0, 650.0, -1000.0])
 lat_0 = 42.0
 lon_0 = 12.5
-map_ = pyproj.Proj({"proj": 'tmerc', "lat_0": lat_0, "lon_0": lon_0})
+map_ = pyproj.Proj({"proj": "tmerc", "lat_0": lat_0, "lon_0": lon_0})
 
 
 def lincol_2_yx(
-        lin: np.ndarray,
-        col: np.ndarray,
-        params: list,
-        dim=None,
-        az_coords: tuple = (),
-        el_coords=None,
-        set_center: bool = False,
+    lin: np.ndarray,
+    col: np.ndarray,
+    params: list,
+    dim=None,
+    az_coords: tuple = (),
+    el_coords=None,
+    set_center: bool = False,
 ):
     """
     Convert linear and column coordinates to y, x coordinates.
@@ -42,9 +43,7 @@ def lincol_2_yx(
 
     if len(params) >= 10:
         # Polar data case
-        x, y = lincol_2_radyx(
-            lin, col, params, az_coords, el_coords, set_center=set_center
-        )
+        x, y = lincol_2_radyx(lin, col, params, az_coords, el_coords, set_center=set_center)
     else:
         # Non-polar data case
         xoff = params[0]
@@ -90,16 +89,16 @@ def lincol_2_yx(
 
 @njit(cache=True, parallel=True, fastmath=True)
 def lincol_2_radyx(
-        lin,
-        col,
-        par: dict,
-        az_coords=np.array(()),
-        el_coords: np.ndarray = None,
-        set_az: bool = False,
-        set_center: bool = False,
-        lev=np.array(()),
-        set_z: bool = False,
-        radz=np.array(()),
+    lin,
+    col,
+    par: dict,
+    az_coords=np.array(()),
+    el_coords: np.ndarray = None,
+    set_az: bool = False,
+    set_center: bool = False,
+    lev=np.array(()),
+    set_z: bool = False,
+    radz=np.array(()),
 ):
     """
     Converts linear and column coordinates to radar coordinates in azimuth and range dimensions.

@@ -19,8 +19,7 @@ def CSI(obs, pred, threshold=0.1):
         float: CSI value
     """
 
-    hits, misses, falsealarms, correctnegatives = prep_clf(obs=obs, pred=pred,
-                                                           threshold=threshold)
+    hits, misses, falsealarms, correctnegatives = prep_clf(obs=obs, pred=pred, threshold=threshold)
 
     if (hits + misses + falsealarms) == 0:
         # print("Error: hits + misses + falsealarms == 0. Returning 0")
@@ -53,15 +52,13 @@ def compute_CSI(targets, outputs, thresholds=None):
         thresholds = [1, 5, 10, 20, 50]
 
     prediction_times = list(targets.keys())
-    prediction_offsets = [f'{5 * (i + 1)}_min' for i in range(len(prediction_times))]
+    prediction_offsets = [f"{5 * (i + 1)}_min" for i in range(len(prediction_times))]
 
     data = pd.DataFrame(index=thresholds, columns=prediction_offsets)
 
     for idx, pred_time in enumerate(prediction_times):
         for th in thresholds:
-            metric_value = CSI(targets[pred_time],
-                               outputs[pred_time],
-                               threshold=th)
+            metric_value = CSI(targets[pred_time], outputs[pred_time], threshold=th)
 
             data.at[th, prediction_offsets[idx]] = metric_value
 

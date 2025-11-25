@@ -2,16 +2,19 @@
 Data loading utilities for predictions.
 Handles loading from HDF5, NPY, and other file formats.
 """
+
 import os
-import h5py
-import numpy as np
 from pathlib import Path
 
-from nwc_webapp.utils import get_latest_file_once
+import h5py
+import numpy as np
+
 from nwc_webapp.logging_config import setup_logger
+from nwc_webapp.utils import get_latest_file_once
 
 # Set up logger
 logger = setup_logger(__name__)
+
 
 def get_prediction_results_test(folder_path, sidebar_args, get_only_pred=False):
     """
@@ -25,7 +28,7 @@ def get_prediction_results_test(folder_path, sidebar_args, get_only_pred=False):
     Returns:
         Tuple of (gt_array, pred_array)
     """
-    model_name = sidebar_args['model_name']
+    model_name = sidebar_args["model_name"]
     gt_array = None
     pred_array = None
 
@@ -43,7 +46,7 @@ def get_prediction_results_test(folder_path, sidebar_args, get_only_pred=False):
 
     # NEW for test
     pred_array = get_latest_file_once()
-    if model_name == 'Test':  # TODO: sistemare
+    if model_name == "Test":  # TODO: sistemare
         # NEW for test
         pred_array = get_latest_file_once()
     pred_array = np.array(pred_array)
@@ -76,14 +79,14 @@ def get_prediction_results(out_dir, sidebar_args, get_only_pred=False):
         Tuple of (gt_array, pred_array)
     """
     # TODO: da fixare
-    model_name = sidebar_args['model_name']
+    model_name = sidebar_args["model_name"]
     pred_out_dir = Path(f"/davinci-1/work/protezionecivile/sole24/pred_teo/Test")
     model_out_dir = Path(f"/davinci-1/work/protezionecivile/sole24/pred_teo/{model_name}")
     gt_array = None
 
     if not get_only_pred:
         logger.debug("Loading GT data")
-        gt_array = np.load(pred_out_dir / "predictions.npy", mmap_mode='r')[12:36]
+        gt_array = np.load(pred_out_dir / "predictions.npy", mmap_mode="r")[12:36]
         logger.info("GT data loaded")
         gt_array = np.array(gt_array)
         gt_array[gt_array < 0] = 0
@@ -91,9 +94,9 @@ def get_prediction_results(out_dir, sidebar_args, get_only_pred=False):
         # gt_array = (gt_array - np.min(gt_array)) / (np.max(gt_array) - np.min(gt_array))
 
     logger.debug("Loading pred data")
-    pred_array = np.load(model_out_dir / "predictions.npy", mmap_mode='r')[0:24]
-    if model_name == 'Test':  # TODO: sistemare
-        pred_array = np.load(model_out_dir / "predictions.npy", mmap_mode='r')[12:36]
+    pred_array = np.load(model_out_dir / "predictions.npy", mmap_mode="r")[0:24]
+    if model_name == "Test":  # TODO: sistemare
+        pred_array = np.load(model_out_dir / "predictions.npy", mmap_mode="r")[12:36]
     pred_array = np.array(pred_array)
     pred_array[pred_array < 0] = 0
     logger.info("Loaded pred data")

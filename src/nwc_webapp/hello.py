@@ -1,17 +1,20 @@
 """
 Main entry point for the weather nowcasting Streamlit application.
 """
-import streamlit as st
+
 from datetime import datetime
 
-from nwc_webapp.ui.layouts import configure_sidebar, show_metrics_page
+import streamlit as st
+
+from nwc_webapp.background.workers import monitor_time
 from nwc_webapp.config.config import get_config
+from nwc_webapp.logging_config import setup_logger
+from nwc_webapp.page_modules.csi_analysis import show_csi_analysis_page
+from nwc_webapp.page_modules.home import show_home_page
 from nwc_webapp.page_modules.nowcasting import main_page
 from nwc_webapp.page_modules.prediction_by_date import show_prediction_page
-from nwc_webapp.page_modules.home import show_home_page
 from nwc_webapp.page_modules.real_time import show_real_time_prediction
-from nwc_webapp.background.workers import monitor_time
-from nwc_webapp.logging_config import setup_logger
+from nwc_webapp.ui.layouts import configure_sidebar
 
 # Set up logger
 logger = setup_logger(__name__)
@@ -38,9 +41,12 @@ def main(app_config, sri_folder, count_value):
 
     # Start mock realtime service if running locally (moved from module level)
     from nwc_webapp.config.environment import is_local
+
     if is_local() and "mock_service_started" not in st.session_state:
-        from nwc_webapp.services.mock_realtime_service import start_mock_service
         import logging
+
+        from nwc_webapp.services.mock_realtime_service import start_mock_service
+
         logging.basicConfig(level=logging.INFO)
 
         # Start mock service with 60-second check intervals
@@ -51,11 +57,11 @@ def main(app_config, sri_folder, count_value):
     model_list = app_config.models
     sidebar_args = configure_sidebar(model_list)
 
-    if sidebar_args['submitted'] and 'prediction_result' in st.session_state:
+    if sidebar_args["submitted"] and "prediction_result" in st.session_state:
         st.session_state.prediction_result = {}
 
     # Create tabs using st.tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["Real Time Prediction", "Nowcasting", "Prediction by Date & Time", "Metrics"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Real Time Prediction", "Nowcasting", "Prediction by Date & Time", "CSI Analysis"])
 
     with tab1:
         st.session_state["sync_end"] = 1
@@ -68,7 +74,7 @@ def main(app_config, sri_folder, count_value):
         show_prediction_page(model_list)
 
     with tab4:
-        show_metrics_page(model_list)
+        show_csi_analysis_page(model_list)
 
 
 # Get configuration (safe to call at module level - no session state access)

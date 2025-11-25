@@ -1,6 +1,7 @@
 """
 Environment detection for running on HPC vs local development.
 """
+
 import os
 import subprocess
 from pathlib import Path
@@ -22,11 +23,7 @@ def detect_environment() -> EnvironmentType:
 
     # Check if PBS is available
     try:
-        result = subprocess.run(
-            ["qstat"],
-            capture_output=True,
-            timeout=2
-        )
+        result = subprocess.run(["qstat"], capture_output=True, timeout=2)
         if result.returncode == 0:
             return "hpc"
     except (subprocess.TimeoutExpired, FileNotFoundError):

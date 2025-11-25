@@ -1,32 +1,34 @@
 import os
-from tqdm import tqdm
 
 import numpy as np
+from tqdm import tqdm
+
 from nwc_webapp.logging_config import setup_logger
 
 # Set up logger
 logger = setup_logger(__name__)
 
+
 def create_single_prediction_array(folder_path, out_path):
-    npz_files = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.endswith('.npz')]
+    npz_files = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.endswith(".npz")]
 
     npz_files = sorted(npz_files)
     data = np.load(npz_files[0])
     logger.info(list(data.keys()))
-    logger.debug(data['prediction'].shape)
+    logger.debug(data["prediction"].shape)
     all_predictions = []
 
     all_predictions = []
     for file in tqdm(npz_files):
         data = np.load(file)
-        if 'prediction' in data:
-            all_predictions.append(data['prediction'])
+        if "prediction" in data:
+            all_predictions.append(data["prediction"])
         else:
-            logger.warning('Manca la chiave')
+            logger.warning("Manca la chiave")
     if all_predictions:
         merged_array = np.stack(all_predictions, axis=0)
     else:
-        logger.error('Nessun file')
+        logger.error("Nessun file")
 
     np.save("single_array_predictions.npy", merged_array)
 

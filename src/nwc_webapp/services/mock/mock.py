@@ -2,17 +2,17 @@
 Mock PBS job submission for local development.
 Simulates HPC job submission and generates mock predictions.
 """
+
+import logging
 import multiprocessing
 import time
-import logging
-from pathlib import Path
 from datetime import datetime
-from typing import Tuple, Optional
+from pathlib import Path
+from typing import Optional, Tuple
 
 from nwc_webapp.config.config import get_config
-from nwc_webapp.services.mock.mock_data_generator import create_mock_prediction_file
-
 from nwc_webapp.logging_config import setup_logger
+from nwc_webapp.services.mock.mock_data_generator import create_mock_prediction_file
 
 # Set up logger
 logger = setup_logger(__name__)
@@ -56,7 +56,7 @@ def submit_inference(inf_args: dict) -> Tuple[str, Path]:
     job_id = f"mock_{_JOB_COUNTER}_{int(time.time())}"
 
     config = get_config()
-    model_name = inf_args.get('model_name', 'Test')
+    model_name = inf_args.get("model_name", "Test")
 
     # Create output directory
     pred_folder = config.prediction_output / model_name
@@ -66,9 +66,7 @@ def submit_inference(inf_args: dict) -> Tuple[str, Path]:
 
     # Start background process to simulate job execution
     p = multiprocessing.Process(
-        target=_mock_inference_worker,
-        args=(job_id, model_name, pred_folder, inf_args),
-        daemon=True
+        target=_mock_inference_worker, args=(job_id, model_name, pred_folder, inf_args), daemon=True
     )
     p.start()
     _IN_PROCESS = p
@@ -95,11 +93,11 @@ def _mock_inference_worker(job_id: str, model_name: str, output_dir: Path, inf_a
         time.sleep(processing_time)
 
         # Check if this is a real-time prediction
-        is_real_time = inf_args.get('real_time', False)
+        is_real_time = inf_args.get("real_time", False)
 
         if is_real_time:
             # Use the specified output file for real-time predictions
-            pred_file = inf_args.get('output_file')
+            pred_file = inf_args.get("output_file")
             if not pred_file:
                 raise ValueError("Real-time prediction requires output_file in inf_args")
         else:
@@ -117,7 +115,7 @@ def _mock_inference_worker(job_id: str, model_name: str, output_dir: Path, inf_a
             model_name=model_name,
             start_time=datetime.now(),
             num_sequences=num_sequences,
-            sequence_length=12
+            sequence_length=12,
         )
 
         logger.info(f"✅ Mock job {job_id} completed successfully")
@@ -148,8 +146,8 @@ def start_prediction_job(model: str, latest_data: str) -> str:
         Job ID
     """
     # Clean the filename if needed
-    if '.' in latest_data:
-        latest_data = latest_data.split('.')[0]
+    if "." in latest_data:
+        latest_data = latest_data.split(".")[0]
 
     logger.info(f"📍 Starting prediction from data: {latest_data}")
     logger.info(f"   (Will use last 1 hour of data: 12 timesteps at 5-min intervals)")
@@ -165,12 +163,12 @@ def start_prediction_job(model: str, latest_data: str) -> str:
 
     # Create inference args
     inf_args = {
-        'model_name': model,
-        'start_time': datetime.now(),
-        'latest_data': latest_data,
-        'output_file': output_file,
-        'submitted': True,
-        'real_time': True  # Flag for real-time prediction
+        "model_name": model,
+        "start_time": datetime.now(),
+        "latest_data": latest_data,
+        "output_file": output_file,
+        "submitted": True,
+        "real_time": True,  # Flag for real-time prediction
     }
 
     job_id, _ = submit_inference(inf_args)
@@ -182,19 +180,12 @@ def start_prediction_job(model: str, latest_data: str) -> str:
 
 if __name__ == "__main__":
     # Test the mock system
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
     logger.info("Testing mock PBS system...\n")
 
     # Submit a test job
-    test_args = {
-        'model_name': 'TestModel',
-        'start_time': datetime.now(),
-        'submitted': True
-    }
+    test_args = {"model_name": "TestModel", "start_time": datetime.now(), "submitted": True}
 
     job_id, output_dir = submit_inference(test_args)
     logger.info(f"Job submitted: {job_id}")

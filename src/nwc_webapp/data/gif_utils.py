@@ -2,10 +2,11 @@
 GIF utilities for prediction visualization.
 Handles checking for existing GIFs and loading them.
 """
+
 import io
 import os
-from pathlib import Path
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from nwc_webapp.config.config import get_config
 
@@ -23,13 +24,13 @@ def check_if_gif_present(sidebar_args):
                  groundtruth_paths, prediction_paths, difference_paths)
     """
     config = get_config()
-    model = sidebar_args['model_name']
+    model = sidebar_args["model_name"]
 
     # Use config-based output directory
     gif_dir = config.prediction_output.parent / "gifs" / model
 
-    start_date = sidebar_args['start_date']
-    start_time = sidebar_args['start_time']
+    start_date = sidebar_args["start_date"]
+    start_time = sidebar_args["start_time"]
 
     # Generate datetime objects for start, +30 mins, and +60 mins
     start_datetime = datetime.combine(start_date, start_time)
@@ -43,7 +44,7 @@ def check_if_gif_present(sidebar_args):
         f"{datetime_plus_30.strftime('%d%m%Y_%H%M')}_"
         f"{(datetime_plus_30 + timedelta(minutes=55)).strftime('%d%m%Y_%H%M')}.gif",
         f"{datetime_plus_60.strftime('%d%m%Y_%H%M')}_"
-        f"{(datetime_plus_60 + timedelta(minutes=55)).strftime('%d%m%Y_%H%M')}.gif"
+        f"{(datetime_plus_60 + timedelta(minutes=55)).strftime('%d%m%Y_%H%M')}.gif",
     ]
 
     # File names for predictions
@@ -51,7 +52,7 @@ def check_if_gif_present(sidebar_args):
         f"{start_datetime.strftime('%d%m%Y_%H%M')}_"
         f"{(start_datetime + timedelta(minutes=55)).strftime('%d%m%Y_%H%M')}_+30 mins.gif",
         f"{start_datetime.strftime('%d%m%Y_%H%M')}_"
-        f"{(start_datetime + timedelta(minutes=55)).strftime('%d%m%Y_%H%M')}_+60 mins.gif"
+        f"{(start_datetime + timedelta(minutes=55)).strftime('%d%m%Y_%H%M')}_+60 mins.gif",
     ]
 
     # File names for differences (charged like gt gifs)
@@ -59,12 +60,12 @@ def check_if_gif_present(sidebar_args):
         f"{start_datetime.strftime('%d%m%Y_%H%M')}_"
         f"{(start_datetime + timedelta(minutes=55)).strftime('%d%m%Y_%H%M')}.gif",
         f"{start_datetime.strftime('%d%m%Y_%H%M')}_"
-        f"{(start_datetime + timedelta(minutes=55)).strftime('%d%m%Y_%H%M')}.gif"
+        f"{(start_datetime + timedelta(minutes=55)).strftime('%d%m%Y_%H%M')}.gif",
     ]
 
-    groundtruth_paths = [os.path.join(gif_dir, 'gt', file) for file in groundtruth_files]
-    prediction_paths = [os.path.join(gif_dir, 'pred', file) for file in prediction_files]
-    difference_paths = [os.path.join(gif_dir, 'diff', file) for file in difference_files]
+    groundtruth_paths = [os.path.join(gif_dir, "gt", file) for file in groundtruth_files]
+    prediction_paths = [os.path.join(gif_dir, "pred", file) for file in prediction_files]
+    difference_paths = [os.path.join(gif_dir, "diff", file) for file in difference_files]
 
     # Check presence of groundtruth files
     groundtruth_present = all(os.path.exists(path) for path in groundtruth_paths)
@@ -75,7 +76,14 @@ def check_if_gif_present(sidebar_args):
     # Check presence of difference files
     difference_present = all(os.path.exists(path) for path in difference_paths)
 
-    return groundtruth_present, prediction_present, difference_present, groundtruth_paths, prediction_paths, difference_paths
+    return (
+        groundtruth_present,
+        prediction_present,
+        difference_present,
+        groundtruth_paths,
+        prediction_paths,
+        difference_paths,
+    )
 
 
 def load_gif_as_bytesio(gif_paths):

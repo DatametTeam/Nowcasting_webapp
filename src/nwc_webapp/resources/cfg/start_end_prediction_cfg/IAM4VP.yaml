@@ -20,7 +20,7 @@ trainings_artifacts:
 #     precip_thr: -15
 #     kmperpixel: 1.0
 #     timestep: 5.0
-#     num_workers: 24  
+#     num_workers: 24
 
 
 transforms:

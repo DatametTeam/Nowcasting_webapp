@@ -1,17 +1,20 @@
 """
 Utility functions for the nowcasting page workflow.
 """
+
 import os
-from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Tuple, List, Optional
-import numpy as np
-from nwc_webapp.services.parallel_code import create_single_gif_from_dict
-from nwc_webapp.utils import compute_figure_gpd
+from pathlib import Path
+from typing import List, Optional, Tuple
+
 import h5py
+import numpy as np
+
 from nwc_webapp.config.config import get_config
 from nwc_webapp.config.environment import is_hpc
 from nwc_webapp.logging_config import setup_logger
+from nwc_webapp.services.parallel_code import create_single_gif_from_dict
+from nwc_webapp.utils import compute_figure_gpd
 
 # Set up logger
 logger = setup_logger(__name__)
@@ -77,17 +80,17 @@ def get_gif_paths(model_name: str, start_dt: datetime, end_dt: datetime) -> dict
     base_name_60m = f"{(start_dt + timedelta(minutes=60)).strftime('%d-%m-%Y-%H-%M')}_{(end_dt + timedelta(minutes=60)).strftime('%d-%m-%Y-%H-%M')}"
 
     return {
-        'gt_t0': gt_dir / f"{base_name}.gif",  # Full groundtruth sequence
-        'gt_t6': gt_dir / f"{base_name_30m}.gif",  # Target +30min sequence
-        'gt_t12': gt_dir / f"{base_name_60m}.gif",  # Target +60min sequence
-        'pred_t6': pred_dir / f"{base_name}_+30.gif",
-        'pred_t12': pred_dir / f"{base_name}_+60.gif",
-        'diff_t6': diff_dir / f"{base_name}_+30.gif",
-        'diff_t12': diff_dir / f"{base_name}_+60.gif",
+        "gt_t0": gt_dir / f"{base_name}.gif",  # Full groundtruth sequence
+        "gt_t6": gt_dir / f"{base_name_30m}.gif",  # Target +30min sequence
+        "gt_t12": gt_dir / f"{base_name_60m}.gif",  # Target +60min sequence
+        "pred_t6": pred_dir / f"{base_name}_+30.gif",
+        "pred_t12": pred_dir / f"{base_name}_+60.gif",
+        "diff_t6": diff_dir / f"{base_name}_+30.gif",
+        "diff_t12": diff_dir / f"{base_name}_+60.gif",
         # Also return the directories for easy access
-        'gt_dir': gt_dir,
-        'pred_dir': pred_dir,
-        'diff_dir': diff_dir,
+        "gt_dir": gt_dir,
+        "pred_dir": pred_dir,
+        "diff_dir": diff_dir,
     }
 
 
@@ -101,21 +104,11 @@ def check_gifs_exist(gif_paths: dict) -> Tuple[bool, bool, bool]:
     Returns:
         Tuple of (gt_exist, pred_exist, diff_exist) booleans
     """
-    gt_exist = (
-            gif_paths['gt_t0'].exists() and
-            gif_paths['gt_t6'].exists() and
-            gif_paths['gt_t12'].exists()
-    )
+    gt_exist = gif_paths["gt_t0"].exists() and gif_paths["gt_t6"].exists() and gif_paths["gt_t12"].exists()
 
-    pred_exist = (
-            gif_paths['pred_t6'].exists() and
-            gif_paths['pred_t12'].exists()
-    )
+    pred_exist = gif_paths["pred_t6"].exists() and gif_paths["pred_t12"].exists()
 
-    diff_exist = (
-            gif_paths['diff_t6'].exists() and
-            gif_paths['diff_t12'].exists()
-    )
+    diff_exist = gif_paths["diff_t6"].exists() and gif_paths["diff_t12"].exists()
 
     return gt_exist, pred_exist, diff_exist
 
@@ -193,8 +186,9 @@ def generate_timestamp_range(start_dt: datetime, end_dt: datetime, verbose: bool
     return timestamps
 
 
-def check_missing_predictions(model_name: str, start_dt: datetime, end_dt: datetime, verbose: bool = True) -> Tuple[
-    List[datetime], List[datetime]]:
+def check_missing_predictions(
+    model_name: str, start_dt: datetime, end_dt: datetime, verbose: bool = True
+) -> Tuple[List[datetime], List[datetime]]:
     """
     Check which prediction files are missing in the specified range.
 
@@ -222,7 +216,7 @@ def check_missing_predictions(model_name: str, start_dt: datetime, end_dt: datet
 
     for timestamp in all_timestamps:
         # Format: DD-MM-YYYY-HH-MM.npy (same as real-time predictions)
-        filename = timestamp.strftime('%d-%m-%Y-%H-%M') + '.npy'
+        filename = timestamp.strftime("%d-%m-%Y-%H-%M") + ".npy"
         pred_file = pred_dir / filename
 
         # Use os.path.exists() to avoid any Path caching issues
@@ -235,9 +229,177 @@ def check_missing_predictions(model_name: str, start_dt: datetime, end_dt: datet
 
     if verbose:
         logger.info(
-            f"[{model_name}] Range check: {len(existing)}/{len(all_timestamps)} predictions exist, {len(missing)} missing")
+            f"[{model_name}] Range check: {len(existing)}/{len(all_timestamps)} predictions exist, {len(missing)} missing"
+        )
 
     return missing, existing
+
+
+def check_single_prediction_exists(model_name: str, prediction_dt: datetime) -> bool:
+    """
+    Check if a single prediction file exists.
+
+    Args:
+        model_name: Name of the prediction model
+        prediction_dt: Datetime for the prediction
+
+    Returns:
+        True if prediction file exists, False otherwise
+    """
+    config = get_config()
+    pred_dir = config.real_time_pred / model_name
+
+    # Format: DD-MM-YYYY-HH-MM.npy
+    filename = prediction_dt.strftime("%d-%m-%Y-%H-%M") + ".npy"
+    pred_file = pred_dir / filename
+
+    return os.path.exists(str(pred_file))
+
+
+def load_single_prediction_data(model_name: str, prediction_dt: datetime) -> Tuple[dict, dict, dict]:
+    """
+    Load groundtruth, target, and prediction data for a single timestamp.
+
+    This function loads data in the format required by init_second_tab_layout():
+    - Groundtruth: 12 frames (t0, t+5, t+10, ..., t+55)
+    - Target: 12 frames (t+60, t+65, ..., t+115)
+    - Prediction: 12 frames (t+60, t+65, ..., t+115) from model
+
+    Args:
+        model_name: Name of the prediction model
+        prediction_dt: Datetime for the prediction start
+
+    Returns:
+        Tuple of (gt_dict, target_dict, pred_dict) with timestamped arrays
+    """
+    config = get_config()
+
+    # Load radar mask
+    mask_path = Path(__file__).resolve().parent.parent / "resources/mask/radar_mask.hdf"
+    with h5py.File(mask_path, "r") as f:
+        radar_mask = f["mask"][()]
+
+    # Initialize dictionaries
+    gt_dict = {}
+    target_dict = {}
+    pred_dict = {}
+
+    # ========== STEP 1: Load groundtruth (12 frames: t0 to t+55) ==========
+    logger.info(f"Loading groundtruth for {prediction_dt.strftime('%d/%m/%Y %H:%M')}")
+
+    for i in range(12):
+        gt_timestamp = prediction_dt + timedelta(minutes=5 * i)
+        gt_filename = gt_timestamp.strftime("%d-%m-%Y-%H-%M") + ".hdf"
+
+        # Determine path based on environment
+        gt_path = None
+
+        if is_hpc():
+            # HPC: Try data1 first (recent data), then data (archived)
+            gt_path_data1 = Path("/davinci-1/work/protezionecivile/data1/SRI_adj") / gt_filename
+            year = gt_timestamp.strftime("%Y")
+            month = gt_timestamp.strftime("%m")
+            day = gt_timestamp.strftime("%d")
+            gt_path_data = Path(f"/davinci-1/work/protezionecivile/data/{year}/{month}/{day}/SRI_adj") / gt_filename
+
+            if gt_path_data1.exists():
+                gt_path = gt_path_data1
+            elif gt_path_data.exists():
+                gt_path = gt_path_data
+        else:
+            # Local: Use config sri_folder
+            gt_path_local = config.sri_folder / gt_filename
+            if gt_path_local.exists():
+                gt_path = gt_path_local
+
+        if gt_path and gt_path.exists():
+            try:
+                with h5py.File(gt_path, "r") as hdf:
+                    gt_data = hdf["/dataset1/data1/data"][:]
+                    # Apply mask and clip
+                    gt_data = gt_data * radar_mask
+                    gt_data = np.clip(gt_data, 0, 200)
+
+                    timestamp_key = gt_timestamp.strftime("%d%m%Y_%H%M")
+                    gt_dict[timestamp_key] = gt_data
+            except Exception as e:
+                logger.warning(f"Error loading GT at {gt_path}: {e}")
+
+    # ========== STEP 2: Load target (12 frames: t+60 to t+115) ==========
+    logger.info(f"Loading target for {prediction_dt.strftime('%d/%m/%Y %H:%M')}")
+
+    for i in range(12):
+        target_timestamp = prediction_dt + timedelta(minutes=60 + 5 * i)
+        target_filename = target_timestamp.strftime("%d-%m-%Y-%H-%M") + ".hdf"
+
+        # Determine path based on environment
+        target_path = None
+
+        if is_hpc():
+            # HPC: Try data1 first, then data (archived)
+            target_path_data1 = Path("/davinci-1/work/protezionecivile/data1/SRI_adj") / target_filename
+            year = target_timestamp.strftime("%Y")
+            month = target_timestamp.strftime("%m")
+            day = target_timestamp.strftime("%d")
+            target_path_data = (
+                Path(f"/davinci-1/work/protezionecivile/data/{year}/{month}/{day}/SRI_adj") / target_filename
+            )
+
+            if target_path_data1.exists():
+                target_path = target_path_data1
+            elif target_path_data.exists():
+                target_path = target_path_data
+        else:
+            # Local: Use config sri_folder
+            target_path_local = config.sri_folder / target_filename
+            if target_path_local.exists():
+                target_path = target_path_local
+
+        if target_path and target_path.exists():
+            try:
+                with h5py.File(target_path, "r") as hdf:
+                    target_data = hdf["/dataset1/data1/data"][:]
+                    # Apply mask and clip
+                    target_data = target_data * radar_mask
+                    target_data = np.clip(target_data, 0, 200)
+
+                    timestamp_key = target_timestamp.strftime("%d%m%Y_%H%M")
+                    target_dict[timestamp_key] = target_data
+            except Exception as e:
+                logger.warning(f"Error loading target at {target_path}: {e}")
+
+    # ========== STEP 3: Load prediction (12 frames from model) ==========
+    logger.info(f"Loading prediction for {model_name} at {prediction_dt.strftime('%d/%m/%Y %H:%M')}")
+
+    pred_filename = prediction_dt.strftime("%d-%m-%Y-%H-%M") + ".npy"
+    pred_path = config.real_time_pred / model_name / pred_filename
+
+    if pred_path.exists():
+        try:
+            pred_array = np.load(pred_path, mmap_mode="r")  # Shape: (12, 1400, 1200)
+
+            # The prediction array contains 12 timesteps at 5-minute intervals
+            # Map these to timestamps starting at t+60
+            for i in range(12):
+                pred_timestamp = prediction_dt + timedelta(minutes=60 + 5 * i)
+                pred_data = pred_array[i]
+
+                # Apply mask and clip
+                pred_data = pred_data * radar_mask
+                pred_data = np.clip(pred_data, 0, 200)
+
+                timestamp_key = pred_timestamp.strftime("%d%m%Y_%H%M")
+                pred_dict[timestamp_key] = pred_data
+
+            logger.info(f"✅ Loaded {len(pred_dict)} prediction frames")
+        except Exception as e:
+            logger.error(f"Error loading prediction from {pred_path}: {e}")
+    else:
+        logger.error(f"Prediction file not found: {pred_path}")
+
+    logger.info(f"Loaded: {len(gt_dict)} groundtruth, {len(target_dict)} target, {len(pred_dict)} prediction frames")
+
+    return gt_dict, target_dict, pred_dict
 
 
 def get_missing_range(missing_timestamps: List[datetime]) -> Tuple[Optional[datetime], Optional[datetime]]:
@@ -285,7 +447,7 @@ def delete_predictions_in_range(model_name: str, start_dt: datetime, end_dt: dat
     deleted_count = 0
     for timestamp in all_timestamps:
         # Format: DD-MM-YYYY-HH-MM.npy (same as real-time predictions)
-        filename = timestamp.strftime('%d-%m-%Y-%H-%M') + '.npy'
+        filename = timestamp.strftime("%d-%m-%Y-%H-%M") + ".npy"
         pred_file = pred_dir / filename
 
         if pred_file.exists():
@@ -325,7 +487,7 @@ def modify_yaml_config_for_date_range(model_name: str, start_dt: datetime, end_d
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
     # Read the YAML file
-    with open(config_path, 'r') as f:
+    with open(config_path, "r") as f:
         config_data = yaml.safe_load(f)
 
     # Format dates as "YYYY-MM-DD HH:MM"
@@ -333,15 +495,15 @@ def modify_yaml_config_for_date_range(model_name: str, start_dt: datetime, end_d
     end_str = end_dt.strftime("%Y-%m-%d %H:%M")
 
     # Modify the start_date and end_date fields
-    if 'dataframe_strategy' in config_data and 'args' in config_data['dataframe_strategy']:
-        config_data['dataframe_strategy']['args']['start_date'] = start_str
-        config_data['dataframe_strategy']['args']['end_date'] = end_str
+    if "dataframe_strategy" in config_data and "args" in config_data["dataframe_strategy"]:
+        config_data["dataframe_strategy"]["args"]["start_date"] = start_str
+        config_data["dataframe_strategy"]["args"]["end_date"] = end_str
         logger.info(f"Modified {model_name} config: start={start_str}, end={end_str}")
     else:
         logger.warning(f"Could not find dataframe_strategy.args in {model_name} config")
 
     # Overwrite the original file
-    with open(config_path, 'w') as f:
+    with open(config_path, "w") as f:
         yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
 
     logger.info(f"Overwritten config at: {config_path}")
@@ -392,6 +554,7 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
         except Exception as e:
             logger.error(f"Error generating mock predictions: {e}")
             import traceback
+
             logger.error(traceback.format_exc())
             return None
 
@@ -410,8 +573,12 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
         return None
 
     # Step 2: Get the PBS script path
-    pbs_script_path = Path(
-        __file__).parent.parent / "pbs_scripts" / "start_end_pred_scripts" / f"run_{model_name}_inference_startend.sh"
+    pbs_script_path = (
+        Path(__file__).parent.parent
+        / "pbs_scripts"
+        / "start_end_pred_scripts"
+        / f"run_{model_name}_inference_startend.sh"
+    )
 
     if not pbs_script_path.exists():
         logger.error(f"PBS script not found: {pbs_script_path}")
@@ -419,14 +586,14 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
 
     # Step 3: Modify PBS script to use absolute config path
     try:
-        with open(pbs_script_path, 'r') as f:
+        with open(pbs_script_path, "r") as f:
             script_content = f.read()
 
         # Replace $CFG_PATH with absolute path
         modified_script = script_content.replace('--cfg_path "$CFG_PATH"', f'--cfg_path "{config_path}"')
 
         # Write modified script to temp file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as tmp:
             tmp.write(modified_script)
             tmp_script_path = tmp.name
 
@@ -481,20 +648,19 @@ def create_groundtruth_figures(all_timestamps, gt_raw_data, gt_figures, gt_found
     config = get_config()
 
     for idx, timestamp in enumerate(all_timestamps, 1):
-        logger.info(
-            f"Loading groundtruth {idx}/{len(all_timestamps)}: {timestamp.strftime('%d/%m/%Y %H:%M')}")
-        gt_filename = timestamp.strftime('%d-%m-%Y-%H-%M') + '.hdf'
+        logger.info(f"Loading groundtruth {idx}/{len(all_timestamps)}: {timestamp.strftime('%d/%m/%Y %H:%M')}")
+        gt_filename = timestamp.strftime("%d-%m-%Y-%H-%M") + ".hdf"
 
         # Determine paths based on environment
         gt_path = None
 
         if is_hpc():
             # HPC: Try data1 first (recent data, faster), then data (archived)
-            gt_path_data1 = Path('/davinci-1/work/protezionecivile/data1/SRI_adj') / gt_filename
-            year = timestamp.strftime('%Y')
-            month = timestamp.strftime('%m')
-            day = timestamp.strftime('%d')
-            gt_path_data = Path(f'/davinci-1/work/protezionecivile/data/{year}/{month}/{day}/SRI_adj') / gt_filename
+            gt_path_data1 = Path("/davinci-1/work/protezionecivile/data1/SRI_adj") / gt_filename
+            year = timestamp.strftime("%Y")
+            month = timestamp.strftime("%m")
+            day = timestamp.strftime("%d")
+            gt_path_data = Path(f"/davinci-1/work/protezionecivile/data/{year}/{month}/{day}/SRI_adj") / gt_filename
 
             if gt_path_data1.exists():
                 gt_path = gt_path_data1
@@ -508,12 +674,12 @@ def create_groundtruth_figures(all_timestamps, gt_raw_data, gt_figures, gt_found
 
         if gt_path:
             try:
-                with h5py.File(gt_path, 'r') as hdf:
-                    gt_data = hdf['/dataset1/data1/data'][:]
+                with h5py.File(gt_path, "r") as hdf:
+                    gt_data = hdf["/dataset1/data1/data"][:]
                     # Store raw data for difference calculation
                     gt_raw_data[timestamp] = gt_data
                     # Create figure for ground truth (target)
-                    fig = compute_figure_gpd(gt_data, timestamp.strftime('%d/%m/%Y %H:%M'))
+                    fig = compute_figure_gpd(gt_data, timestamp.strftime("%d/%m/%Y %H:%M"))
                     gt_figures[timestamp] = fig
                     gt_found_count += 1
             except Exception as e:
@@ -527,8 +693,9 @@ def create_groundtruth_figures(all_timestamps, gt_raw_data, gt_figures, gt_found
     return gt_figures, gt_raw_data, gt_found_count, gt_missing_count
 
 
-def create_gifs_from_prediction_range(model_name: str, start_dt: datetime, end_dt: datetime,
-                                      sri_folder_dir: str) -> bool:
+def create_gifs_from_prediction_range(
+    model_name: str, start_dt: datetime, end_dt: datetime, sri_folder_dir: str
+) -> bool:
     """
     Create 7 GIFs from prediction range: groundtruth, target+30, target+60, pred+30, pred+60, diff+30, diff+60.
 
@@ -577,37 +744,42 @@ def create_gifs_from_prediction_range(model_name: str, start_dt: datetime, end_d
         # Load groundtruth (base interval)
         logger.info(f"📊 Loading {len(all_timestamps)} groundtruth frames...")
         gt_figures, gt_raw_data, gt_found_count, gt_missing_count = create_groundtruth_figures(
-            all_timestamps, gt_raw_data, gt_figures, gt_found_count, gt_missing_count)
+            all_timestamps, gt_raw_data, gt_figures, gt_found_count, gt_missing_count
+        )
         logger.info(f"✅ Groundtruth: {len(gt_figures)} frames loaded")
 
         # Load target +30 (shifted by +30 minutes)
         all_target_timestamps_30 = generate_timestamp_range(
-            start_dt + timedelta(minutes=30), end_dt + timedelta(minutes=30))
+            start_dt + timedelta(minutes=30), end_dt + timedelta(minutes=30)
+        )
         logger.info(f"📊 Loading {len(all_target_timestamps_30)} target +30min frames...")
         target30_figures, target30_raw_data, _, _ = create_groundtruth_figures(
-            all_target_timestamps_30, target30_raw_data, target30_figures, 0, 0)
+            all_target_timestamps_30, target30_raw_data, target30_figures, 0, 0
+        )
         logger.info(f"✅ Target +30: {len(target30_figures)} frames loaded")
 
         # Load target +60 (shifted by +60 minutes)
         all_target_timestamps_60 = generate_timestamp_range(
-            start_dt + timedelta(minutes=60), end_dt + timedelta(minutes=60))
+            start_dt + timedelta(minutes=60), end_dt + timedelta(minutes=60)
+        )
         logger.info(f"📊 Loading {len(all_target_timestamps_60)} target +60min frames...")
         target60_figures, target60_raw_data, _, _ = create_groundtruth_figures(
-            all_target_timestamps_60, target60_raw_data, target60_figures, 0, 0)
+            all_target_timestamps_60, target60_raw_data, target60_figures, 0, 0
+        )
         logger.info(f"✅ Target +60: {len(target60_figures)} frames loaded")
 
         # ========== STEP 2: Load predictions and separate into +30 and +60 ==========
         logger.info(f"📊 Loading {len(all_timestamps)} prediction files...")
 
         for idx, timestamp in enumerate(all_timestamps, 1):
-            filename = timestamp.strftime('%d-%m-%Y-%H-%M') + '.npy'
+            filename = timestamp.strftime("%d-%m-%Y-%H-%M") + ".npy"
             pred_path = config.real_time_pred / model_name / filename
 
             if not pred_path.exists():
                 logger.warning(f"Prediction not found: {pred_path}")
                 continue
 
-            pred_data = np.load(pred_path, mmap_mode='r')  # Shape: (12, 1400, 1200)
+            pred_data = np.load(pred_path, mmap_mode="r")  # Shape: (12, 1400, 1200)
 
             # Extract pred[5] for +30min and pred[11] for +60min
             pred_30_time = timestamp + timedelta(minutes=30)
@@ -616,13 +788,13 @@ def create_gifs_from_prediction_range(model_name: str, start_dt: datetime, end_d
             # Prediction +30 (index 5)
             pred_30_array = pred_data[5]
             pred_30_raw_data[pred_30_time] = pred_30_array
-            fig_30 = compute_figure_gpd(pred_30_array, pred_30_time.strftime('%d/%m/%Y %H:%M'))
+            fig_30 = compute_figure_gpd(pred_30_array, pred_30_time.strftime("%d/%m/%Y %H:%M"))
             pred_30_figures[pred_30_time] = fig_30
 
             # Prediction +60 (index 11)
             pred_60_array = pred_data[11]
             pred_60_raw_data[pred_60_time] = pred_60_array
-            fig_60 = compute_figure_gpd(pred_60_array, pred_60_time.strftime('%d/%m/%Y %H:%M'))
+            fig_60 = compute_figure_gpd(pred_60_array, pred_60_time.strftime("%d/%m/%Y %H:%M"))
             pred_60_figures[pred_60_time] = fig_60
 
         logger.info(f"✅ Predictions loaded: {len(pred_30_figures)} +30min, {len(pred_60_figures)} +60min")
@@ -642,7 +814,7 @@ def create_gifs_from_prediction_range(model_name: str, start_dt: datetime, end_d
             if timestamp in target30_raw_data and timestamp in pred_30_raw_data:
                 try:
                     diff_array = np.abs(target30_raw_data[timestamp] - pred_30_raw_data[timestamp])
-                    fig = compute_figure_gpd(diff_array, timestamp.strftime('%d/%m/%Y %H:%M'), name="diff")
+                    fig = compute_figure_gpd(diff_array, timestamp.strftime("%d/%m/%Y %H:%M"), name="diff")
                     diff_30_figures[timestamp] = fig
                 except Exception as e:
                     logger.warning(f"Error computing diff +30 for {timestamp}: {e}")
@@ -652,7 +824,7 @@ def create_gifs_from_prediction_range(model_name: str, start_dt: datetime, end_d
             if timestamp in target60_raw_data and timestamp in pred_60_raw_data:
                 try:
                     diff_array = np.abs(target60_raw_data[timestamp] - pred_60_raw_data[timestamp])
-                    fig = compute_figure_gpd(diff_array, timestamp.strftime('%d/%m/%Y %H:%M'), name="diff")
+                    fig = compute_figure_gpd(diff_array, timestamp.strftime("%d/%m/%Y %H:%M"), name="diff")
                     diff_60_figures[timestamp] = fig
                 except Exception as e:
                     logger.warning(f"Error computing diff +60 for {timestamp}: {e}")
@@ -664,11 +836,11 @@ def create_gifs_from_prediction_range(model_name: str, start_dt: datetime, end_d
 
         # Create sidebar_args for compatibility (not heavily used in new function)
         sidebar_args = {
-            'model_name': model_name,
-            'start_date': start_dt.date(),
-            'start_time': start_dt.time(),
-            'end_date': end_dt.date(),
-            'end_time': end_dt.time(),
+            "model_name": model_name,
+            "start_date": start_dt.date(),
+            "start_time": start_dt.time(),
+            "end_date": end_dt.date(),
+            "end_time": end_dt.time(),
         }
 
         # ========== STEP 5: Create all 7 GIFs ==========
@@ -679,43 +851,43 @@ def create_gifs_from_prediction_range(model_name: str, start_dt: datetime, end_d
         # 1. Groundtruth GIF
         if gt_figures:
             logger.info(f"Creating Groundtruth GIF ({len(gt_figures)} frames)...")
-            result = create_single_gif_from_dict(gt_figures, gif_paths['gt_t0'], sidebar_args, fps_gif=3)
+            result = create_single_gif_from_dict(gt_figures, gif_paths["gt_t0"], sidebar_args, fps_gif=3)
             gif_results.append(("Groundtruth", result))
 
         # 2. Target +30 GIF
         if target30_figures:
             logger.info(f"Creating Target +30min GIF ({len(target30_figures)} frames)...")
-            result = create_single_gif_from_dict(target30_figures, gif_paths['gt_t6'], sidebar_args, fps_gif=3)
+            result = create_single_gif_from_dict(target30_figures, gif_paths["gt_t6"], sidebar_args, fps_gif=3)
             gif_results.append(("Target +30", result))
 
         # 3. Target +60 GIF
         if target60_figures:
             logger.info(f"Creating Target +60min GIF ({len(target60_figures)} frames)...")
-            result = create_single_gif_from_dict(target60_figures, gif_paths['gt_t12'], sidebar_args, fps_gif=3)
+            result = create_single_gif_from_dict(target60_figures, gif_paths["gt_t12"], sidebar_args, fps_gif=3)
             gif_results.append(("Target +60", result))
 
         # 4. Prediction +30 GIF
         if pred_30_figures:
             logger.info(f"Creating Prediction +30min GIF ({len(pred_30_figures)} frames)...")
-            result = create_single_gif_from_dict(pred_30_figures, gif_paths['pred_t6'], sidebar_args, fps_gif=3)
+            result = create_single_gif_from_dict(pred_30_figures, gif_paths["pred_t6"], sidebar_args, fps_gif=3)
             gif_results.append(("Prediction +30", result))
 
         # 5. Prediction +60 GIF
         if pred_60_figures:
             logger.info(f"Creating Prediction +60min GIF ({len(pred_60_figures)} frames)...")
-            result = create_single_gif_from_dict(pred_60_figures, gif_paths['pred_t12'], sidebar_args, fps_gif=3)
+            result = create_single_gif_from_dict(pred_60_figures, gif_paths["pred_t12"], sidebar_args, fps_gif=3)
             gif_results.append(("Prediction +60", result))
 
         # 6. Difference +30 GIF
         if diff_30_figures:
             logger.info(f"Creating Difference +30min GIF ({len(diff_30_figures)} frames)...")
-            result = create_single_gif_from_dict(diff_30_figures, gif_paths['diff_t6'], sidebar_args, fps_gif=3)
+            result = create_single_gif_from_dict(diff_30_figures, gif_paths["diff_t6"], sidebar_args, fps_gif=3)
             gif_results.append(("Difference +30", result))
 
         # 7. Difference +60 GIF
         if diff_60_figures:
             logger.info(f"Creating Difference +60min GIF ({len(diff_60_figures)} frames)...")
-            result = create_single_gif_from_dict(diff_60_figures, gif_paths['diff_t12'], sidebar_args, fps_gif=3)
+            result = create_single_gif_from_dict(diff_60_figures, gif_paths["diff_t12"], sidebar_args, fps_gif=3)
             gif_results.append(("Difference +60", result))
 
         # Log results
@@ -733,5 +905,6 @@ def create_gifs_from_prediction_range(model_name: str, start_dt: datetime, end_d
     except Exception as e:
         logger.error(f"❌ Error creating GIFs for {model_name}: {e}")
         import traceback
+
         logger.error(traceback.format_exc())
         return False

@@ -1,22 +1,25 @@
 """
 Map creation and rendering utilities.
 """
+
 import base64
 import io
-import streamlit as st
-import streamlit.components.v1 as components
+
+import branca.colormap as cm
 import folium
 import folium.plugins
-import branca.colormap as cm
-from streamlit_folium import st_folium
-from PIL import Image
 import numpy as np
+import streamlit as st
+import streamlit.components.v1 as components
+from PIL import Image
+from streamlit_folium import st_folium
 
-from nwc_webapp.utils import cmap, norm
 from nwc_webapp.logging_config import setup_logger
+from nwc_webapp.utils import cmap, norm
 
 # Set up logger
 logger = setup_logger(__name__)
+
 
 def create_map():
     """
@@ -29,21 +32,13 @@ def create_map():
         location=[42.5, 12.5],
         zoom_start=5,
         control_scale=False,
-        tiles='Esri.WorldGrayCanvas',
+        tiles="Esri.WorldGrayCanvas",
         name="WorldGray",
     )
 
-    folium.TileLayer(
-        tiles='Esri.WorldImagery',
-        name="Satellite",
-        control=True
-    ).add_to(map)
+    folium.TileLayer(tiles="Esri.WorldImagery", name="Satellite", control=True).add_to(map)
 
-    folium.TileLayer(
-        tiles='OpenStreetMap.Mapnik',
-        name="OSM",
-        control=True
-    ).add_to(map)
+    folium.TileLayer(tiles="OpenStreetMap.Mapnik", name="OSM", control=True).add_to(map)
 
     folium.LayerControl().add_to(map)
 
@@ -85,24 +80,28 @@ def create_only_map(rgba_img, prediction: bool = False):
             st.session_state["old_center"] = center
             st.session_state["old_zoom"] = zoom
         else:
-            center = {'lat': 42.0, 'lng': 12.5}  # Rome coordinates
+            center = {"lat": 42.0, "lng": 12.5}  # Rome coordinates
             zoom = 6
     else:
-        if ("old_center" in st.session_state and "old_zoom" in st.session_state
-                and st.session_state["old_center"] and st.session_state["old_zoom"]):
+        if (
+            "old_center" in st.session_state
+            and "old_zoom" in st.session_state
+            and st.session_state["old_center"]
+            and st.session_state["old_zoom"]
+        ):
             center = st.session_state["old_center"]
             zoom = st.session_state["old_zoom"]
         else:
-            center = {'lat': 42.0, 'lng': 12.5}  # Rome coordinates
+            center = {"lat": 42.0, "lng": 12.5}  # Rome coordinates
             zoom = 6
 
     # Create map with OSM as the only base layer, centered on Rome
     map = folium.Map(
-        location=[center['lat'], center['lng']],
+        location=[center["lat"], center["lng"]],
         zoom_start=zoom,
         control_scale=False,
-        tiles='OpenStreetMap',
-        attr='OpenStreetMap'
+        tiles="OpenStreetMap",
+        attr="OpenStreetMap",
     )
 
     if prediction:
@@ -112,7 +111,7 @@ def create_only_map(rgba_img, prediction: bool = False):
             bounds=[[35.0623, 4.51987], [47.5730, 20.4801]],
             mercator_project=False,
             origin="lower",
-            name="NWC_pred"
+            name="NWC_pred",
             # opacity=0.5
         ).add_to(map)
 
@@ -131,7 +130,7 @@ def create_only_map(rgba_img, prediction: bool = False):
             index=all_data_values,
             vmin=data_min,
             vmax=data_max,
-            tick_labels=tick_labels
+            tick_labels=tick_labels,
         )
 
         colormap.caption = "Precipitation (mm/h)"
@@ -139,7 +138,8 @@ def create_only_map(rgba_img, prediction: bool = False):
         colormap.add_to(map)
 
         # Add custom CSS to reposition and resize colorbar to bottom-left
-        style_element = folium.Element("""
+        style_element = folium.Element(
+            """
             <style>
                 /* Move legend/colormap to bottom left and make it more compact */
                 .legend {
@@ -157,17 +157,13 @@ def create_only_map(rgba_img, prediction: bool = False):
                     max-height: 200px !important;
                 }
             </style>
-        """)
+        """
+        )
         # colormap.width = '50%'
         map.get_root().header.add_child(style_element)
 
     # Render map using full column width
-    st_map = st_folium(
-        map,
-        use_container_width=True,
-        height=700,
-        returned_objects=["center", "zoom"]
-    )
+    st_map = st_folium(map, use_container_width=True, height=700, returned_objects=["center", "zoom"])
     st.session_state["st_map"] = st_map
     if st_map and "center" in st_map.keys():
         st.session_state["center"] = st_map["center"]
@@ -188,13 +184,13 @@ def create_animated_map(rgba_images_dict):
     if st.session_state.selected_model:
         if "display_prediction" in st.session_state:
             if st.session_state["display_prediction"]:
-                center = st.session_state.get("center", {'lat': 42.0, 'lng': 12.5})
+                center = st.session_state.get("center", {"lat": 42.0, "lng": 12.5})
                 zoom = st.session_state.get("zoom", 6)
                 st.session_state["old_center"] = center
                 st.session_state["old_zoom"] = zoom
                 st.session_state["display_prediction"] = False
             else:
-                center = st.session_state.get("old_center", {'lat': 42.0, 'lng': 12.5})
+                center = st.session_state.get("old_center", {"lat": 42.0, "lng": 12.5})
                 zoom = st.session_state.get("old_zoom", 6)
         elif "old_center" in st.session_state and "old_zoom" in st.session_state:
             center = st.session_state["old_center"]
@@ -205,32 +201,33 @@ def create_animated_map(rgba_images_dict):
             st.session_state["old_center"] = center
             st.session_state["old_zoom"] = zoom
         else:
-            center = {'lat': 42.0, 'lng': 12.5}
+            center = {"lat": 42.0, "lng": 12.5}
             zoom = 6
     else:
-        if ("old_center" in st.session_state and "old_zoom" in st.session_state
-                and st.session_state["old_center"] and st.session_state["old_zoom"]):
+        if (
+            "old_center" in st.session_state
+            and "old_zoom" in st.session_state
+            and st.session_state["old_center"]
+            and st.session_state["old_zoom"]
+        ):
             center = st.session_state["old_center"]
             zoom = st.session_state["old_zoom"]
         else:
-            center = {'lat': 42.0, 'lng': 12.5}
+            center = {"lat": 42.0, "lng": 12.5}
             zoom = 6
 
     # Create base map
     map_obj = folium.Map(
-        location=[center['lat'], center['lng']],
+        location=[center["lat"], center["lng"]],
         zoom_start=zoom,
         control_scale=False,
-        tiles='OpenStreetMap',
-        attr='OpenStreetMap'
+        tiles="OpenStreetMap",
+        attr="OpenStreetMap",
     )
 
     # Add geocoder
     folium.plugins.Geocoder(
-        collapsed=False,
-        position='topright',
-        placeholder='Search for a location...',
-        add_marker=True
+        collapsed=False, position="topright", placeholder="Search for a location...", add_marker=True
     ).add_to(map_obj)
 
     # Add all prediction layers with opacity control
@@ -242,7 +239,7 @@ def create_animated_map(rgba_images_dict):
             mercator_project=False,
             origin="lower",
             name=f"pred_{timestamp}",
-            opacity=1.0 if idx == 0 else 0.0  # Only first layer visible
+            opacity=1.0 if idx == 0 else 0.0,  # Only first layer visible
         )
         layer.add_to(map_obj)
 
@@ -258,13 +255,14 @@ def create_animated_map(rgba_images_dict):
         index=all_data_values,
         vmin=data_min,
         vmax=data_max,
-        tick_labels=tick_labels
+        tick_labels=tick_labels,
     )
     colormap.caption = "Precipitation (mm/h)"
     colormap.add_to(map_obj)
 
     # Inject custom CSS for colorbar positioning
-    style_element = folium.Element("""
+    style_element = folium.Element(
+        """
         <style>
             .legend {
                 position: fixed !important;
@@ -349,12 +347,14 @@ def create_animated_map(rgba_images_dict):
                 font-size: 10px;
             }
         </style>
-    """)
+    """
+    )
     map_obj.get_root().header.add_child(style_element)
 
     # JavaScript for animation logic - using IIFE and proper event binding
     timestamps_js = str(timestamps)  # Convert to JS array format
-    animation_script = folium.Element(f"""
+    animation_script = folium.Element(
+        f"""
         <div id="animationControls">
             <button id="playBtn">Play</button>
             <input type="range" id="timeSlider" min="0" max="{len(timestamps) - 1}" value="0" step="1">
@@ -526,7 +526,8 @@ def create_animated_map(rgba_images_dict):
                 }}
             }})();
         </script>
-    """)
+    """
+    )
 
     map_obj.get_root().html.add_child(animation_script)
 
@@ -539,7 +540,7 @@ def create_animated_map(rgba_images_dict):
         use_container_width=True,
         height=700,
         returned_objects=[],  # Don't track zoom/center to avoid constant reloads
-        key=map_key
+        key=map_key,
     )
 
     # Note: We sacrifice real-time zoom/center tracking to avoid reloads
@@ -560,6 +561,7 @@ def create_animated_map_html(rgba_images_dict, latest_file=None):
         try:
             from datetime import datetime, timedelta
             from pathlib import Path
+
             filename_clean = Path(latest_file).stem
             base_dt = datetime.strptime(filename_clean, "%d-%m-%Y-%H-%M")
         except:
@@ -576,7 +578,7 @@ def create_animated_map_html(rgba_images_dict, latest_file=None):
 
         # Convert to base64
         buffer = io.BytesIO()
-        img_pil.save(buffer, format='PNG')
+        img_pil.save(buffer, format="PNG")
         buffer.seek(0)
         img_base64 = base64.b64encode(buffer.read()).decode()
         data_url = f"data:image/png;base64,{img_base64}"
@@ -597,11 +599,13 @@ def create_animated_map_html(rgba_images_dict, latest_file=None):
             except:
                 pass
 
-        image_data_urls.append({
-            'timestamp': timestamp,  # Keep original for layer matching
-            'display_label': display_label,
-            'data_url': data_url
-        })
+        image_data_urls.append(
+            {
+                "timestamp": timestamp,  # Keep original for layer matching
+                "display_label": display_label,
+                "data_url": data_url,
+            }
+        )
 
     # Build JavaScript array of images with display labels
     images_js = "[\n"
@@ -610,7 +614,7 @@ def create_animated_map_html(rgba_images_dict, latest_file=None):
     images_js += "]"
 
     # Get first display label for initial display
-    first_label = image_data_urls[0]['display_label'] if image_data_urls else timestamps[0]
+    first_label = image_data_urls[0]["display_label"] if image_data_urls else timestamps[0]
 
     # Generate colorbar gradient
     data_values = [0, 1, 2, 5, 10, 20, 30, 50, 75, 100]

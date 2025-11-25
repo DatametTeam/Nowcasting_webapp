@@ -2,17 +2,19 @@
 Data loading utilities for ground truth and prediction data.
 Handles loading from HDF5 and NumPy files with environment-aware paths.
 """
+
 import os
-from pathlib import Path
 from datetime import datetime, timedelta
+from pathlib import Path
+
 import h5py
 import numpy as np
 import streamlit as st
 
 from nwc_webapp.config.config import get_config
-from nwc_webapp.visualization.colormaps import configure_colorbar
 from nwc_webapp.geo.warping import warp_map
 from nwc_webapp.logging_config import setup_logger
+from nwc_webapp.visualization.colormaps import configure_colorbar
 
 # Set up logger
 logger = setup_logger(__name__)
@@ -21,9 +23,7 @@ logger = setup_logger(__name__)
 config = get_config()
 
 # Initialize colormap
-cmap, norm, vmin, vmax, null_color, void_color, discrete, ticks = (
-    configure_colorbar('R', min_val=None, max_val=None)
-)
+cmap, norm, vmin, vmax, null_color, void_color, discrete, ticks = configure_colorbar("R", min_val=None, max_val=None)
 
 
 def read_groundtruth_and_target_data(selected_key, selected_model):
@@ -42,12 +42,12 @@ def read_groundtruth_and_target_data(selected_key, selected_model):
     test_dir = config.prediction_output / "Test"
 
     # Load arrays
-    gt_array = np.load(test_dir / "predictions.npy", mmap_mode='r')[0:12, 0]
-    target_array = np.load(test_dir / "predictions.npy", mmap_mode='r')[12:24, 0]
-    pred_array = np.load(out_dir / "predictions.npy", mmap_mode='r')[12]
+    gt_array = np.load(test_dir / "predictions.npy", mmap_mode="r")[0:12, 0]
+    target_array = np.load(test_dir / "predictions.npy", mmap_mode="r")[12:24, 0]
+    pred_array = np.load(out_dir / "predictions.npy", mmap_mode="r")[12]
 
-    if selected_model == 'Test':
-        pred_array = np.load(out_dir / "predictions.npy", mmap_mode='r')[12:24, 0]
+    if selected_model == "Test":
+        pred_array = np.load(out_dir / "predictions.npy", mmap_mode="r")[12:24, 0]
 
     # Load radar mask
     mask_path = Path(__file__).resolve().parent.parent / "resources/mask/radar_mask.hdf"
@@ -107,11 +107,11 @@ def load_prediction_data(st, time_options, latest_file):
     selected_model = st.session_state.selected_model
     selected_time = st.session_state.selected_time
 
-    latest_npy = Path(latest_file).stem + '.npy'
+    latest_npy = Path(latest_file).stem + ".npy"
 
     try:
         # Use config for prediction paths
-        if selected_model == 'ED_ConvLSTM':
+        if selected_model == "ED_ConvLSTM":
             pred_path = config.real_time_pred / selected_model / latest_npy
             img1 = np.load(pred_path)[0, time_options.index(selected_time)]
         else:
@@ -158,11 +158,11 @@ def load_all_predictions(st, time_options, latest_file):
         - status_info: Dictionary with keys 'ground_truth_available', 'predictions_available', 'error'
     """
     if not st.session_state.selected_model:
-        return None, {'ground_truth_available': False, 'predictions_available': False, 'error': 'No model selected'}
+        return None, {"ground_truth_available": False, "predictions_available": False, "error": "No model selected"}
 
     # Split time_options into ground truth (negative/zero) and predictions (positive)
-    ground_truth_times = [t for t in time_options if t.startswith('-') or t == "0min"]
-    prediction_times = [t for t in time_options if t.startswith('+')]
+    ground_truth_times = [t for t in time_options if t.startswith("-") or t == "0min"]
+    prediction_times = [t for t in time_options if t.startswith("+")]
 
     # Load radar mask once
     mask_path = Path(__file__).resolve().parent.parent / "resources/mask/radar_mask.hdf"
@@ -171,11 +171,11 @@ def load_all_predictions(st, time_options, latest_file):
 
     rgba_images = {}
     status_info = {
-        'ground_truth_available': False,
-        'ground_truth_count': 0,
-        'predictions_available': False,
-        'error': None,
-        'missing_groundtruth': []  # List of missing groundtruth timestamps
+        "ground_truth_available": False,
+        "ground_truth_count": 0,
+        "predictions_available": False,
+        "error": None,
+        "missing_groundtruth": [],  # List of missing groundtruth timestamps
     }
 
     # ===== Load Ground Truth Data (past SRI files) =====
@@ -209,8 +209,8 @@ def load_all_predictions(st, time_options, latest_file):
                     # Load SRI file
                     with h5py.File(past_filepath, "r") as f:
                         # Try common dataset names
-                        if 'dataset1/data1/data' in f:
-                            img = f['dataset1/data1/data'][()].astype(float)
+                        if "dataset1/data1/data" in f:
+                            img = f["dataset1/data1/data"][()].astype(float)
 
                     img[img < 0] = 0
 
@@ -238,7 +238,7 @@ def load_all_predictions(st, time_options, latest_file):
                 else:
                     # Track missing groundtruth file
                     missing_timestamp = past_dt.strftime("%d-%m-%Y %H:%M")
-                    status_info['missing_groundtruth'].append(missing_timestamp)
+                    status_info["missing_groundtruth"].append(missing_timestamp)
                     logger.warning(f"Ground truth file not found: {past_filepath}")
 
                     # Create empty/zero image as fallback
@@ -249,14 +249,14 @@ def load_all_predictions(st, time_options, latest_file):
 
             # Check if we got any ground truth data
             if ground_truth_loaded > 0:
-                status_info['ground_truth_available'] = True
-                status_info['ground_truth_count'] = ground_truth_loaded
+                status_info["ground_truth_available"] = True
+                status_info["ground_truth_count"] = ground_truth_loaded
             else:
-                status_info['error'] = f"No ground truth data found (checked {len(ground_truth_times)} files)"
+                status_info["error"] = f"No ground truth data found (checked {len(ground_truth_times)} files)"
                 logger.error(f"No ground truth data found! Expected {len(ground_truth_times)} files in {sri_folder}")
 
         except Exception as e:
-            status_info['error'] = f"Failed to load ground truth: {str(e)}"
+            status_info["error"] = f"Failed to load ground truth: {str(e)}"
             logger.error(f"Failed to load ground truth data: {e}", exc_info=True)
 
     # ===== Load Prediction Data =====
@@ -302,13 +302,13 @@ def load_all_predictions(st, time_options, latest_file):
                     rgba_images[time_option] = rgba_img
                     logger.debug(f"TEST: Loaded ground truth {time_option} from array")
 
-            status_info['ground_truth_available'] = True
-            status_info['ground_truth_count'] = min(len(ground_truth_array), len(ground_truth_times))
+            status_info["ground_truth_available"] = True
+            status_info["ground_truth_count"] = min(len(ground_truth_array), len(ground_truth_times))
         else:
             # All other models use date-based filename
-            latest_npy = Path(latest_file).stem + '.npy'
+            latest_npy = Path(latest_file).stem + ".npy"
             pred_path = config.real_time_pred / selected_model / latest_npy
-            if 'ED_ConvLSTM' in str(pred_path):
+            if "ED_ConvLSTM" in str(pred_path):
                 pred_array = np.load(pred_path)[0]  # Load all 12 timesteps
             else:
                 pred_array = np.load(pred_path)  # Load all 12 timesteps
@@ -322,7 +322,7 @@ def load_all_predictions(st, time_options, latest_file):
             return None, status_info
 
     # Process all 12 prediction timesteps
-    status_info['predictions_available'] = True
+    status_info["predictions_available"] = True
     for i, time_option in enumerate(prediction_times):
         img = pred_array[i].copy()
         img[img < 0] = 0
@@ -354,5 +354,7 @@ def load_all_predictions(st, time_options, latest_file):
 
         rgba_images[time_option] = rgba_img
 
-    logger.debug(f"Loaded {ground_truth_loaded}/{len(ground_truth_times)} ground truth + {len(prediction_times)} prediction timesteps = {len(rgba_images)} total")
+    logger.debug(
+        f"Loaded {ground_truth_loaded}/{len(ground_truth_times)} ground truth + {len(prediction_times)} prediction timesteps = {len(rgba_images)} total"
+    )
     return rgba_images, status_info

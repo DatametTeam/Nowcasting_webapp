@@ -1,28 +1,31 @@
 """
 Prediction visualization and display functions.
 """
+
 import io
 from pathlib import Path
+
+import imageio
 import numpy as np
 import streamlit as st
-import imageio
 from PIL import Image
 
-from nwc_webapp.ui.layouts import init_prediction_visualization_layout
-from nwc_webapp.utils import check_if_gif_present, load_gif_as_bytesio, create_colorbar_fig, compute_figure_gpd
+from nwc_webapp.logging_config import setup_logger
+from nwc_webapp.page_modules.nowcasting_utils import extract_timestamp_slices
+from nwc_webapp.prediction.jobs import submit_prediction_job
+from nwc_webapp.prediction.loaders import get_prediction_results
 from nwc_webapp.services.parallel_code import (
+    create_diff_dict_in_parallel,
     create_fig_dict_in_parallel,
     create_sliding_window_gifs,
     create_sliding_window_gifs_for_predictions,
-    create_diff_dict_in_parallel
 )
-from nwc_webapp.prediction.jobs import submit_prediction_job
-from nwc_webapp.prediction.loaders import get_prediction_results
-from nwc_webapp.page_modules.nowcasting_utils import extract_timestamp_slices
-from nwc_webapp.logging_config import setup_logger
+from nwc_webapp.ui.layouts import init_prediction_visualization_layout
+from nwc_webapp.utils import check_if_gif_present, compute_figure_gpd, create_colorbar_fig, load_gif_as_bytesio
 
 # Set up logger
 logger = setup_logger(__name__)
+
 
 def update_prediction_visualization(gt0_gif, gt6_gif, gt12_gif, pred_gif_6, pred_gif_12, diff_gif_6, diff_gif_12):
     """
@@ -37,18 +40,28 @@ def update_prediction_visualization(gt0_gif, gt6_gif, gt12_gif, pred_gif_6, pred
         diff_gif_6: Difference at t+30min
         diff_gif_12: Difference at t+60min
     """
-    gt_current, pred_current, gt_plus_30, pred_plus_30, gt_plus_60, pred_plus_60, colorbar30, colorbar60, diff_plus_30, diff_plus_60 = \
-        init_prediction_visualization_layout()
+    (
+        gt_current,
+        pred_current,
+        gt_plus_30,
+        pred_plus_30,
+        gt_plus_60,
+        pred_plus_60,
+        colorbar30,
+        colorbar60,
+        diff_plus_30,
+        diff_plus_60,
+    ) = init_prediction_visualization_layout()
 
     # Display the GIF using Streamlit
-    gt_current.image(gt0_gif, caption="Current data", width='content')
-    pred_current.image(gt0_gif, caption="Current data", width='content')
-    gt_plus_30.image(gt6_gif, caption="Data +30 minutes", width='content')
-    pred_plus_30.image(pred_gif_6, caption="Prediction +30 minutes", width='content')
-    gt_plus_60.image(gt12_gif, caption="Data +60 minutes", width='content')
-    pred_plus_60.image(pred_gif_12, caption="Prediction +60 minutes", width='content')
-    diff_plus_30.image(diff_gif_6, caption="Differences +30 minutes", width='content')
-    diff_plus_60.image(diff_gif_12, caption="Differences +60 minutes", width='content')
+    gt_current.image(gt0_gif, caption="Current data", width="content")
+    pred_current.image(gt0_gif, caption="Current data", width="content")
+    gt_plus_30.image(gt6_gif, caption="Data +30 minutes", width="content")
+    pred_plus_30.image(pred_gif_6, caption="Prediction +30 minutes", width="content")
+    gt_plus_60.image(gt12_gif, caption="Data +60 minutes", width="content")
+    pred_plus_60.image(pred_gif_12, caption="Prediction +60 minutes", width="content")
+    diff_plus_30.image(diff_gif_6, caption="Differences +30 minutes", width="content")
+    diff_plus_60.image(diff_gif_12, caption="Differences +60 minutes", width="content")
     colorbar30.image(create_colorbar_fig(top_adj=0.96, bot_adj=0.12))
     colorbar60.image(create_colorbar_fig(top_adj=0.96, bot_adj=0.12))
 
@@ -72,13 +85,13 @@ def display_results(gt_gifs, pred_gifs, diff_gifs):
 
     # Store results in session state
     st.session_state.prediction_result = {
-        'gt0_gif': gt0_gif,
-        'gt6_gif': gt_gif_6,
-        'gt12_gif': gt_gif_12,
-        'pred6_gif': pred_gif_6,
-        'pred12_gif': pred_gif_12,
-        'diff6_gif': diff_gif_6,
-        'diff12_gif': diff_gif_12,
+        "gt0_gif": gt0_gif,
+        "gt6_gif": gt_gif_6,
+        "gt12_gif": gt_gif_12,
+        "pred6_gif": pred_gif_6,
+        "pred12_gif": pred_gif_12,
+        "diff6_gif": diff_gif_6,
+        "diff12_gif": diff_gif_12,
     }
     st.session_state.tab1_gif = gt0_gif.getvalue()
     update_prediction_visualization(gt0_gif, gt_gif_6, gt_gif_12, pred_gif_6, pred_gif_12, diff_gif_6, diff_gif_12)
@@ -94,7 +107,7 @@ def compute_prediction_results(sidebar_args, folder_path):
     """
     error, out_dir = submit_prediction_job(sidebar_args)
     if not error:
-        with st.status(f':hammer_and_wrench: **Loading results...**', expanded=True) as status:
+        with st.status(f":hammer_and_wrench: **Loading results...**", expanded=True) as status:
 
             prediction_placeholder = st.empty()
 
@@ -122,16 +135,17 @@ def compute_prediction_results(sidebar_args, folder_path):
 
                 if not gt_gif_ok:
                     status.update(label="🔄 Creating GT GIFs...", state="running", expanded=True)
-                    gt_gifs = create_sliding_window_gifs(gt_dict, sidebar_args, fps_gif=3,
-                                                         save_on_disk=True)
+                    gt_gifs = create_sliding_window_gifs(gt_dict, sidebar_args, fps_gif=3, save_on_disk=True)
 
                 status.update(label="🔄 Creating Pred GIFs...", state="running", expanded=True)
 
-                pred_gifs = create_sliding_window_gifs_for_predictions(pred_dict, sidebar_args,
-                                                                       fps_gif=3, save_on_disk=True)
+                pred_gifs = create_sliding_window_gifs_for_predictions(
+                    pred_dict, sidebar_args, fps_gif=3, save_on_disk=True
+                )
 
-                diff_gifs = create_sliding_window_gifs(diff_dict, sidebar_args, fps_gif=3,
-                                                       save_on_disk=True, name="diff")
+                diff_gifs = create_sliding_window_gifs(
+                    diff_dict, sidebar_args, fps_gif=3, save_on_disk=True, name="diff"
+                )
 
                 status.update(label=f"Done!", state="complete", expanded=True)
 
@@ -168,17 +182,18 @@ def create_simple_gif_from_array(data_array: np.ndarray, title_prefix: str, fps:
 
         # Convert figure to image
         buf_temp = io.BytesIO()
-        fig.savefig(buf_temp, format='png', bbox_inches='tight', pad_inches=0)
+        fig.savefig(buf_temp, format="png", bbox_inches="tight", pad_inches=0)
         buf_temp.seek(0)
         img = Image.open(buf_temp)
         frames.append(np.array(img))
 
         # Close the figure to free memory
         import matplotlib.pyplot as plt
+
         plt.close(fig)
 
     # Create GIF
-    imageio.mimsave(buf, frames, format='GIF', fps=fps, loop=0)
+    imageio.mimsave(buf, frames, format="GIF", fps=fps, loop=0)
     buf.seek(0)
 
     logger.info(f"GIF created with {len(frames)} frames")
@@ -201,7 +216,7 @@ def create_gifs_from_realtime_data(pred_data: np.ndarray, sidebar_args: dict, sr
         sri_folder_dir: Path to SRI data folder
         gif_paths: Dictionary of GIF paths from get_gif_paths()
     """
-    with st.status('🔄 Creating GIFs from real-time data...', expanded=True) as status:
+    with st.status("🔄 Creating GIFs from real-time data...", expanded=True) as status:
 
         # Step 1: Load ground truth data
         status.update(label="📂 Loading ground truth data...", state="running")
@@ -233,11 +248,11 @@ def create_gifs_from_realtime_data(pred_data: np.ndarray, sidebar_args: dict, sr
         gt_t12_gif = create_simple_gif_from_array(gt_array[11:12, 0], "Ground Truth", fps=3)
 
         # Save GT GIFs to disk
-        for gif_key, gif_buf in [('gt_t0', gt_t0_gif), ('gt_t6', gt_t6_gif), ('gt_t12', gt_t12_gif)]:
+        for gif_key, gif_buf in [("gt_t0", gt_t0_gif), ("gt_t6", gt_t6_gif), ("gt_t12", gt_t12_gif)]:
             gif_path = gif_paths[gif_key]
             gif_path.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(gif_path, 'wb') as f:
+            with open(gif_path, "wb") as f:
                 f.write(gif_buf.getvalue())
             logger.info(f"Saved {gif_key} to {gif_path}")
 
@@ -251,11 +266,11 @@ def create_gifs_from_realtime_data(pred_data: np.ndarray, sidebar_args: dict, sr
         pred_t12_gif = create_simple_gif_from_array(pred_data[11:12], "Prediction", fps=3)
 
         # Save prediction GIFs
-        for gif_key, gif_buf in [('pred_t6', pred_t6_gif), ('pred_t12', pred_t12_gif)]:
+        for gif_key, gif_buf in [("pred_t6", pred_t6_gif), ("pred_t12", pred_t12_gif)]:
             gif_path = gif_paths[gif_key]
             gif_path.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(gif_path, 'wb') as f:
+            with open(gif_path, "wb") as f:
                 f.write(gif_buf.getvalue())
             logger.info(f"Saved {gif_key} to {gif_path}")
 
@@ -271,11 +286,11 @@ def create_gifs_from_realtime_data(pred_data: np.ndarray, sidebar_args: dict, sr
         diff_t12_gif = create_simple_gif_from_array(diff_t12, "Difference", fps=3)
 
         # Save difference GIFs
-        for gif_key, gif_buf in [('diff_t6', diff_t6_gif), ('diff_t12', diff_t12_gif)]:
+        for gif_key, gif_buf in [("diff_t6", diff_t6_gif), ("diff_t12", diff_t12_gif)]:
             gif_path = gif_paths[gif_key]
             gif_path.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(gif_path, 'wb') as f:
+            with open(gif_path, "wb") as f:
                 f.write(gif_buf.getvalue())
             logger.info(f"Saved {gif_key} to {gif_path}")
 
