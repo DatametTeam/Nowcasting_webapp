@@ -423,7 +423,8 @@ def show_csi_analysis_page(model_list):
             for model in result_models:
                 st.markdown(f"**{model}:**")
                 model_df = results_dict[model]
-                # Style: row-wise gradient (best lead time per threshold in green)
+                # Style: column-wise gradient (best lead time per threshold/row in green, worst in red)
+                # axis=1 means compute gradient within each row (across columns/lead times)
                 styled = model_df.style.format("{:.3f}").background_gradient(cmap='RdYlGn', axis=1, vmin=0, vmax=1)
                 st.dataframe(styled, use_container_width=True)
                 st.markdown("")
@@ -445,7 +446,12 @@ def show_csi_analysis_page(model_list):
         performance_df.columns.name = "Threshold (mm/h)"
         performance_df.index.name = "Model"
 
-        # Style and display with gradient per threshold (column-wise)
+        # Sort by mean CSI (best to worst)
+        performance_df['Mean CSI'] = performance_df.mean(axis=1)
+        performance_df = performance_df.sort_values('Mean CSI', ascending=False)
+
+        # Style and display with gradient per threshold (column-wise: axis=0)
+        # For each threshold (column), best model = green, worst = red
         styled = performance_df.style.format("{:.3f}").background_gradient(cmap='RdYlGn', vmin=0, vmax=1, axis=0)
         st.dataframe(styled, use_container_width=True)
 
@@ -486,66 +492,71 @@ def show_csi_analysis_page(model_list):
             # Get thresholds from first model's DataFrame
             thresholds = results_dict[result_models[0]].index.tolist()
 
-            # Create one plot per threshold showing CSI vs lead time (one per row)
-            n_thresholds = len(thresholds)
-            n_cols = 1
-            n_rows = n_thresholds
+            # Create centered column with 0.6 width
+            col_left, col_center, col_right = st.columns([0.2, 0.6, 0.2])
 
-            fig, axes = plt.subplots(n_rows, n_cols, figsize=(10, 4.2 * n_rows))
-            axes = axes.flatten() if n_thresholds > 1 else [axes]
+            with col_center:
+                # Create one plot per threshold showing CSI vs lead time (one per row)
+                n_thresholds = len(thresholds)
+                n_cols = 1
+                n_rows = n_thresholds
 
-            for idx, threshold in enumerate(thresholds):
-                ax = axes[idx]
+                # Reduced figure size
+                fig, axes = plt.subplots(n_rows, n_cols, figsize=(8, 3 * n_rows))
+                axes = axes.flatten() if n_thresholds > 1 else [axes]
 
-                # Plot each model as a line
-                for model in result_models:
-                    model_df = results_dict[model]
-                    lead_times = [int(col) for col in model_df.columns]  # Convert "5", "10", ... to integers
-                    csi_values = model_df.loc[threshold].values
+                for idx, threshold in enumerate(thresholds):
+                    ax = axes[idx]
 
-                    ax.plot(lead_times, csi_values, marker='o', label=model, linewidth=2, markersize=4)
+                    # Plot each model as a line
+                    for model in result_models:
+                        model_df = results_dict[model]
+                        lead_times = [int(col) for col in model_df.columns]  # Convert "5", "10", ... to integers
+                        csi_values = model_df.loc[threshold].values
 
-                ax.set_title(f"CSI @ {threshold} mm/h", fontsize=12, fontweight='bold')
-                ax.set_xlabel("Lead Time (minutes)", fontsize=10)
-                ax.set_ylabel("CSI Score", fontsize=10)
-                ax.set_ylim([0, 1])
-                ax.set_xlim([0, 65])
-                ax.grid(True, alpha=0.3)
-                ax.legend(fontsize=8, loc='best')
-                ax.set_xticks([5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60])
+                        ax.plot(lead_times, csi_values, marker='o', label=model, linewidth=2, markersize=4)
 
-            # Hide unused subplots
-            for idx in range(n_thresholds, len(axes)):
-                axes[idx].set_visible(False)
+                    ax.set_title(f"CSI @ {threshold} mm/h", fontsize=11, fontweight='bold')
+                    ax.set_xlabel("Lead Time (minutes)", fontsize=9)
+                    ax.set_ylabel("CSI Score", fontsize=9)
+                    ax.set_ylim([0, 1])
+                    ax.set_xlim([0, 65])
+                    ax.grid(True, alpha=0.3)
+                    ax.legend(fontsize=7, loc='best')
+                    ax.set_xticks([5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60])
 
-            plt.tight_layout()
-            st.pyplot(fig)
-            plt.close()
+                # Hide unused subplots
+                for idx in range(n_thresholds, len(axes)):
+                    axes[idx].set_visible(False)
 
-            # Bar chart comparing overall model performance (MOVED TO END)
-            st.markdown("---")
-            st.markdown("**Overall Model Comparison:**")
-            fig_avg, ax_avg = plt.subplots(figsize=(10, 6))
+                plt.tight_layout()
+                st.pyplot(fig, use_container_width=True)
+                plt.close()
 
-            avg_sorted = avg_series.sort_values(ascending=False)
-            bars = avg_sorted.plot(kind='bar', ax=ax_avg, color='skyblue', edgecolor='black')
+                # Bar chart comparing overall model performance (MOVED TO END)
+                st.markdown("---")
+                st.markdown("**Overall Model Comparison:**")
+                fig_avg, ax_avg = plt.subplots(figsize=(8, 4))
 
-            ax_avg.set_title("Average CSI Score by Model (All Thresholds & Lead Times)", fontsize=14, fontweight='bold')
-            ax_avg.set_xlabel("Model", fontsize=12)
-            ax_avg.set_ylabel("Average CSI Score", fontsize=12)
-            ax_avg.set_ylim([0, 1])
-            ax_avg.grid(True, alpha=0.3, axis='y')
-            ax_avg.axhline(y=overall_avg, color='red', linestyle='--', linewidth=2, label=f'Overall Avg: {overall_avg:.3f}')
-            ax_avg.legend()
-            ax_avg.tick_params(axis='x', rotation=45)
+                avg_sorted = avg_series.sort_values(ascending=False)
+                bars = avg_sorted.plot(kind='bar', ax=ax_avg, color='skyblue', edgecolor='black')
 
-            # Add value labels
-            for container in ax_avg.containers:
-                ax_avg.bar_label(container, fmt='%.3f')
+                ax_avg.set_title("Average CSI Score by Model (All Thresholds & Lead Times)", fontsize=12, fontweight='bold')
+                ax_avg.set_xlabel("Model", fontsize=10)
+                ax_avg.set_ylabel("Average CSI Score", fontsize=10)
+                ax_avg.set_ylim([0, 1])
+                ax_avg.grid(True, alpha=0.3, axis='y')
+                ax_avg.axhline(y=overall_avg, color='red', linestyle='--', linewidth=2, label=f'Overall Avg: {overall_avg:.3f}')
+                ax_avg.legend()
+                ax_avg.tick_params(axis='x', rotation=45)
 
-            plt.tight_layout()
-            st.pyplot(fig_avg)
-            plt.close()
+                # Add value labels
+                for container in ax_avg.containers:
+                    ax_avg.bar_label(container, fmt='%.3f')
+
+                plt.tight_layout()
+                st.pyplot(fig_avg, use_container_width=True)
+                plt.close()
 
         except Exception as e:
             logger.error(f"Error creating plots: {e}")

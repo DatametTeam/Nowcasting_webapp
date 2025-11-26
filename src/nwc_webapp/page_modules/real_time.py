@@ -295,34 +295,39 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
         st.selectbox("Select a model", options=model_options, key="selected_model")
 
         # THREAD per l'ottenimento automatico di nuovi file di input
-        logger.debug("Entering get_latest_file_thread")
-        st.session_state["run_get_latest_file"] = True
-        ctx = get_script_run_ctx()
+        # IMPORTANT: Only create thread ONCE per session to avoid duplicate log messages
+        if "monitoring_thread_started" not in st.session_state:
+            logger.debug("Starting file monitoring thread for the first time")
+            st.session_state["run_get_latest_file"] = True
+            st.session_state["monitoring_thread_started"] = True
+            ctx = get_script_run_ctx()
 
-        if "prev_thread_ID_get_latest_file" in st.session_state:
-            thread_ID = st.session_state["prev_thread_ID_get_latest_file"]
-            logger.debug(f"NEWRUN --> main process {os.getpid()}")
-            logger.debug(f"NEWRUN --> KILLING {thread_ID} thread")
-            terminate_event = st.session_state["terminate_event"]
-            terminate_event.set()
-            time.sleep(0.5)
-            del st.session_state["prev_thread_ID_get_latest_file"]
-            del st.session_state["terminate_event"]
+            if "prev_thread_ID_get_latest_file" in st.session_state:
+                thread_ID = st.session_state["prev_thread_ID_get_latest_file"]
+                logger.debug(f"NEWRUN --> main process {os.getpid()}")
+                logger.debug(f"NEWRUN --> KILLING {thread_ID} thread")
+                terminate_event = st.session_state["terminate_event"]
+                terminate_event.set()
+                time.sleep(0.5)
+                del st.session_state["prev_thread_ID_get_latest_file"]
+                del st.session_state["terminate_event"]
 
-        # lanciato una volta sola questo thread gira autonomamente
-        terminate_event = threading.Event()
-        st.session_state["terminate_event"] = terminate_event
-        obtain_input_th = threading.Thread(target=get_latest_file, args=(sri_folder_dir, terminate_event), daemon=True)
-        add_script_run_ctx(obtain_input_th, ctx)
-        obtain_input_th.start()
+            # lanciato una volta sola questo thread gira autonomamente
+            terminate_event = threading.Event()
+            st.session_state["terminate_event"] = terminate_event
+            obtain_input_th = threading.Thread(target=get_latest_file, args=(sri_folder_dir, terminate_event), daemon=True)
+            add_script_run_ctx(obtain_input_th, ctx)
+            obtain_input_th.start()
 
-        # per dare tempo al thread di settare in sessione un nuovo file se esiste
-        time.sleep(0.4)
-        if "thread_ID_get_latest_file" in st.session_state:
-            thread_ID = st.session_state["thread_ID_get_latest_file"]
-            logger.debug(f"thread_ID in main --> {thread_ID}")
-            del st.session_state["thread_ID_get_latest_file"]
-            st.session_state["prev_thread_ID_get_latest_file"] = thread_ID
+            # per dare tempo al thread di settare in sessione un nuovo file se esiste
+            time.sleep(0.4)
+            if "thread_ID_get_latest_file" in st.session_state:
+                thread_ID = st.session_state["thread_ID_get_latest_file"]
+                logger.debug(f"thread_ID in main --> {thread_ID}")
+                del st.session_state["thread_ID_get_latest_file"]
+                st.session_state["prev_thread_ID_get_latest_file"] = thread_ID
+        else:
+            logger.debug("Monitoring thread already running - skipping creation")
 
         # Display date for the data that's ACTUALLY shown on the map (not latest available)
         # Use displayed_file to track what's currently visible, not latest_file

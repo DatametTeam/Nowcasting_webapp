@@ -514,24 +514,39 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
     """
     Submit PBS job for date-range predictions (HPC) or generate mock predictions (local).
 
+    IMPORTANT: The job needs 1 hour of groundtruth data BEFORE the start_dt to make the
+    first prediction at start_dt+5min. Therefore, we adjust the actual job start time
+    to be 1 hour earlier than the requested start_dt.
+
+    Example: If user selects 12:00 start, we use 11:00 as the actual start time
+    so that the first prediction (at +5min) corresponds to 12:05.
+
     HPC mode:
-    1. Modifies the YAML config with start/end dates
+    1. Modifies the YAML config with start/end dates (adjusted by -1 hour)
     2. Modifies the PBS script to use absolute path for config
     3. Submits the PBS job using the modified script
     4. Returns the job ID
 
     Local mode:
-    1. Generates mock prediction files instantly
+    1. Generates mock prediction files instantly (with -1 hour adjustment)
     2. Returns a fake job ID for UI compatibility
 
     Args:
         model_name: Model name (e.g., 'ConvLSTM', 'IAM4VP', 'PredFormer', 'SPROG')
-        start_dt: Start datetime
-        end_dt: End datetime
+        start_dt: Start datetime (user-selected, will be adjusted -1 hour internally)
+        end_dt: End datetime (user-selected, remains unchanged)
 
     Returns:
         Job ID string if successful, None if failed
     """
+    # CRITICAL: Adjust start time by -1 hour to get required groundtruth data
+    # The model needs 1 hour of GT data before the first prediction timestamp
+    actual_start_dt = start_dt - timedelta(hours=1)
+
+    logger.info(f"User requested range: {start_dt} to {end_dt}")
+    logger.info(f"Adjusted job range (for GT data): {actual_start_dt} to {end_dt}")
+    logger.info(f"First prediction will be at: {start_dt + timedelta(minutes=5)}")
+
     # Check if running locally
     if not is_hpc():
         logger.info(f"🖥️  Running in LOCAL mode - generating mock predictions for {model_name}")
@@ -539,7 +554,8 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
         try:
             from nwc_webapp.services.mock.mock_data_generator import generate_mock_predictions_for_range
 
-            # Generate mock predictions instantly
+            # Generate mock predictions with ORIGINAL start_dt (not adjusted)
+            # The mock generator should handle predictions starting from start_dt
             created_count = generate_mock_predictions_for_range(model_name, start_dt, end_dt)
 
             if created_count >= 0:
@@ -564,10 +580,11 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
 
     logger.info(f"🖥️  Running in HPC mode - submitting PBS job for {model_name}")
 
-    # Step 1: Modify the YAML config with date range
+    # Step 1: Modify the YAML config with date range (use adjusted start time)
     try:
-        config_path = modify_yaml_config_for_date_range(model_name, start_dt, end_dt)
+        config_path = modify_yaml_config_for_date_range(model_name, actual_start_dt, end_dt)
         logger.info(f"Modified config for {model_name}: {config_path}")
+        logger.info(f"Config will use adjusted range: {actual_start_dt} to {end_dt}")
     except Exception as e:
         logger.error(f"Failed to modify config for {model_name}: {e}")
         return None
@@ -843,62 +860,139 @@ def create_gifs_from_prediction_range(
             "end_time": end_dt.time(),
         }
 
-        # ========== STEP 5: Create all 7 GIFs ==========
-        logger.info("🎬 Creating GIFs...")
+        # ========== STEP 5: Create all 7 GIFs in parallel ==========
+        logger.info("🎬 Creating GIFs in parallel...")
 
+        # Import required modules for parallel processing
+        import io
+        import streamlit as st
+        from multiprocessing import Manager, Process
+        import imageio
+        from PIL import Image
+
+        # Prepare GIF tasks
+        gif_tasks = [
+            ("Groundtruth", gt_figures, gif_paths["gt_t0"]),
+            ("Target +30", target30_figures, gif_paths["gt_t6"]),
+            ("Target +60", target60_figures, gif_paths["gt_t12"]),
+            ("Pred +30", pred_30_figures, gif_paths["pred_t6"]),
+            ("Pred +60", pred_60_figures, gif_paths["pred_t12"]),
+            ("Diff +30", diff_30_figures, gif_paths["diff_t6"]),
+            ("Diff +60", diff_60_figures, gif_paths["diff_t12"]),
+        ]
+
+        # Filter out empty tasks
+        gif_tasks = [(name, figs, path) for name, figs, path in gif_tasks if figs]
+
+        # Create progress bars for each GIF
+        progress_bars = {}
+        progress_texts = {}
+
+        with st.container():
+            for name, _, _ in gif_tasks:
+                col1, col2 = st.columns([0.2, 0.8])
+                with col1:
+                    st.markdown(f"**{name}:**")
+                with col2:
+                    progress_bars[name] = st.progress(0)
+                    progress_texts[name] = st.empty()
+
+        # Setup multiprocessing queue and processes
+        queue = Manager().Queue()
+        processes = []
+
+        def create_gif_worker(queue, process_idx, gif_name, figures_dict, save_path, fps_gif=3):
+            """Worker function to create a single GIF in parallel."""
+            try:
+                sorted_keys = sorted(figures_dict.keys())
+                frames = []
+                total_frames = len(sorted_keys)
+
+                # Convert each figure to a frame
+                for idx, key in enumerate(sorted_keys):
+                    fig = figures_dict[key]
+                    buf = io.BytesIO()
+                    fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
+                    buf.seek(0)
+                    img = Image.open(buf)
+                    frames.append(np.array(img))
+                    buf.close()
+
+                    # Send progress update
+                    progress = (idx + 1) / total_frames
+                    queue.put(("progress", process_idx, gif_name, progress, idx + 1, total_frames))
+
+                # Ensure parent directory exists
+                save_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # Save the GIF
+                imageio.mimsave(save_path, frames, format="GIF", fps=fps_gif, loop=0)
+
+                # Send completion message
+                queue.put(("complete", process_idx, gif_name, str(save_path)))
+
+            except Exception as e:
+                queue.put(("error", process_idx, gif_name, str(e)))
+
+        # Start all processes
+        for idx, (name, figures, path) in enumerate(gif_tasks):
+            p = Process(
+                target=create_gif_worker,
+                args=(queue, idx, name, figures, path, 3)
+            )
+            processes.append(p)
+            p.start()
+            logger.info(f"Started GIF creation process for {name} ({len(figures)} frames)")
+
+        # Monitor queue for updates
+        completed_count = 0
         gif_results = []
 
-        # 1. Groundtruth GIF
-        if gt_figures:
-            logger.info(f"Creating Groundtruth GIF ({len(gt_figures)} frames)...")
-            result = create_single_gif_from_dict(gt_figures, gif_paths["gt_t0"], sidebar_args, fps_gif=3)
-            gif_results.append(("Groundtruth", result))
+        while completed_count < len(gif_tasks):
+            try:
+                msg = queue.get(timeout=1)
+                msg_type = msg[0]
 
-        # 2. Target +30 GIF
-        if target30_figures:
-            logger.info(f"Creating Target +30min GIF ({len(target30_figures)} frames)...")
-            result = create_single_gif_from_dict(target30_figures, gif_paths["gt_t6"], sidebar_args, fps_gif=3)
-            gif_results.append(("Target +30", result))
+                if msg_type == "progress":
+                    _, process_idx, gif_name, progress, current, total = msg
+                    progress_bars[gif_name].progress(progress)
+                    progress_texts[gif_name].text(f"{current}/{total} frames")
 
-        # 3. Target +60 GIF
-        if target60_figures:
-            logger.info(f"Creating Target +60min GIF ({len(target60_figures)} frames)...")
-            result = create_single_gif_from_dict(target60_figures, gif_paths["gt_t12"], sidebar_args, fps_gif=3)
-            gif_results.append(("Target +60", result))
+                elif msg_type == "complete":
+                    _, process_idx, gif_name, result_path = msg
+                    completed_count += 1
+                    progress_bars[gif_name].progress(1.0)
+                    progress_texts[gif_name].text("✅ Complete!")
+                    gif_results.append((gif_name, result_path))
+                    logger.info(f"✓ {gif_name}: {result_path}")
 
-        # 4. Prediction +30 GIF
-        if pred_30_figures:
-            logger.info(f"Creating Prediction +30min GIF ({len(pred_30_figures)} frames)...")
-            result = create_single_gif_from_dict(pred_30_figures, gif_paths["pred_t6"], sidebar_args, fps_gif=3)
-            gif_results.append(("Prediction +30", result))
+                elif msg_type == "error":
+                    _, process_idx, gif_name, error_msg = msg
+                    completed_count += 1
+                    progress_texts[gif_name].text(f"❌ Error: {error_msg}")
+                    gif_results.append((gif_name, None))
+                    logger.error(f"✗ {gif_name}: {error_msg}")
 
-        # 5. Prediction +60 GIF
-        if pred_60_figures:
-            logger.info(f"Creating Prediction +60min GIF ({len(pred_60_figures)} frames)...")
-            result = create_single_gif_from_dict(pred_60_figures, gif_paths["pred_t12"], sidebar_args, fps_gif=3)
-            gif_results.append(("Prediction +60", result))
+            except:
+                # Check if all processes are still alive
+                if not any(p.is_alive() for p in processes):
+                    break
 
-        # 6. Difference +30 GIF
-        if diff_30_figures:
-            logger.info(f"Creating Difference +30min GIF ({len(diff_30_figures)} frames)...")
-            result = create_single_gif_from_dict(diff_30_figures, gif_paths["diff_t6"], sidebar_args, fps_gif=3)
-            gif_results.append(("Difference +30", result))
+        # Clean up processes
+        for p in processes:
+            p.join()
 
-        # 7. Difference +60 GIF
-        if diff_60_figures:
-            logger.info(f"Creating Difference +60min GIF ({len(diff_60_figures)} frames)...")
-            result = create_single_gif_from_dict(diff_60_figures, gif_paths["diff_t12"], sidebar_args, fps_gif=3)
-            gif_results.append(("Difference +60", result))
+        # Clear progress indicators after a brief display
+        import time
+        time.sleep(1)
+        for bar in progress_bars.values():
+            bar.empty()
+        for text in progress_texts.values():
+            text.empty()
 
-        # Log results
+        # Log summary
         success_count = sum(1 for _, result in gif_results if result is not None)
-        logger.info(f"✅ GIF creation completed: {success_count}/{len(gif_results)} GIFs created successfully")
-
-        for gif_type, result in gif_results:
-            if result:
-                logger.info(f"  ✓ {gif_type}: {result}")
-            else:
-                logger.warning(f"  ✗ {gif_type}: FAILED")
+        logger.info(f"✅ GIF creation completed: {success_count}/{len(gif_tasks)} GIFs created successfully")
 
         return gif_paths
 

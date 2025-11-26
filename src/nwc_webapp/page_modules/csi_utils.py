@@ -127,6 +127,130 @@ def load_range_prediction_data(
     return target_dict, pred_dict
 
 
+def compute_csi_for_single_model(
+    model: str,
+    start_dt: datetime,
+    end_dt: datetime,
+    thresholds: List[float]
+) -> pd.DataFrame:
+    """
+    Compute CSI for a single model (helper function for parallel processing).
+
+    Args:
+        model: Model name
+        start_dt: Start datetime
+        end_dt: End datetime
+        thresholds: CSI thresholds
+
+    Returns:
+        DataFrame with CSI scores (rows=thresholds, columns=lead times)
+    """
+    logger.info(f"🔄 [{model}] Starting CSI computation...")
+
+    try:
+        config = get_config()
+
+        # Load radar mask
+        mask_path = Path(__file__).resolve().parent.parent / "resources/mask/radar_mask.hdf"
+        with h5py.File(mask_path, "r") as f:
+            radar_mask = f["mask"][()]
+
+        # Generate all base timestamps in range
+        all_timestamps = generate_timestamp_range(start_dt, end_dt, verbose=False)
+
+        # Initialize storage for CSI by lead time
+        csi_by_leadtime = {lt: {th: [] for th in thresholds} for lt in range(12)}
+
+        logger.info(f"📊 [{model}] Loading predictions for {len(all_timestamps)} timestamps...")
+
+        for timestamp in all_timestamps:
+            # Load prediction file
+            pred_filename = timestamp.strftime('%d-%m-%Y-%H-%M') + '.npy'
+            pred_path = config.real_time_pred / model / pred_filename
+
+            if not pred_path.exists():
+                continue
+
+            try:
+                pred_array = np.load(pred_path, mmap_mode='r')
+
+                # For each of the 12 lead times
+                for lead_time_idx in range(12):
+                    target_time = timestamp + timedelta(minutes=60 + 5 * lead_time_idx)
+                    target_filename = target_time.strftime('%d-%m-%Y-%H-%M') + '.hdf'
+
+                    # Load target (groundtruth)
+                    target_path = None
+                    if is_hpc():
+                        target_path_data1 = Path('/davinci-1/work/protezionecivile/data1/SRI_adj') / target_filename
+                        year = target_time.strftime('%Y')
+                        month = target_time.strftime('%m')
+                        day = target_time.strftime('%d')
+                        target_path_data = Path(f'/davinci-1/work/protezionecivile/data/{year}/{month}/{day}/SRI_adj') / target_filename
+
+                        if target_path_data1.exists():
+                            target_path = target_path_data1
+                        elif target_path_data.exists():
+                            target_path = target_path_data
+                    else:
+                        target_path_local = config.sri_folder / target_filename
+                        if target_path_local.exists():
+                            target_path = target_path_local
+
+                    if target_path and target_path.exists():
+                        try:
+                            with h5py.File(target_path, 'r') as hdf:
+                                target_data = hdf['/dataset1/data1/data'][:]
+                                target_data = target_data * radar_mask
+                                target_data = np.clip(target_data, 0, 200)
+
+                                pred_data = pred_array[lead_time_idx]
+                                pred_data = pred_data * radar_mask
+                                pred_data = np.clip(pred_data, 0, 200)
+
+                                # Compute CSI for each threshold
+                                from nwc_webapp.evaluation.metrics import CSI
+                                for th in thresholds:
+                                    csi_value = CSI(target_data, pred_data, threshold=th)
+                                    if csi_value is not None:
+                                        csi_by_leadtime[lead_time_idx][th].append(csi_value)
+
+                        except Exception as e:
+                            logger.warning(f"[{model}] Error loading target at {target_path}: {e}")
+
+            except Exception as e:
+                logger.error(f"[{model}] Error processing prediction {pred_path}: {e}")
+
+        # Average CSI across all timestamps for each lead time
+        lead_time_labels = [f"{5 * (i + 1)}" for i in range(12)]
+        csi_matrix = []
+
+        for th in thresholds:
+            row = []
+            for lead_time_idx in range(12):
+                csi_values = csi_by_leadtime[lead_time_idx][th]
+                if csi_values:
+                    avg_csi = np.mean(csi_values)
+                    row.append(avg_csi)
+                else:
+                    row.append(0.0)
+            csi_matrix.append(row)
+
+        # Create DataFrame
+        model_df = pd.DataFrame(csi_matrix, index=thresholds, columns=lead_time_labels)
+        model_df.index.name = "Threshold (mm/h)"
+        model_df.columns.name = "Lead Time (min)"
+
+        logger.info(f"✅ [{model}] CSI computation completed!")
+        return model_df
+
+    except Exception as e:
+        logger.error(f"❌ [{model}] Error computing CSI: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return None
+
+
 def compute_csi_for_models(
     models: List[str],
     start_dt: datetime,
@@ -134,7 +258,7 @@ def compute_csi_for_models(
     thresholds: List[float] = None
 ) -> Dict[str, pd.DataFrame]:
     """
-    Compute CSI scores for multiple models over a date range, preserving lead time dimension.
+    Compute CSI scores for multiple models over a date range in parallel.
 
     For each model, computes CSI averaged across all base timestamps in the interval,
     but keeps lead times separate (+5min, +10min, ..., +60min).
@@ -155,120 +279,30 @@ def compute_csi_for_models(
         config = get_config()
         thresholds = config.csi_thresholds if hasattr(config, 'csi_thresholds') else [1, 5, 10, 20, 50]
 
-    logger.info(f"Computing CSI for {len(models)} models from {start_dt} to {end_dt}")
+    logger.info(f"🚀 Computing CSI for {len(models)} models in parallel from {start_dt} to {end_dt}")
 
     # Store CSI dataframes (one per model)
     model_csi_dfs = {}
 
-    for model in models:
-        logger.info(f"Processing {model}...")
+    # Use ThreadPoolExecutor for parallel processing
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        try:
-            config = get_config()
+    with ThreadPoolExecutor(max_workers=min(len(models), 4)) as executor:
+        # Submit all tasks
+        future_to_model = {
+            executor.submit(compute_csi_for_single_model, model, start_dt, end_dt, thresholds): model
+            for model in models
+        }
 
-            # Load radar mask
-            mask_path = Path(__file__).resolve().parent.parent / "resources/mask/radar_mask.hdf"
-            with h5py.File(mask_path, "r") as f:
-                radar_mask = f["mask"][()]
-
-            # Generate all base timestamps in range
-            all_timestamps = generate_timestamp_range(start_dt, end_dt, verbose=False)
-
-            # Initialize storage for CSI by lead time
-            # Structure: csi_by_leadtime[lead_time_idx][threshold] = [csi values across timestamps]
-            csi_by_leadtime = {lt: {th: [] for th in thresholds} for lt in range(12)}
-
-            logger.info(f"Loading and computing CSI for {len(all_timestamps)} timestamps...")
-
-            for timestamp in all_timestamps:
-                # Load prediction file
-                pred_filename = timestamp.strftime('%d-%m-%Y-%H-%M') + '.npy'
-                pred_path = config.real_time_pred / model / pred_filename
-
-                if not pred_path.exists():
-                    logger.warning(f"Prediction not found: {pred_path}")
-                    continue
-
-                try:
-                    pred_array = np.load(pred_path, mmap_mode='r')  # Shape: (12, 1400, 1200)
-
-                    # For each of the 12 lead times
-                    for lead_time_idx in range(12):
-                        # Target time = timestamp + 60 + (lead_time_idx * 5) minutes
-                        target_time = timestamp + timedelta(minutes=60 + 5 * lead_time_idx)
-                        target_filename = target_time.strftime('%d-%m-%Y-%H-%M') + '.hdf'
-
-                        # Load target (groundtruth)
-                        target_path = None
-                        if is_hpc():
-                            target_path_data1 = Path('/davinci-1/work/protezionecivile/data1/SRI_adj') / target_filename
-                            year = target_time.strftime('%Y')
-                            month = target_time.strftime('%m')
-                            day = target_time.strftime('%d')
-                            target_path_data = Path(f'/davinci-1/work/protezionecivile/data/{year}/{month}/{day}/SRI_adj') / target_filename
-
-                            if target_path_data1.exists():
-                                target_path = target_path_data1
-                            elif target_path_data.exists():
-                                target_path = target_path_data
-                        else:
-                            target_path_local = config.sri_folder / target_filename
-                            if target_path_local.exists():
-                                target_path = target_path_local
-
-                        if target_path and target_path.exists():
-                            try:
-                                with h5py.File(target_path, 'r') as hdf:
-                                    target_data = hdf['/dataset1/data1/data'][:]
-                                    target_data = target_data * radar_mask
-                                    target_data = np.clip(target_data, 0, 200)
-
-                                    # Get prediction data for this lead time
-                                    pred_data = pred_array[lead_time_idx]
-                                    pred_data = pred_data * radar_mask
-                                    pred_data = np.clip(pred_data, 0, 200)
-
-                                    # Compute CSI for each threshold
-                                    from nwc_webapp.evaluation.metrics import CSI
-                                    for th in thresholds:
-                                        csi_value = CSI(target_data, pred_data, threshold=th)
-                                        if csi_value is not None:
-                                            csi_by_leadtime[lead_time_idx][th].append(csi_value)
-
-                            except Exception as e:
-                                logger.warning(f"Error loading target at {target_path}: {e}")
-
-                except Exception as e:
-                    logger.error(f"Error processing prediction {pred_path}: {e}")
-
-            # Average CSI across all timestamps for each lead time
-            lead_time_labels = [f"{5 * (i + 1)}" for i in range(12)]  # "5", "10", ..., "60"
-            csi_matrix = []
-
-            for th in thresholds:
-                row = []
-                for lead_time_idx in range(12):
-                    csi_values = csi_by_leadtime[lead_time_idx][th]
-                    if csi_values:
-                        avg_csi = np.mean(csi_values)
-                        row.append(avg_csi)
-                    else:
-                        row.append(0.0)  # Or np.nan
-                csi_matrix.append(row)
-
-            # Create DataFrame: rows=thresholds, columns=lead times
-            model_df = pd.DataFrame(csi_matrix, index=thresholds, columns=lead_time_labels)
-            model_df.index.name = "Threshold (mm/h)"
-            model_df.columns.name = "Lead Time (min)"
-
-            model_csi_dfs[model] = model_df
-
-            logger.info(f"✅ Computed CSI for {model}")
-
-        except Exception as e:
-            logger.error(f"Error computing CSI for {model}: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+        # Collect results as they complete
+        for future in as_completed(future_to_model):
+            model = future_to_model[future]
+            try:
+                result = future.result()
+                if result is not None:
+                    model_csi_dfs[model] = result
+            except Exception as e:
+                logger.error(f"❌ [{model}] Exception during CSI computation: {e}")
 
     if not model_csi_dfs:
         logger.error("No CSI data computed for any model")

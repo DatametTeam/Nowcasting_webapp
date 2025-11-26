@@ -75,6 +75,8 @@ def configure_sidebar(model_list):
                 st.session_state["sidebar_end_date"] = end_date
                 st.session_state["sidebar_end_time"] = end_time
                 st.session_state["sidebar_model"] = model_name
+                # Switch to nowcasting tab when form is submitted
+                st.session_state["active_tab"] = "Nowcasting"
 
         return {
             "start_date": start_date,
