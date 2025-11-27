@@ -260,7 +260,7 @@ def check_target_data_exists(prediction_dt: datetime) -> Tuple[bool, int, int]:
     """
     Check if target groundtruth data exists for the prediction.
 
-    Target data is required for t+60 to t+115 (12 frames at 5-min intervals).
+    Target data is required for t+5 to t+60 (12 frames at 5-min intervals).
     This is needed to compute differences between predictions and targets.
 
     Args:
@@ -271,11 +271,11 @@ def check_target_data_exists(prediction_dt: datetime) -> Tuple[bool, int, int]:
     """
     config = get_config()
 
-    total_count = 12  # Need 12 target frames (t+60 to t+115)
+    total_count = 12  # Need 12 target frames (t+5 to t+60)
     found_count = 0
 
     for i in range(12):
-        target_timestamp = prediction_dt + timedelta(minutes=60 + 5 * i)
+        target_timestamp = prediction_dt + timedelta(minutes=5 + 5 * i)
         target_filename = target_timestamp.strftime("%d-%m-%Y-%H-%M") + ".hdf"
 
         # Determine path based on environment

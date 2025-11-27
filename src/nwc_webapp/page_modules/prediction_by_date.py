@@ -4,7 +4,7 @@ Prediction by date and time page.
 
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from datetime import time as dt_time
 
 import streamlit as st
@@ -219,8 +219,44 @@ def show_prediction_page(model_list):
             return
 
         if not pred_exists:
-            # Prediction doesn't exist - submit job
+            # Prediction doesn't exist - check target availability first
             st.warning(f"⚠️ Prediction not found for {selected_model} at {selected_datetime.strftime('%d/%m/%Y %H:%M')}")
+
+            # Check if target data exists (needed for difference images)
+            from nwc_webapp.page_modules.nowcasting_utils import check_target_data_exists
+
+            targets_exist, found_count, total_count = check_target_data_exists(selected_datetime)
+
+            if not targets_exist:
+                # Target data is missing - warn user
+                st.warning(
+                    f"⚠️ **Target Data Incomplete**\n\n"
+                    f"Only {found_count}/{total_count} target frames are available for this time.\n\n"
+                    f"Target data (groundtruth from {(selected_datetime + timedelta(minutes=5)).strftime('%H:%M')} to {(selected_datetime + timedelta(minutes=60)).strftime('%H:%M')}) is needed to compute difference images. "
+                    f"Without it, only prediction images will be displayed.\n\n"
+                    f"**Do you want to compute the prediction anyway?**"
+                )
+
+                col1, col2, _ = st.columns([1, 1, 2])
+
+                with col1:
+                    if st.button("✅ YES, Proceed", key="target_warning_yes", use_container_width=True):
+                        st.session_state.target_warning_accepted = True
+                        st.rerun()
+
+                with col2:
+                    if st.button("❌ NO, Cancel", key="target_warning_no", use_container_width=True):
+                        st.session_state.target_warning_accepted = False
+                        st.info("Operation cancelled. Please select a different time.")
+                        return
+
+                # If user hasn't decided yet, stop here
+                if not st.session_state.get("target_warning_accepted", False):
+                    return
+
+            # Clear warning acceptance for next run
+            st.session_state.target_warning_accepted = False
+
             st.info("📝 Submitting job to compute prediction...")
 
             # Submit job with start_date == end_date (single prediction)

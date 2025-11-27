@@ -305,49 +305,81 @@ def show_csi_analysis_page(model_list):
 
                     max_iterations = 1800  # 1 hour max
                     iteration = 0
-                    models_status = {model: None for model in submission_results.keys()}
+                    models_last_status = {model: None for model in submission_results.keys()}
+                    models_none_count = {model: 0 for model in submission_results.keys()}  # Track consecutive None checks
                     completed_models = set()
                     failed_models = set()
 
                     while iteration < max_iterations and len(completed_models) + len(failed_models) < len(submission_results):
+                        # Check ALL models simultaneously every 2 seconds
+                        current_statuses = {}
+
                         for model in submission_results.keys():
                             if model in completed_models or model in failed_models:
                                 continue
 
                             try:
                                 current_status = get_model_job_status(model)
-
-                                # Update display if status changed
-                                if current_status != models_status[model]:
-                                    models_status[model] = current_status
-
-                                    if current_status == "Q":
-                                        model_placeholders[model].markdown(
-                                            f"**{model}**: ⏳ <span class='queue-text'>In queue</span>",
-                                            unsafe_allow_html=True
-                                        )
-                                    elif current_status == "R":
-                                        model_placeholders[model].markdown(
-                                            f"**{model}**: ⚙️ <span class='running-text'>Running</span>",
-                                            unsafe_allow_html=True
-                                        )
-                                    elif current_status is None and models_status[model] is not None:
-                                        # Job disappeared - check if predictions exist
-                                        time.sleep(3)  # Wait for filesystem sync
-                                        status_check = get_model_prediction_status(model, start_datetime, end_datetime)
-
-                                        if status_check['has_all']:
-                                            model_placeholders[model].success(f"**{model}**: ✅ Completed!")
-                                            completed_models.add(model)
-                                            del st.session_state["csi_computing_models"][model]
-                                        else:
-                                            model_placeholders[model].error(f"**{model}**: ❌ Failed - predictions not found")
-                                            failed_models.add(model)
-                                            st.session_state["csi_failed_models"].add(model)
-                                            del st.session_state["csi_computing_models"][model]
+                                current_statuses[model] = current_status
 
                             except Exception as e:
                                 logger.error(f"Error checking job status for {model}: {e}")
+                                current_statuses[model] = None
+
+                        # Update displays for all models
+                        for model, current_status in current_statuses.items():
+                            if model in completed_models or model in failed_models:
+                                continue
+
+                            # Update display if status changed
+                            if current_status != models_last_status[model]:
+                                if current_status == "Q":
+                                    model_placeholders[model].markdown(
+                                        f"**{model}**: ⏳ <span class='queue-text'>In queue</span>",
+                                        unsafe_allow_html=True
+                                    )
+                                    models_none_count[model] = 0
+                                elif current_status == "R":
+                                    model_placeholders[model].markdown(
+                                        f"**{model}**: ⚙️ <span class='running-text'>Running</span>",
+                                        unsafe_allow_html=True
+                                    )
+                                    models_none_count[model] = 0
+
+                            # Check if job disappeared (None status after being in queue/running)
+                            if current_status is None and models_last_status[model] is not None:
+                                models_none_count[model] += 1
+                                logger.debug(f"[{model}] Status None (consecutive: {models_none_count[model]}/3)")
+
+                                if models_none_count[model] >= 3:
+                                    # Job completed or failed - check predictions
+                                    logger.info(f"[{model}] Job disappeared from queue - verifying results")
+                                    model_placeholders[model].info(f"**{model}**: ⏳ Verifying results...")
+                                    time.sleep(3)  # Wait for filesystem sync
+
+                                    status_check = get_model_prediction_status(model, start_datetime, end_datetime)
+
+                                    if status_check['has_all']:
+                                        model_placeholders[model].success(f"**{model}**: ✅ Prediction ready!")
+                                        completed_models.add(model)
+                                        if model in st.session_state["csi_computing_models"]:
+                                            del st.session_state["csi_computing_models"][model]
+                                    else:
+                                        model_placeholders[model].error(f"**{model}**: ❌ FAILED - predictions not found")
+                                        failed_models.add(model)
+                                        st.session_state["csi_failed_models"].add(model)
+                                        if model in st.session_state["csi_computing_models"]:
+                                            del st.session_state["csi_computing_models"][model]
+                            elif current_status is None:
+                                # Still None - increment counter
+                                models_none_count[model] += 1
+                            else:
+                                # Reset counter if status is not None
+                                models_none_count[model] = 0
+
+                            # Update last status
+                            if current_status is not None:
+                                models_last_status[model] = current_status
 
                         time.sleep(2)
                         iteration += 1
