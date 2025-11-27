@@ -236,18 +236,35 @@ def show_csi_analysis_page(model_list):
     col_pred, col_csi = st.columns(2)
 
     with col_pred:
-        can_compute_predictions = len(models_without_predictions) > 0
+        can_compute_predictions = len(selected_models) > 0
         if st.button(
-            "🔄 Compute Missing Predictions",
+            "🔄 Compute/Recompute Predictions",
             disabled=not can_compute_predictions,
             width='stretch',
             type="secondary"
         ):
-            # Submit jobs in parallel for all models without predictions
-            st.info(f"📝 Submitting jobs for {len(models_without_predictions)} model(s)...")
+            # Submit jobs for ALL selected models
+            # For models with predictions: delete first, then recompute
+            # For models without predictions: just compute
+
+            models_to_compute = selected_models.copy()
+
+            # Delete existing predictions for models that have them
+            if len(models_with_predictions) > 0:
+                st.info(f"🗑️ Deleting existing predictions for {len(models_with_predictions)} model(s)...")
+                from nwc_webapp.page_modules.nowcasting_utils import delete_predictions_in_range
+
+                for model in models_with_predictions:
+                    deleted = delete_predictions_in_range(model, start_datetime, end_datetime)
+                    logger.info(f"Deleted {deleted} prediction(s) for {model}")
+
+            st.info(f"📝 Submitting jobs for {len(models_to_compute)} model(s)...")
+
+            # Store selected models for CSI computation after jobs finish
+            all_selected_models = selected_models.copy()
 
             submission_results = {}
-            for model in models_without_predictions:
+            for model in models_to_compute:
                 logger.info(f"Submitting job for {model} ({start_datetime} to {end_datetime})")
                 job_id = submit_date_range_prediction_job(model, start_datetime, end_datetime)
 
@@ -388,32 +405,41 @@ def show_csi_analysis_page(model_list):
                     if len(completed_models) > 0:
                         st.success(f"✅ {len(completed_models)} model(s) completed successfully!")
 
-                        # Auto-compute CSI for completed models
-                        st.info(f"🔄 Auto-computing CSI for completed models...")
+                        # Auto-compute CSI for ALL selected models (completed + already existing)
+                        # Check which models now have all predictions
+                        models_for_csi = []
+                        for model in all_selected_models:
+                            if model not in failed_models:
+                                # Verify predictions exist
+                                status_check = get_model_prediction_status(model, start_datetime, end_datetime)
+                                if status_check['has_all']:
+                                    models_for_csi.append(model)
 
-                        with st.spinner(f"Computing CSI for {len(completed_models)} model(s)..."):
-                            try:
-                                # Compute CSI for completed models
-                                completed_models_list = list(completed_models)
-                                csi_results = compute_csi_for_models(
-                                    models=completed_models_list,
-                                    start_dt=start_datetime,
-                                    end_dt=end_datetime
-                                )
+                        if len(models_for_csi) > 0:
+                            st.info(f"🔄 Auto-computing CSI for {len(models_for_csi)} model(s)...")
 
-                                if csi_results is not None:
-                                    # Store results in session state
-                                    st.session_state["csi_results"] = csi_results
-                                    st.session_state["csi_result_models"] = completed_models_list
-                                    st.session_state["csi_result_interval"] = (start_datetime, end_datetime)
-                                    logger.info(f"✅ Auto-computed CSI for {len(completed_models_list)} model(s)")
-                                else:
-                                    logger.error("Failed to auto-compute CSI")
+                            with st.spinner(f"Computing CSI for {len(models_for_csi)} model(s)..."):
+                                try:
+                                    # Compute CSI for all models with predictions
+                                    csi_results = compute_csi_for_models(
+                                        models=models_for_csi,
+                                        start_dt=start_datetime,
+                                        end_dt=end_datetime
+                                    )
 
-                            except Exception as e:
-                                logger.error(f"Error auto-computing CSI: {e}")
-                                import traceback
-                                logger.error(traceback.format_exc())
+                                    if csi_results is not None:
+                                        # Store results in session state
+                                        st.session_state["csi_results"] = csi_results
+                                        st.session_state["csi_result_models"] = models_for_csi
+                                        st.session_state["csi_result_interval"] = (start_datetime, end_datetime)
+                                        logger.info(f"✅ Auto-computed CSI for {len(models_for_csi)} model(s)")
+                                    else:
+                                        logger.error("Failed to auto-compute CSI")
+
+                                except Exception as e:
+                                    logger.error(f"Error auto-computing CSI: {e}")
+                                    import traceback
+                                    logger.error(traceback.format_exc())
 
                     if len(failed_models) > 0:
                         st.error(f"❌ {len(failed_models)} model(s) failed")
