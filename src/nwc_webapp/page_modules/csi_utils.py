@@ -186,7 +186,7 @@ def compute_csi_for_single_model(
 
                 # For each of the 12 lead times
                 for lead_time_idx in range(12):
-                    target_time = timestamp + timedelta(minutes=60 + 5 * lead_time_idx)
+                    target_time = timestamp + timedelta(minutes=5 * (lead_time_idx + 1))
                     target_filename = target_time.strftime('%d-%m-%Y-%H-%M') + '.hdf'
 
                     # Load target (groundtruth)

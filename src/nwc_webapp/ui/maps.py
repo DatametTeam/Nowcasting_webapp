@@ -163,7 +163,7 @@ def create_only_map(rgba_img, prediction: bool = False):
         map.get_root().header.add_child(style_element)
 
     # Render map using full column width
-    st_map = st_folium(map, use_container_width=True, height=700, returned_objects=["center", "zoom"])
+    st_map = st_folium(map, width='stretch', height=700, returned_objects=["center", "zoom"])
     st.session_state["st_map"] = st_map
     if st_map and "center" in st_map.keys():
         st.session_state["center"] = st_map["center"]
@@ -537,7 +537,7 @@ def create_animated_map(rgba_images_dict):
 
     st_map = st_folium(
         map_obj,
-        use_container_width=True,
+        width='stretch',
         height=700,
         returned_objects=[],  # Don't track zoom/center to avoid constant reloads
         key=map_key,

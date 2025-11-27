@@ -224,14 +224,14 @@ def render_status_panel(model_list):
     is_paused = st.session_state.get("realtime_paused", False)
 
     if is_paused:
-        if st.button("▶️ Resume Real-Time", use_container_width=True, type="primary"):
+        if st.button("▶️ Resume Real-Time", width='stretch', type="primary"):
             st.session_state["realtime_paused"] = False
             # Trigger immediate prediction check by clearing launch flag
             st.session_state["launch_prediction_thread"] = None
             logger.info("Resuming real-time predictions - will check for data immediately")
             st.rerun()
     else:
-        if st.button("⏸️ Pause Real-Time", use_container_width=True):
+        if st.button("⏸️ Pause Real-Time", width='stretch'):
             st.session_state["realtime_paused"] = True
             st.rerun()
 

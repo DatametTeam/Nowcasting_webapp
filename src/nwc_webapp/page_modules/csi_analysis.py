@@ -154,7 +154,7 @@ def show_csi_analysis_page(model_list):
     # Select All / Deselect All buttons
     col_all, col_none = st.columns([1, 1])
     with col_all:
-        if st.button("✓ Select All (with predictions)", key="csi_select_all", use_container_width=True):
+        if st.button("✓ Select All (with predictions)", key="csi_select_all", width='stretch'):
             # Select only models with all predictions
             for model in available_models:
                 if model_status[model]['has_all']:
@@ -164,7 +164,7 @@ def show_csi_analysis_page(model_list):
             st.rerun()
 
     with col_none:
-        if st.button("✗ Deselect All", key="csi_deselect_all", use_container_width=True):
+        if st.button("✗ Deselect All", key="csi_deselect_all", width='stretch'):
             for model in available_models:
                 if f"csi_model_{model}" in st.session_state:
                     st.session_state[f"csi_model_{model}"] = False
@@ -240,7 +240,7 @@ def show_csi_analysis_page(model_list):
         if st.button(
             "🔄 Compute Missing Predictions",
             disabled=not can_compute_predictions,
-            use_container_width=True,
+            width='stretch',
             type="secondary"
         ):
             # Submit jobs in parallel for all models without predictions
@@ -430,7 +430,7 @@ def show_csi_analysis_page(model_list):
         if st.button(
             "📊 Compute CSI for Selected Models",
             disabled=not can_compute_csi,
-            use_container_width=True,
+            width='stretch',
             type="primary"
         ):
             # Compute CSI
@@ -487,7 +487,7 @@ def show_csi_analysis_page(model_list):
                 # axis=1 means compute gradient within each row (across columns/lead times)
                 # No vmin/vmax - each table uses its own min/max for independent coloring
                 styled = model_df.style.format("{:.3f}").background_gradient(cmap='RdYlGn', axis=1)
-                st.dataframe(styled, use_container_width=True)
+                st.dataframe(styled, width='stretch')
                 st.markdown("")
 
         # Compute average CSI per threshold (averaged across lead times)
@@ -515,7 +515,7 @@ def show_csi_analysis_page(model_list):
         # For each threshold (column), best model = green, worst = red
         # No vmin/vmax - each column uses its own min/max for independent coloring
         styled = performance_df.style.format("{:.3f}").background_gradient(cmap='RdYlGn', axis=0)
-        st.dataframe(styled, use_container_width=True)
+        st.dataframe(styled, width='stretch')
 
         # Compute overall average CSI per model (across all thresholds and lead times)
         model_overall_avg = {}
@@ -592,7 +592,7 @@ def show_csi_analysis_page(model_list):
                     axes[idx].set_visible(False)
 
                 plt.tight_layout()
-                st.pyplot(fig, use_container_width=True)
+                st.pyplot(fig, width='stretch')
                 plt.close()
 
                 # Bar chart comparing overall model performance (MOVED TO END)
@@ -617,7 +617,7 @@ def show_csi_analysis_page(model_list):
                     ax_avg.bar_label(container, fmt='%.3f')
 
                 plt.tight_layout()
-                st.pyplot(fig_avg, use_container_width=True)
+                st.pyplot(fig_avg, width='stretch')
                 plt.close()
 
         except Exception as e:

@@ -41,12 +41,12 @@ def show_training_date_warning() -> bool:
     col1, col2, _ = st.columns([1, 1, 3])
 
     with col1:
-        if st.button("✅ YES, Proceed", key="training_yes_third_tab", use_container_width=True):
+        if st.button("✅ YES, Proceed", key="training_yes_third_tab", width='stretch'):
             st.session_state.training_warning_accepted_third_tab = True
             return True
 
     with col2:
-        if st.button("❌ NO, Cancel", key="training_no_third_tab", use_container_width=True):
+        if st.button("❌ NO, Cancel", key="training_no_third_tab", width='stretch'):
             st.session_state.training_warning_accepted_third_tab = False
             st.info("Operation cancelled. Please select a different date.")
             return False
@@ -132,7 +132,7 @@ def show_prediction_page(model_list):
             st.session_state["show_prediction_results"] = False
             st.session_state["prediction_data_cache"] = None
 
-    if st.button("Check/Compute Prediction", type="primary", use_container_width=True):
+    if st.button("Check/Compute Prediction", type="primary", width='stretch'):
         st.session_state["third_tab_checking"] = True
         st.session_state["third_tab_action"] = None
         st.rerun()
@@ -240,12 +240,12 @@ def show_prediction_page(model_list):
                 col1, col2, _ = st.columns([1, 1, 2])
 
                 with col1:
-                    if st.button("✅ YES, Proceed", key="target_warning_yes", use_container_width=True):
+                    if st.button("✅ YES, Proceed", key="target_warning_yes", width='stretch'):
                         st.session_state.target_warning_accepted = True
                         st.rerun()
 
                 with col2:
-                    if st.button("❌ NO, Cancel", key="target_warning_no", use_container_width=True):
+                    if st.button("❌ NO, Cancel", key="target_warning_no", width='stretch'):
                         st.session_state.target_warning_accepted = False
                         st.info("Operation cancelled. Please select a different time.")
                         return

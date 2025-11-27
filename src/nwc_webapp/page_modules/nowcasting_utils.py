@@ -187,7 +187,7 @@ def generate_timestamp_range(start_dt: datetime, end_dt: datetime, verbose: bool
 
 
 def check_missing_predictions(
-    model_name: str, start_dt: datetime, end_dt: datetime, verbose: bool = True
+        model_name: str, start_dt: datetime, end_dt: datetime, verbose: bool = True
 ) -> Tuple[List[datetime], List[datetime]]:
     """
     Check which prediction files are missing in the specified range.
@@ -229,7 +229,8 @@ def check_missing_predictions(
 
     if verbose:
         logger.info(
-            f"[{model_name}] Range check: {len(existing)}/{len(all_timestamps)} predictions exist, {len(missing)} missing"
+            f"[{model_name}] Range check: {len(existing)}/{len(all_timestamps)} predictions exist, {len(missing)} "
+            f"missing"
         )
 
     return missing, existing
@@ -371,11 +372,11 @@ def load_single_prediction_data(model_name: str, prediction_dt: datetime) -> Tup
     target_dict = {}
     pred_dict = {}
 
-    # ========== STEP 1: Load groundtruth (12 frames: t0 to t+55) ==========
+    # ========== STEP 1: Load groundtruth (12 frames: t0 to t-55) ==========
     logger.info(f"Loading groundtruth for {prediction_dt.strftime('%d/%m/%Y %H:%M')}")
 
-    for i in range(12):
-        gt_timestamp = prediction_dt + timedelta(minutes=5 * i)
+    for i in reversed(range(12)):
+        gt_timestamp = prediction_dt - timedelta(minutes=5 * i)
         gt_filename = gt_timestamp.strftime("%d-%m-%Y-%H-%M") + ".hdf"
 
         # Determine path based on environment
@@ -412,11 +413,11 @@ def load_single_prediction_data(model_name: str, prediction_dt: datetime) -> Tup
             except Exception as e:
                 logger.warning(f"Error loading GT at {gt_path}: {e}")
 
-    # ========== STEP 2: Load target (12 frames: t+60 to t+115) ==========
+    # ========== STEP 2: Load target (12 frames: t+5 to t+60) ==========
     logger.info(f"Loading target for {prediction_dt.strftime('%d/%m/%Y %H:%M')}")
 
     for i in range(12):
-        target_timestamp = prediction_dt + timedelta(minutes=60 + 5 * i)
+        target_timestamp = prediction_dt + timedelta(minutes=5 * (i + 1))
         target_filename = target_timestamp.strftime("%d-%m-%Y-%H-%M") + ".hdf"
 
         # Determine path based on environment
@@ -429,7 +430,7 @@ def load_single_prediction_data(model_name: str, prediction_dt: datetime) -> Tup
             month = target_timestamp.strftime("%m")
             day = target_timestamp.strftime("%d")
             target_path_data = (
-                Path(f"/davinci-1/work/protezionecivile/data/{year}/{month}/{day}/SRI_adj") / target_filename
+                    Path(f"/davinci-1/work/protezionecivile/data/{year}/{month}/{day}/SRI_adj") / target_filename
             )
 
             if target_path_data1.exists():
@@ -469,7 +470,7 @@ def load_single_prediction_data(model_name: str, prediction_dt: datetime) -> Tup
             # The prediction array contains 12 timesteps at 5-minute intervals
             # Map these to timestamps starting at t+60
             for i in range(12):
-                pred_timestamp = prediction_dt + timedelta(minutes=60 + 5 * i)
+                pred_timestamp = prediction_dt + timedelta(minutes=5 * (i + 1))
                 pred_data = pred_array[i]
 
                 # Apply mask and clip
@@ -629,17 +630,8 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
     Returns:
         Job ID string if successful, None if failed
     """
-    # CRITICAL: ED_ConvLSTM handles lookback internally, others need -1 hour adjustment
-    if model_name == "ED_ConvLSTM":
-        actual_start_dt = start_dt  # No adjustment for ED_ConvLSTM
-        logger.info(f"User requested range: {start_dt} to {end_dt}")
-        logger.info(f"ED_ConvLSTM will handle lookback internally (12 timesteps before {start_dt})")
-    else:
-        # Other models: Adjust start time by -1 hour to get required groundtruth data
-        actual_start_dt = start_dt - timedelta(hours=1)
-        logger.info(f"User requested range: {start_dt} to {end_dt}")
-        logger.info(f"Adjusted job range (for GT data): {actual_start_dt} to {end_dt}")
-        logger.info(f"First prediction will be at: {start_dt + timedelta(minutes=5)}")
+    logger.info(f"User requested range: {start_dt} to {end_dt}")
+    logger.info(f"First prediction will be at: {start_dt + timedelta(minutes=5)}")
 
     # Check if running locally
     if not is_hpc():
@@ -677,7 +669,7 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
     # ED_ConvLSTM uses a different interface than other models
     if model_name == "ED_ConvLSTM":
         # ED_ConvLSTM: Pass dates directly as environment variables (format: DD-MM-YYYY-HH-MM)
-        start_str = actual_start_dt.strftime("%d-%m-%Y-%H-%M")
+        start_str = start_dt.strftime("%d-%m-%Y-%H-%M")
         end_str = end_dt.strftime("%d-%m-%Y-%H-%M")
 
         # Step 1: Get the PBS script path
@@ -724,9 +716,9 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
 
         # Step 1: Modify the YAML config with date range (use adjusted start time)
         try:
-            config_path = modify_yaml_config_for_date_range(model_name, actual_start_dt, end_dt)
+            config_path = modify_yaml_config_for_date_range(model_name, start_dt, end_dt)
             logger.info(f"Modified config for {model_name}: {config_path}")
-            logger.info(f"Config will use adjusted range: {actual_start_dt} to {end_dt}")
+            logger.info(f"Config will use adjusted range: {start_dt} to {end_dt}")
         except Exception as e:
             logger.error(f"Failed to modify config for {model_name}: {e}")
             return None
@@ -836,6 +828,7 @@ def create_groundtruth_figures(all_timestamps, gt_raw_data, gt_figures, gt_found
             try:
                 with h5py.File(gt_path, "r") as hdf:
                     gt_data = hdf["/dataset1/data1/data"][:]
+                    gt_data[gt_data < 0] = 0
                     # Store raw data for difference calculation
                     gt_raw_data[timestamp] = gt_data
                     # Create figure for ground truth (target)
@@ -854,7 +847,7 @@ def create_groundtruth_figures(all_timestamps, gt_raw_data, gt_figures, gt_found
 
 
 def create_gifs_from_prediction_range(
-    model_name: str, start_dt: datetime, end_dt: datetime, sri_folder_dir: str
+        model_name: str, start_dt: datetime, end_dt: datetime, sri_folder_dir: str
 ) -> bool:
     """
     Create 7 GIFs from prediction range: groundtruth, target+30, target+60, pred+30, pred+60, diff+30, diff+60.

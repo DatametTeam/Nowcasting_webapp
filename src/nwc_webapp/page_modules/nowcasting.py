@@ -63,12 +63,12 @@ def show_training_date_warning() -> bool:
     col1, col2, _ = st.columns([1, 1, 3])
 
     with col1:
-        if st.button("✅ YES, Proceed", key="training_yes", use_container_width=True):
+        if st.button("✅ YES, Proceed", key="training_yes", width='stretch'):
             st.session_state.training_warning_accepted = True
             return True
 
     with col2:
-        if st.button("❌ NO, Cancel", key="training_no", use_container_width=True):
+        if st.button("❌ NO, Cancel", key="training_no", width='stretch'):
             st.session_state.training_warning_accepted = False
             st.info("Operation cancelled. Please select a different date.")
             return False
@@ -124,7 +124,7 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
             display_results(gt_gifs, pred_gifs, diff_gifs)
 
             # Add a button to go back
-            if st.button("🔙 Back to Prediction Setup", use_container_width=True):
+            if st.button("🔙 Back to Prediction Setup", width='stretch'):
                 st.session_state["show_gifs_only"] = False
                 st.rerun()
 
@@ -209,7 +209,7 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
         col1, col2, _ = st.columns([1, 1, 3])
 
         with col1:
-            if st.button("📊 Create GIFs", key="create_gifs", use_container_width=True):
+            if st.button("📊 Create GIFs", key="create_gifs", width='stretch'):
                 # Check if GIFs already exist
                 gif_paths = get_gif_paths(model_name, start_dt, end_dt)
                 gt_exist, pred_exist, diff_exist = check_gifs_exist(gif_paths)
@@ -267,7 +267,7 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
                     return
 
         with col2:
-            if st.button("🔄 Recompute All", key="recompute_all", use_container_width=True):
+            if st.button("🔄 Recompute All", key="recompute_all", width='stretch'):
                 # Continue to recompute - will delete old predictions
                 should_delete_old = True
             else:
@@ -298,7 +298,7 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
             )
 
             compute_clicked = st.button(
-                "▶️ Compute Predictions", key="compute_missing", use_container_width=True, type="primary"
+                "▶️ Compute Predictions", key="compute_missing", width='stretch', type="primary"
             )
 
         if not compute_clicked:
@@ -331,12 +331,12 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
 
         with col1:
             compute_missing = st.button(
-                "▶️ Compute Missing", key="compute_partial", use_container_width=True, type="primary"
+                "▶️ Compute Missing", key="compute_partial", width='stretch', type="primary"
             )
 
         with col2:
             recompute_all = st.button(
-                "🔄 Recompute All", key="recompute_all_partial", use_container_width=True, type="primary"
+                "🔄 Recompute All", key="recompute_all_partial", width='stretch', type="primary"
             )
 
         if not (compute_missing or recompute_all):
