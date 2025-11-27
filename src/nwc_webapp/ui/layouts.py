@@ -223,7 +223,7 @@ def init_second_tab_layout(groundtruth_images, target_frames, pred_frames):
                     timestamp_idx = col_idx - 1 + row_offset
                     if timestamp_idx < len(groundtruth_images):
                         timestamp, image = groundtruth_images[timestamp_idx]
-                        st.image(image, caption=timestamp, width="content")
+                        st.image(image, width="content")
 
         # Additional layout for TARGET and PREDICTION columns
         target_pred_rows = []

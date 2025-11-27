@@ -256,6 +256,56 @@ def check_single_prediction_exists(model_name: str, prediction_dt: datetime) -> 
     return os.path.exists(str(pred_file))
 
 
+def check_target_data_exists(prediction_dt: datetime) -> Tuple[bool, int, int]:
+    """
+    Check if target groundtruth data exists for the prediction.
+
+    Target data is required for t+60 to t+115 (12 frames at 5-min intervals).
+    This is needed to compute differences between predictions and targets.
+
+    Args:
+        prediction_dt: Datetime for the prediction start
+
+    Returns:
+        Tuple of (all_exist: bool, found_count: int, total_count: int)
+    """
+    config = get_config()
+
+    total_count = 12  # Need 12 target frames (t+60 to t+115)
+    found_count = 0
+
+    for i in range(12):
+        target_timestamp = prediction_dt + timedelta(minutes=60 + 5 * i)
+        target_filename = target_timestamp.strftime("%d-%m-%Y-%H-%M") + ".hdf"
+
+        # Determine path based on environment
+        target_path = None
+
+        if is_hpc():
+            # HPC: Try data1 first, then data (archived)
+            target_path_data1 = Path("/davinci-1/work/protezionecivile/data1/SRI_adj") / target_filename
+            year = target_timestamp.strftime("%Y")
+            month = target_timestamp.strftime("%m")
+            day = target_timestamp.strftime("%d")
+            target_path_data = Path(f"/davinci-1/work/protezionecivile/data/{year}/{month}/{day}/SRI_adj") / target_filename
+
+            if target_path_data1.exists():
+                target_path = target_path_data1
+            elif target_path_data.exists():
+                target_path = target_path_data
+        else:
+            # Local: Use config sri_folder
+            target_path_local = config.sri_folder / target_filename
+            if target_path_local.exists():
+                target_path = target_path_local
+
+        if target_path and target_path.exists():
+            found_count += 1
+
+    all_exist = found_count == total_count
+    return all_exist, found_count, total_count
+
+
 def load_prediction_array(pred_path: Path, model_name: str) -> Optional[np.ndarray]:
     """
     Load prediction array and handle model-specific shapes.
@@ -357,7 +407,7 @@ def load_single_prediction_data(model_name: str, prediction_dt: datetime) -> Tup
                     gt_data = gt_data * radar_mask
                     gt_data = np.clip(gt_data, 0, 200)
 
-                    timestamp_key = gt_timestamp.strftime("%d%m%Y_%H%M")
+                    timestamp_key = gt_timestamp.strftime("%d/%m/%Y %H:%M")
                     gt_dict[timestamp_key] = gt_data
             except Exception as e:
                 logger.warning(f"Error loading GT at {gt_path}: {e}")
@@ -400,7 +450,7 @@ def load_single_prediction_data(model_name: str, prediction_dt: datetime) -> Tup
                     target_data = target_data * radar_mask
                     target_data = np.clip(target_data, 0, 200)
 
-                    timestamp_key = target_timestamp.strftime("%d%m%Y_%H%M")
+                    timestamp_key = target_timestamp.strftime("%d/%m/%Y %H:%M")
                     target_dict[timestamp_key] = target_data
             except Exception as e:
                 logger.warning(f"Error loading target at {target_path}: {e}")
@@ -426,7 +476,7 @@ def load_single_prediction_data(model_name: str, prediction_dt: datetime) -> Tup
                 pred_data = pred_data * radar_mask
                 pred_data = np.clip(pred_data, 0, 200)
 
-                timestamp_key = pred_timestamp.strftime("%d%m%Y_%H%M")
+                timestamp_key = pred_timestamp.strftime("%d/%m/%Y %H:%M")
                 pred_dict[timestamp_key] = pred_data
 
             logger.info(f"✅ Loaded {len(pred_dict)} prediction frames")

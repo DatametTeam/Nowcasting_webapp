@@ -71,6 +71,12 @@ def show_prediction_page(model_list):
     """
     st.title("Prediction by Date and Time")
 
+    # Initialize session state for workflow tracking
+    if "third_tab_checking" not in st.session_state:
+        st.session_state["third_tab_checking"] = False
+    if "third_tab_action" not in st.session_state:
+        st.session_state["third_tab_action"] = None  # Can be: None, "display", "recompute"
+
     # Date and time selection
     selected_date = st.date_input(
         "Select Date",
@@ -83,6 +89,20 @@ def show_prediction_page(model_list):
         "Select Time", value=dt_time(datetime.now().hour, 0), step=300
     )  # 300 seconds = 5 minutes
     selected_model = st.selectbox("Select model", model_list)
+
+    # Combine selected date and time
+    selected_datetime = datetime.combine(selected_date, selected_time)
+
+    # Check if selection changed - clear workflow state
+    current_selection = (selected_date, selected_time, selected_model)
+    if "third_tab_last_selection" not in st.session_state:
+        st.session_state["third_tab_last_selection"] = current_selection
+    elif st.session_state["third_tab_last_selection"] != current_selection:
+        st.session_state["third_tab_last_selection"] = current_selection
+        st.session_state["third_tab_checking"] = False
+        st.session_state["third_tab_action"] = None
+        st.session_state["show_prediction_results"] = False
+        st.session_state["prediction_data_cache"] = None
 
     # Check if we have cached results to display
     if st.session_state.get("show_prediction_results", False) and st.session_state.get("prediction_data_cache"):
@@ -113,6 +133,12 @@ def show_prediction_page(model_list):
             st.session_state["prediction_data_cache"] = None
 
     if st.button("Check/Compute Prediction", type="primary", use_container_width=True):
+        st.session_state["third_tab_checking"] = True
+        st.session_state["third_tab_action"] = None
+        st.rerun()
+
+    # Execute workflow if checking flag is set
+    if st.session_state["third_tab_checking"]:
         # Combine selected date and time
         selected_datetime = datetime.combine(selected_date, selected_time)
         logger.info(f"Checking prediction for {selected_model} at {selected_datetime.strftime('%d/%m/%Y %H:%M')}")
@@ -185,11 +211,12 @@ def show_prediction_page(model_list):
                     if deleted > 0:
                         logger.info(f"Deleted {deleted} prediction(s) for {selected_model}")
 
-                    # Continue to submit job (code below will execute)
+                    # Set flag to trigger job submission and rerun
                     pred_exists = False  # Set to False to trigger job submission
+                    st.rerun()
 
-            if not pred_exists:
-                return  # Wait for user decision or continue to recompute
+            # If no action taken yet, wait for user decision
+            return
 
         if not pred_exists:
             # Prediction doesn't exist - submit job
