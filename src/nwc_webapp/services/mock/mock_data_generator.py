@@ -236,6 +236,11 @@ def generate_mock_predictions_for_range(model_name: str, start_dt: datetime, end
             num_timesteps=12, shape=(1400, 1200), base_seed=int(timestamp.timestamp())
         )
 
+        # ED_ConvLSTM requires an extra batch dimension: (1, 12, 1400, 1200)
+        if model_name == "ED_ConvLSTM":
+            prediction = np.expand_dims(prediction, axis=0)  # Add batch dimension
+            logger.debug(f"ED_ConvLSTM: Added batch dimension, shape now {prediction.shape}")
+
         # Save as NPY file
         np.save(filepath, prediction)
         created_count += 1

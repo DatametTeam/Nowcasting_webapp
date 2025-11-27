@@ -355,6 +355,34 @@ def show_csi_analysis_page(model_list):
                     # Summary
                     if len(completed_models) > 0:
                         st.success(f"✅ {len(completed_models)} model(s) completed successfully!")
+
+                        # Auto-compute CSI for completed models
+                        st.info(f"🔄 Auto-computing CSI for completed models...")
+
+                        with st.spinner(f"Computing CSI for {len(completed_models)} model(s)..."):
+                            try:
+                                # Compute CSI for completed models
+                                completed_models_list = list(completed_models)
+                                csi_results = compute_csi_for_models(
+                                    models=completed_models_list,
+                                    start_dt=start_datetime,
+                                    end_dt=end_datetime
+                                )
+
+                                if csi_results is not None:
+                                    # Store results in session state
+                                    st.session_state["csi_results"] = csi_results
+                                    st.session_state["csi_result_models"] = completed_models_list
+                                    st.session_state["csi_result_interval"] = (start_datetime, end_datetime)
+                                    logger.info(f"✅ Auto-computed CSI for {len(completed_models_list)} model(s)")
+                                else:
+                                    logger.error("Failed to auto-compute CSI")
+
+                            except Exception as e:
+                                logger.error(f"Error auto-computing CSI: {e}")
+                                import traceback
+                                logger.error(traceback.format_exc())
+
                     if len(failed_models) > 0:
                         st.error(f"❌ {len(failed_models)} model(s) failed")
 
@@ -423,9 +451,10 @@ def show_csi_analysis_page(model_list):
             for model in result_models:
                 st.markdown(f"**{model}:**")
                 model_df = results_dict[model]
-                # Style: column-wise gradient (best lead time per threshold/row in green, worst in red)
+                # Style: row-wise gradient (best lead time per threshold in green, worst in red)
                 # axis=1 means compute gradient within each row (across columns/lead times)
-                styled = model_df.style.format("{:.3f}").background_gradient(cmap='RdYlGn', axis=1, vmin=0, vmax=1)
+                # No vmin/vmax - each table uses its own min/max for independent coloring
+                styled = model_df.style.format("{:.3f}").background_gradient(cmap='RdYlGn', axis=1)
                 st.dataframe(styled, use_container_width=True)
                 st.markdown("")
 
@@ -452,7 +481,8 @@ def show_csi_analysis_page(model_list):
 
         # Style and display with gradient per threshold (column-wise: axis=0)
         # For each threshold (column), best model = green, worst = red
-        styled = performance_df.style.format("{:.3f}").background_gradient(cmap='RdYlGn', vmin=0, vmax=1, axis=0)
+        # No vmin/vmax - each column uses its own min/max for independent coloring
+        styled = performance_df.style.format("{:.3f}").background_gradient(cmap='RdYlGn', axis=0)
         st.dataframe(styled, use_container_width=True)
 
         # Compute overall average CSI per model (across all thresholds and lead times)

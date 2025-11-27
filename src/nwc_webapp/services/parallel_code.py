@@ -135,7 +135,7 @@ def create_fig_dict_in_parallel(gt_data, pred_data, sidebar_args, save_on_disk=F
 
 def save_figure(data_slice, index, base_date, time_step, out_dir, save_on_disk, name=""):
     actual_date = base_date + index * time_step
-    fig = compute_figure_gpd(data_slice, actual_date.strftime("%d-%m-%Y %H:%M"), name=name)
+    fig = compute_figure_gpd(data_slice, actual_date.strftime("%d/%m/%Y %H:%M"), name=name)
 
     if save_on_disk:
         file_name = f"{actual_date.strftime('%d%m%Y_%H%M')}.png"
@@ -159,7 +159,7 @@ def save_prediction_sequence(data_series, element_index, base_date, time_step, o
             continue  # Skip if timestamp_offset is not 30 or 60
 
         fig = compute_figure_gpd(
-            sequence, ("PRED @ " + (actual_date + timedelta(minutes=timestamp_offset)).strftime("%d-%m-%Y %H:%M"))
+            sequence, ("PRED @ " + (actual_date + timedelta(minutes=timestamp_offset)).strftime("%d/%m/%Y %H:%M"))
         )  # Compute figure
 
         if save_on_disk:

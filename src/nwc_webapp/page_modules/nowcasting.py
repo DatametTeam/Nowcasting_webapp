@@ -218,9 +218,9 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
                     # GIFs already exist - ask user if they want to recompute
                     st.warning("⚠️ **GIFs already exist!** Do you want to recompute them?")
 
-                    col_yes, col_no, _ = st.columns([1, 1, 3])
+                    col_yes, col_no, _ = st.columns([1, 1, 2])
                     with col_yes:
-                        if st.button("✅ YES, Recompute", key="recompute_gifs_yes", use_container_width=True):
+                        if st.button("🔄 Recompute", key="recompute_gifs_yes"):
                             st.info("🗑️ Deleting old GIFs and creating new ones...")
                             # Delete old GIFs
                             for path in [
@@ -247,7 +247,7 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
                                 st.error("❌ Failed to create GIFs. Check logs for details.")
 
                     with col_no:
-                        if st.button("❌ NO, Display existing", key="recompute_gifs_no", use_container_width=True):
+                        if st.button("📺 Display Existing", key="recompute_gifs_no"):
                             st.success("📺 Displaying existing GIFs...")
                             load_and_display_gifs(gif_paths)
                     return

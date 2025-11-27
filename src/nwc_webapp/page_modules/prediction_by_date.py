@@ -129,45 +129,69 @@ def show_prediction_page(model_list):
         pred_exists = check_single_prediction_exists(selected_model, selected_datetime)
 
         if pred_exists:
-            # Prediction exists - load and display
-            with st.spinner("Loading data..."):
-                try:
-                    gt_dict, target_dict, pred_dict = load_single_prediction_data(selected_model, selected_datetime)
+            # Prediction exists - ask if user wants to display or recompute
+            st.success(f"✅ Prediction exists for {selected_model} at {selected_datetime.strftime('%d/%m/%Y %H:%M')}")
+            st.info("Do you want to display the existing prediction or recompute it?")
 
-                    # Check if we have enough data
-                    if not gt_dict or not target_dict or not pred_dict:
-                        st.error(
-                            "❌ Failed to load complete data. Some groundtruth or prediction files may be missing."
-                        )
-                        logger.error(
-                            f"Incomplete data: {len(gt_dict)} GT, {len(target_dict)} target, {len(pred_dict)} pred"
-                        )
-                        return
+            col1, col2, _ = st.columns([1, 1, 2])
 
-                    # Precompute groundtruth images
-                    groundtruth_images = precompute_images(gt_dict)
+            with col1:
+                if st.button("📺 Display", key="display_existing_pred"):
+                    # Load and display existing prediction
+                    with st.spinner("Loading data..."):
+                        try:
+                            gt_dict, target_dict, pred_dict = load_single_prediction_data(selected_model, selected_datetime)
 
-                    # Cache the data and trigger display-only mode
-                    st.session_state["prediction_data_cache"] = {
-                        "date": selected_date,
-                        "time": selected_time,
-                        "model": selected_model,
-                        "groundtruth_images": groundtruth_images,
-                        "target_dict": target_dict,
-                        "pred_dict": pred_dict,
-                    }
-                    st.session_state["show_prediction_results"] = True
-                    logger.info(f"Caching and displaying prediction for {selected_model}")
-                    st.rerun()
+                            # Check if we have enough data
+                            if not gt_dict or not target_dict or not pred_dict:
+                                st.error(
+                                    "❌ Failed to load complete data. Some groundtruth or prediction files may be missing."
+                                )
+                                logger.error(
+                                    f"Incomplete data: {len(gt_dict)} GT, {len(target_dict)} target, {len(pred_dict)} pred"
+                                )
+                                return
 
-                except Exception as e:
-                    st.error(f"❌ Error loading data: {e}")
-                    logger.error(f"Error loading data: {e}")
-                    import traceback
+                            # Precompute groundtruth images
+                            groundtruth_images = precompute_images(gt_dict)
 
-                    logger.error(traceback.format_exc())
+                            # Cache the data and trigger display-only mode
+                            st.session_state["prediction_data_cache"] = {
+                                "date": selected_date,
+                                "time": selected_time,
+                                "model": selected_model,
+                                "groundtruth_images": groundtruth_images,
+                                "target_dict": target_dict,
+                                "pred_dict": pred_dict,
+                            }
+                            st.session_state["show_prediction_results"] = True
+                            logger.info(f"Caching and displaying prediction for {selected_model}")
+                            st.rerun()
 
-        else:
+                        except Exception as e:
+                            st.error(f"❌ Error loading data: {e}")
+                            logger.error(f"Error loading data: {e}")
+                            import traceback
+
+                            logger.error(traceback.format_exc())
+
+            with col2:
+                if st.button("🔄 Recompute", key="recompute_pred"):
+                    # Delete existing prediction and recompute
+                    st.info("🗑️ Deleting old prediction...")
+                    from nwc_webapp.page_modules.nowcasting_utils import delete_predictions_in_range
+
+                    deleted = delete_predictions_in_range(selected_model, selected_datetime, selected_datetime)
+                    if deleted > 0:
+                        logger.info(f"Deleted {deleted} prediction(s) for {selected_model}")
+
+                    # Continue to submit job (code below will execute)
+                    pred_exists = False  # Set to False to trigger job submission
+
+            if not pred_exists:
+                return  # Wait for user decision or continue to recompute
+
+        if not pred_exists:
             # Prediction doesn't exist - submit job
             st.warning(f"⚠️ Prediction not found for {selected_model} at {selected_datetime.strftime('%d/%m/%Y %H:%M')}")
             st.info("📝 Submitting job to compute prediction...")

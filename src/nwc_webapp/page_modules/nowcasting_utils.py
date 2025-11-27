@@ -256,6 +256,43 @@ def check_single_prediction_exists(model_name: str, prediction_dt: datetime) -> 
     return os.path.exists(str(pred_file))
 
 
+def load_prediction_array(pred_path: Path, model_name: str) -> Optional[np.ndarray]:
+    """
+    Load prediction array and handle model-specific shapes.
+
+    ED_ConvLSTM outputs shape (1, 12, H, W) while other models output (12, H, W).
+    This function normalizes to (12, H, W) for consistent downstream processing.
+
+    Args:
+        pred_path: Path to the prediction file
+        model_name: Model name
+
+    Returns:
+        Prediction array of shape (12, H, W), or None if loading fails
+    """
+    try:
+        pred_array = np.load(pred_path, mmap_mode="r")
+
+        # ED_ConvLSTM has extra batch dimension: (1, 12, H, W)
+        if model_name == "ED_ConvLSTM":
+            if pred_array.ndim == 4 and pred_array.shape[0] == 1:
+                pred_array = pred_array[0]  # Remove batch dimension: (12, H, W)
+                logger.debug(f"ED_ConvLSTM: Removed batch dimension, shape now {pred_array.shape}")
+            else:
+                logger.warning(f"ED_ConvLSTM: Unexpected shape {pred_array.shape}, expected (1, 12, H, W)")
+
+        # Verify final shape
+        if pred_array.shape[0] != 12:
+            logger.error(f"Unexpected prediction shape: {pred_array.shape}, expected (12, H, W)")
+            return None
+
+        return pred_array
+
+    except Exception as e:
+        logger.error(f"Error loading prediction from {pred_path}: {e}")
+        return None
+
+
 def load_single_prediction_data(model_name: str, prediction_dt: datetime) -> Tuple[dict, dict, dict]:
     """
     Load groundtruth, target, and prediction data for a single timestamp.
@@ -375,9 +412,10 @@ def load_single_prediction_data(model_name: str, prediction_dt: datetime) -> Tup
     pred_path = config.real_time_pred / model_name / pred_filename
 
     if pred_path.exists():
-        try:
-            pred_array = np.load(pred_path, mmap_mode="r")  # Shape: (12, 1400, 1200)
+        # Use helper function to handle model-specific shapes
+        pred_array = load_prediction_array(pred_path, model_name)
 
+        if pred_array is not None:
             # The prediction array contains 12 timesteps at 5-minute intervals
             # Map these to timestamps starting at t+60
             for i in range(12):
@@ -392,8 +430,6 @@ def load_single_prediction_data(model_name: str, prediction_dt: datetime) -> Tup
                 pred_dict[timestamp_key] = pred_data
 
             logger.info(f"✅ Loaded {len(pred_dict)} prediction frames")
-        except Exception as e:
-            logger.error(f"Error loading prediction from {pred_path}: {e}")
     else:
         logger.error(f"Prediction file not found: {pred_path}")
 
@@ -514,38 +550,46 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
     """
     Submit PBS job for date-range predictions (HPC) or generate mock predictions (local).
 
-    IMPORTANT: The job needs 1 hour of groundtruth data BEFORE the start_dt to make the
+    IMPORTANT: Most models need 1 hour of groundtruth data BEFORE the start_dt to make the
     first prediction at start_dt+5min. Therefore, we adjust the actual job start time
     to be 1 hour earlier than the requested start_dt.
 
-    Example: If user selects 12:00 start, we use 11:00 as the actual start time
-    so that the first prediction (at +5min) corresponds to 12:05.
+    EXCEPTION: ED_ConvLSTM handles the lookback internally (goes back 12 timesteps from start_dt)
+    so it does NOT need the -1 hour adjustment.
+
+    Example: If user selects 12:00 start:
+    - ConvLSTM/IAM4VP/etc: use 11:00 as actual start, first prediction at 12:05
+    - ED_ConvLSTM: use 12:00 as actual start (goes back 12 timesteps internally)
 
     HPC mode:
-    1. Modifies the YAML config with start/end dates (adjusted by -1 hour)
-    2. Modifies the PBS script to use absolute path for config
+    1. Modifies the YAML config with start/end dates (adjusted by -1 hour for most models)
+    2. Modifies the PBS script to use absolute path for config or date parameters
     3. Submits the PBS job using the modified script
     4. Returns the job ID
 
     Local mode:
-    1. Generates mock prediction files instantly (with -1 hour adjustment)
+    1. Generates mock prediction files instantly
     2. Returns a fake job ID for UI compatibility
 
     Args:
-        model_name: Model name (e.g., 'ConvLSTM', 'IAM4VP', 'PredFormer', 'SPROG')
-        start_dt: Start datetime (user-selected, will be adjusted -1 hour internally)
-        end_dt: End datetime (user-selected, remains unchanged)
+        model_name: Model name (e.g., 'ConvLSTM', 'ED_ConvLSTM', 'IAM4VP', 'PredFormer', 'SPROG')
+        start_dt: Start datetime (user-selected)
+        end_dt: End datetime (user-selected)
 
     Returns:
         Job ID string if successful, None if failed
     """
-    # CRITICAL: Adjust start time by -1 hour to get required groundtruth data
-    # The model needs 1 hour of GT data before the first prediction timestamp
-    actual_start_dt = start_dt - timedelta(hours=1)
-
-    logger.info(f"User requested range: {start_dt} to {end_dt}")
-    logger.info(f"Adjusted job range (for GT data): {actual_start_dt} to {end_dt}")
-    logger.info(f"First prediction will be at: {start_dt + timedelta(minutes=5)}")
+    # CRITICAL: ED_ConvLSTM handles lookback internally, others need -1 hour adjustment
+    if model_name == "ED_ConvLSTM":
+        actual_start_dt = start_dt  # No adjustment for ED_ConvLSTM
+        logger.info(f"User requested range: {start_dt} to {end_dt}")
+        logger.info(f"ED_ConvLSTM will handle lookback internally (12 timesteps before {start_dt})")
+    else:
+        # Other models: Adjust start time by -1 hour to get required groundtruth data
+        actual_start_dt = start_dt - timedelta(hours=1)
+        logger.info(f"User requested range: {start_dt} to {end_dt}")
+        logger.info(f"Adjusted job range (for GT data): {actual_start_dt} to {end_dt}")
+        logger.info(f"First prediction will be at: {start_dt + timedelta(minutes=5)}")
 
     # Check if running locally
     if not is_hpc():
@@ -580,54 +624,103 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
 
     logger.info(f"🖥️  Running in HPC mode - submitting PBS job for {model_name}")
 
-    # Step 1: Modify the YAML config with date range (use adjusted start time)
-    try:
-        config_path = modify_yaml_config_for_date_range(model_name, actual_start_dt, end_dt)
-        logger.info(f"Modified config for {model_name}: {config_path}")
-        logger.info(f"Config will use adjusted range: {actual_start_dt} to {end_dt}")
-    except Exception as e:
-        logger.error(f"Failed to modify config for {model_name}: {e}")
-        return None
+    # ED_ConvLSTM uses a different interface than other models
+    if model_name == "ED_ConvLSTM":
+        # ED_ConvLSTM: Pass dates directly as environment variables (format: DD-MM-YYYY-HH-MM)
+        start_str = actual_start_dt.strftime("%d-%m-%Y-%H-%M")
+        end_str = end_dt.strftime("%d-%m-%Y-%H-%M")
 
-    # Step 2: Get the PBS script path
-    pbs_script_path = (
-        Path(__file__).parent.parent
-        / "pbs_scripts"
-        / "start_end_pred_scripts"
-        / f"run_{model_name}_inference_startend.sh"
-    )
+        # Step 1: Get the PBS script path
+        pbs_script_path = (
+            Path(__file__).parent.parent
+            / "pbs_scripts"
+            / "start_end_pred_scripts"
+            / f"run_{model_name}_inference_startend.sh"
+        )
 
-    if not pbs_script_path.exists():
-        logger.error(f"PBS script not found: {pbs_script_path}")
-        return None
+        if not pbs_script_path.exists():
+            logger.error(f"PBS script not found: {pbs_script_path}")
+            return None
 
-    # Step 3: Modify PBS script to use absolute config path
-    try:
-        with open(pbs_script_path, "r") as f:
-            script_content = f.read()
+        # Step 2: Modify PBS script to inject START_DATE and END_DATE
+        try:
+            with open(pbs_script_path, "r") as f:
+                script_content = f.read()
 
-        # Replace $CFG_PATH with absolute path
-        modified_script = script_content.replace('--cfg_path "$CFG_PATH"', f'--cfg_path "{config_path}"')
+            # Replace $START_DATE and $END_DATE with actual values
+            modified_script = script_content.replace('"$START_DATE"', f'"{start_str}"')
+            modified_script = modified_script.replace('"$END_DATE"', f'"{end_str}"')
 
-        # Write modified script to temp file
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as tmp:
-            tmp.write(modified_script)
-            tmp_script_path = tmp.name
+            # Write modified script to temp file
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as tmp:
+                tmp.write(modified_script)
+                tmp_script_path = tmp.name
 
-        logger.info(f"Created modified PBS script: {tmp_script_path}")
+            logger.info(f"Created modified PBS script for ED_ConvLSTM: {tmp_script_path}")
+            logger.info(f"START_DATE={start_str}, END_DATE={end_str}")
 
-    except Exception as e:
-        logger.error(f"Failed to modify PBS script: {e}")
-        return None
+        except Exception as e:
+            logger.error(f"Failed to modify PBS script: {e}")
+            return None
 
-    # Step 4: Submit the modified PBS job
-    command = ["qsub", tmp_script_path]
+        # Step 3: Submit the modified PBS job
+        command = ["qsub", tmp_script_path]
 
-    try:
+        logger.info(f"Submitting PBS job for {model_name} (range: {start_dt} to {end_dt})")
+        logger.info(f"Command: {' '.join(command)}")
+
+    else:
+        # Other models: Use YAML config approach
+
+        # Step 1: Modify the YAML config with date range (use adjusted start time)
+        try:
+            config_path = modify_yaml_config_for_date_range(model_name, actual_start_dt, end_dt)
+            logger.info(f"Modified config for {model_name}: {config_path}")
+            logger.info(f"Config will use adjusted range: {actual_start_dt} to {end_dt}")
+        except Exception as e:
+            logger.error(f"Failed to modify config for {model_name}: {e}")
+            return None
+
+        # Step 2: Get the PBS script path
+        pbs_script_path = (
+            Path(__file__).parent.parent
+            / "pbs_scripts"
+            / "start_end_pred_scripts"
+            / f"run_{model_name}_inference_startend.sh"
+        )
+
+        if not pbs_script_path.exists():
+            logger.error(f"PBS script not found: {pbs_script_path}")
+            return None
+
+        # Step 3: Modify PBS script to use absolute config path
+        try:
+            with open(pbs_script_path, "r") as f:
+                script_content = f.read()
+
+            # Replace $CFG_PATH with absolute path
+            modified_script = script_content.replace('--cfg_path "$CFG_PATH"', f'--cfg_path "{config_path}"')
+
+            # Write modified script to temp file
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as tmp:
+                tmp.write(modified_script)
+                tmp_script_path = tmp.name
+
+            logger.info(f"Created modified PBS script: {tmp_script_path}")
+
+        except Exception as e:
+            logger.error(f"Failed to modify PBS script: {e}")
+            return None
+
+        # Step 4: Submit the modified PBS job
+        command = ["qsub", tmp_script_path]
+
         logger.info(f"Submitting PBS job for {model_name} (range: {start_dt} to {end_dt})")
         logger.info(f"Command: {' '.join(command)}")
         logger.info(f"Config path: {config_path}")
 
+    # Submit the job (common for both ED_ConvLSTM and other models)
+    try:
         result = subprocess.run(command, check=True, text=True, capture_output=True)
 
         # Extract job ID from output (format: "123456.davinci-mgt01")
@@ -796,7 +889,12 @@ def create_gifs_from_prediction_range(
                 logger.warning(f"Prediction not found: {pred_path}")
                 continue
 
-            pred_data = np.load(pred_path, mmap_mode="r")  # Shape: (12, 1400, 1200)
+            # Use helper function to handle model-specific shapes
+            pred_data = load_prediction_array(pred_path, model_name)
+
+            if pred_data is None:
+                logger.error(f"Failed to load prediction: {pred_path}")
+                continue
 
             # Extract pred[5] for +30min and pred[11] for +60min
             pred_30_time = timestamp + timedelta(minutes=30)

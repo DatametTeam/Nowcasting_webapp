@@ -13,7 +13,7 @@ from nwc_webapp.config.config import get_config
 from nwc_webapp.config.environment import is_hpc
 from nwc_webapp.evaluation.metrics import compute_CSI
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.page_modules.nowcasting_utils import generate_timestamp_range
+from nwc_webapp.page_modules.nowcasting_utils import generate_timestamp_range, load_prediction_array
 
 # Set up logger
 logger = setup_logger(__name__)
@@ -65,7 +65,12 @@ def load_range_prediction_data(
             continue
 
         try:
-            pred_array = np.load(pred_path, mmap_mode='r')  # Shape: (12, 1400, 1200)
+            # Use helper to handle model-specific shapes (ED_ConvLSTM: (1,12,H,W) vs others: (12,H,W))
+            pred_array = load_prediction_array(pred_path, model_name)
+
+            if pred_array is None:
+                logger.warning(f"Failed to load prediction: {pred_path}")
+                continue
 
             # For each of the 12 prediction timesteps (corresponding to t+60 to t+115)
             for i in range(12):
@@ -172,7 +177,12 @@ def compute_csi_for_single_model(
                 continue
 
             try:
-                pred_array = np.load(pred_path, mmap_mode='r')
+                # Use helper to handle model-specific shapes (ED_ConvLSTM: (1,12,H,W) vs others: (12,H,W))
+                pred_array = load_prediction_array(pred_path, model)
+
+                if pred_array is None:
+                    logger.warning(f"[{model}] Failed to load prediction: {pred_path}")
+                    continue
 
                 # For each of the 12 lead times
                 for lead_time_idx in range(12):
