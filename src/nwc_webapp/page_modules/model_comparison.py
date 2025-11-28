@@ -685,7 +685,9 @@ def display_comparison_results(
 
         # Calculate number of columns: 1 (GT) + len(models) + 1 (CSI table)
         num_cols = 1 + len(model_names) + 1
-        cols = st.columns([1] * (num_cols - 1) + [0.5])  # Last column smaller for CSI table
+        # Make CSI table column wider to fit all models
+        csi_col_width = 0.8 + (len(model_names) * 0.2)  # Dynamic width based on number of models
+        cols = st.columns([1] * (num_cols - 1) + [csi_col_width])
 
         # Column 0: Ground Truth
         with cols[0]:
@@ -732,6 +734,10 @@ def display_comparison_results(
             # Compute CSI for all models at this lead time
             csi_df = compute_csi_for_leadtime(gt_frame, pred_frames, thresholds)
 
+            # Transpose: Thresholds as rows, Models as columns
+            csi_df = csi_df.set_index("Model").T
+            csi_df.index.name = "Threshold"
+
             # Display as table with smaller font
             st.markdown("""
                 <style>
@@ -742,10 +748,8 @@ def display_comparison_results(
             """, unsafe_allow_html=True)
 
             # Format CSI values to 3 decimal places
-            for col in csi_df.columns:
-                if col != "Model":
-                    csi_df[col] = csi_df[col].apply(lambda x: f"{x:.3f}")
+            csi_df = csi_df.applymap(lambda x: f"{x:.3f}" if isinstance(x, (int, float)) else x)
 
-            st.dataframe(csi_df, use_container_width=True, hide_index=True)
+            st.dataframe(csi_df, use_container_width=True)
 
         st.markdown("---")
