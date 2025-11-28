@@ -699,9 +699,8 @@ def display_comparison_results(
 
             # Convert to BytesIO
             buf = BytesIO()
-            plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+            fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
             buf.seek(0)
-            plt.close(fig)
 
             st.image(buf, use_container_width=True)
 
@@ -721,9 +720,8 @@ def display_comparison_results(
 
                 # Convert to BytesIO
                 buf = BytesIO()
-                plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+                fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
                 buf.seek(0)
-                plt.close(fig)
 
                 st.image(buf, use_container_width=True)
 
