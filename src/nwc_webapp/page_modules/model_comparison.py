@@ -123,6 +123,9 @@ def load_prediction_for_timestamp(model_name: str, timestamp: datetime) -> Optio
         if pred_array is None:
             return None
 
+        # Make a writable copy to avoid read-only array issues
+        pred_array = np.array(pred_array, copy=True)
+
         # Load mask and apply
         mask_path = Path(__file__).resolve().parent.parent / "resources/mask/radar_mask.hdf"
         with h5py.File(mask_path, "r") as f:
@@ -316,8 +319,14 @@ def show_model_comparison_page(model_list: List[str]):
         return
 
     # Ground truth loaded - show model management
+    st.success(f"✅ Ground truth loaded for {selected_datetime.strftime('%d/%m/%Y %H:%M')} - 12 timesteps ready!")
+
     st.markdown("---")
     st.subheader("🔬 Models")
+
+    # Show current models or empty state
+    if not st.session_state["comparison_models"]:
+        st.info("📌 No models added yet. Click 'Add Model Column' to start comparing!")
 
     # Add model button
     if st.button("➕ Add Model Column", key="add_model_btn"):
