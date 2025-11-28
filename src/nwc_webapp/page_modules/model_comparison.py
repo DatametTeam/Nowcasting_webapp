@@ -654,7 +654,7 @@ def display_comparison_results(
     st.subheader("📊 Comparison Results")
 
     # Get CSI thresholds from config
-    thresholds = config.csi_thresholds
+    thresholds = config.threshold
 
     # Show current models with remove buttons
     st.write("**Current Models:**")
@@ -697,7 +697,7 @@ def display_comparison_results(
 
             # Create figure
             fig, ax = plt.subplots(figsize=(6, 6))
-            im = ax.pcolormesh(gt_frame, cmap=cmap, norm=norm, vmin=vmin, vmax=vmax)
+            im = ax.pcolormesh(gt_frame, cmap=cmap, norm=norm)
             ax.set_title(f"GT +{lead_time}min\n{(timestamp + timedelta(minutes=lead_time)).strftime('%H:%M')}")
             ax.axis('off')
             ax.set_aspect('equal')
@@ -722,7 +722,7 @@ def display_comparison_results(
 
                 # Create figure
                 fig, ax = plt.subplots(figsize=(6, 6))
-                im = ax.pcolormesh(pred_frame, cmap=cmap, norm=norm, vmin=vmin, vmax=vmax)
+                im = ax.pcolormesh(pred_frame, cmap=cmap, norm=norm)
                 ax.set_title(f"{model_name} +{lead_time}min")
                 ax.axis('off')
                 ax.set_aspect('equal')
