@@ -307,6 +307,79 @@ def check_target_data_exists(prediction_dt: datetime) -> Tuple[bool, int, int]:
     return all_exist, found_count, total_count
 
 
+def check_target_data_for_range(start_dt: datetime, end_dt: datetime) -> Tuple[bool, List[datetime], List[datetime]]:
+    """
+    Check if target data exists for all timestamps in the date range.
+
+    This checks for target data at +30min and +60min offsets for each timestamp,
+    which is needed to create target and difference GIFs.
+
+    Args:
+        start_dt: Start datetime
+        end_dt: End datetime
+
+    Returns:
+        Tuple of (all_exist: bool, missing_timestamps: List[datetime], existing_timestamps: List[datetime])
+    """
+    config = get_config()
+    all_timestamps = generate_timestamp_range(start_dt, end_dt, verbose=False)
+
+    missing_target_timestamps = []
+    existing_target_timestamps = []
+
+    logger.info(f"Checking target data availability for {len(all_timestamps)} timestamps...")
+
+    for timestamp in all_timestamps:
+        # Check target data at +30min and +60min
+        target_30_timestamp = timestamp + timedelta(minutes=30)
+        target_60_timestamp = timestamp + timedelta(minutes=60)
+
+        # Check both +30 and +60 targets
+        targets_exist = True
+
+        for target_timestamp in [target_30_timestamp, target_60_timestamp]:
+            target_filename = target_timestamp.strftime("%d-%m-%Y-%H-%M") + ".hdf"
+            target_path = None
+
+            if is_hpc():
+                # HPC: Try data1 first, then data (archived)
+                target_path_data1 = Path("/davinci-1/work/protezionecivile/data1/SRI_adj") / target_filename
+                year = target_timestamp.strftime("%Y")
+                month = target_timestamp.strftime("%m")
+                day = target_timestamp.strftime("%d")
+                target_path_data = (
+                    Path(f"/davinci-1/work/protezionecivile/data/{year}/{month}/{day}/SRI_adj") / target_filename
+                )
+
+                if target_path_data1.exists():
+                    target_path = target_path_data1
+                elif target_path_data.exists():
+                    target_path = target_path_data
+            else:
+                # Local: Use config sri_folder
+                target_path_local = config.sri_folder / target_filename
+                if target_path_local.exists():
+                    target_path = target_path_local
+
+            if not (target_path and target_path.exists()):
+                targets_exist = False
+                break
+
+        if targets_exist:
+            existing_target_timestamps.append(timestamp)
+        else:
+            missing_target_timestamps.append(timestamp)
+
+    all_exist = len(missing_target_timestamps) == 0
+
+    logger.info(
+        f"Target data check: {len(existing_target_timestamps)}/{len(all_timestamps)} complete, "
+        f"{len(missing_target_timestamps)} missing target data"
+    )
+
+    return all_exist, missing_target_timestamps, existing_target_timestamps
+
+
 def load_prediction_array(pred_path: Path, model_name: str) -> Optional[np.ndarray]:
     """
     Load prediction array and handle model-specific shapes.
@@ -797,6 +870,14 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
 
 
 def create_groundtruth_figures(all_timestamps, gt_raw_data, gt_figures, gt_found_count, gt_missing_count):
+    """
+    Load groundtruth data and create figures.
+
+    If groundtruth data is missing, creates empty/blank frames with a "No Data Available" message.
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as mpatches
+
     config = get_config()
 
     for idx, timestamp in enumerate(all_timestamps, 1):
@@ -837,13 +918,53 @@ def create_groundtruth_figures(all_timestamps, gt_raw_data, gt_figures, gt_found
                     gt_found_count += 1
             except Exception as e:
                 logger.warning(f"Error loading GT at {gt_path}: {e}")
+                # Create empty frame with error message
+                fig = create_empty_frame(timestamp, "Error Loading Data")
+                gt_figures[timestamp] = fig
                 gt_missing_count += 1
-                return gt_figures, gt_raw_data, gt_found_count, gt_missing_count
         else:
             gt_missing_count += 1
             logger.debug(f"GT not found for {timestamp}: {gt_filename}")
+            # Create empty frame with "No Data" message
+            fig = create_empty_frame(timestamp, "No Data Available")
+            gt_figures[timestamp] = fig
+            # Store empty raw data (zeros) for difference calculation
+            gt_raw_data[timestamp] = np.zeros((1400, 1200))
 
     return gt_figures, gt_raw_data, gt_found_count, gt_missing_count
+
+
+def create_empty_frame(timestamp: datetime, message: str = "No Data Available"):
+    """
+    Create an empty/blank frame with a message.
+
+    Args:
+        timestamp: Timestamp for the frame
+        message: Message to display on the empty frame
+
+    Returns:
+        Matplotlib figure with empty frame
+    """
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis('off')
+
+    # Add timestamp at the top
+    ax.text(0.5, 0.7, timestamp.strftime("%d/%m/%Y %H:%M"),
+            ha='center', va='center', fontsize=16, fontweight='bold')
+
+    # Add "No Data Available" message
+    ax.text(0.5, 0.5, message,
+            ha='center', va='center', fontsize=20, color='gray', style='italic')
+
+    # Add a light gray background
+    ax.add_patch(plt.Rectangle((0.1, 0.3), 0.8, 0.5,
+                                facecolor='lightgray', alpha=0.3, zorder=-1))
+
+    return fig
 
 
 def create_gifs_from_prediction_range(
@@ -859,6 +980,8 @@ def create_gifs_from_prediction_range(
     4. Computes difference arrays
     5. Creates 7 GIFs and saves them to gif_storage location
 
+    If target data is missing, empty frames with "No Data Available" message will be shown.
+
     Args:
         model_name: Model name
         start_dt: Start datetime
@@ -868,9 +991,28 @@ def create_gifs_from_prediction_range(
     Returns:
         Dictionary with GIF paths if successful, False otherwise
     """
+    import streamlit as st
+
     config = get_config()
 
     logger.info(f"Creating GIFs for {model_name} from {start_dt} to {end_dt}")
+
+    # Check for missing target data and inform user
+    all_target_exist, missing_target_timestamps, existing_target_timestamps = check_target_data_for_range(start_dt, end_dt)
+
+    if not all_target_exist:
+        total_count = len(missing_target_timestamps) + len(existing_target_timestamps)
+        missing_count = len(missing_target_timestamps)
+
+        first_missing = (start_dt + timedelta(minutes=30))
+        last_missing = (end_dt + timedelta(minutes=60))
+
+        logger.warning(f"⚠️  Missing target data for {missing_count}/{total_count} timestamps")
+        st.info(
+            f"ℹ️ **Target data not available for {missing_count}/{total_count} timestamps**\n\n"
+            f"**Missing range**: {first_missing.strftime('%d/%m/%Y %H:%M')} to {last_missing.strftime('%d/%m/%Y %H:%M')}\n\n"
+            f"Empty frames will be shown for missing data in Target and Difference GIFs."
+        )
 
     try:
         # ========== STEP 1: Load all groundtruth data ==========

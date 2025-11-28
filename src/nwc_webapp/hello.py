@@ -11,6 +11,7 @@ from nwc_webapp.config.config import get_config
 from nwc_webapp.logging_config import setup_logger
 from nwc_webapp.page_modules.csi_analysis import show_csi_analysis_page
 from nwc_webapp.page_modules.home import show_home_page
+from nwc_webapp.page_modules.model_comparison import show_model_comparison_page
 from nwc_webapp.page_modules.nowcasting import main_page
 from nwc_webapp.page_modules.prediction_by_date import show_prediction_page
 from nwc_webapp.page_modules.real_time import show_real_time_prediction
@@ -61,7 +62,13 @@ def main(app_config, sri_folder, count_value):
         st.session_state.prediction_result = {}
 
     # Create tabs using st.tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["Real Time Prediction", "Nowcasting", "Prediction by Date & Time", "CSI Analysis"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "Real Time Prediction",
+        "Nowcasting",
+        "Prediction by Date & Time",
+        "CSI Analysis",
+        "Model Comparison"
+    ])
 
     with tab1:
         st.session_state["sync_end"] = 1
@@ -75,6 +82,9 @@ def main(app_config, sri_folder, count_value):
 
     with tab4:
         show_csi_analysis_page(model_list)
+
+    with tab5:
+        show_model_comparison_page(model_list)
 
 
 # Get configuration (safe to call at module level - no session state access)

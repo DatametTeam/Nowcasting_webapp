@@ -2,7 +2,7 @@
 Nowcasting page - main prediction interface with date range support.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import streamlit as st
@@ -11,6 +11,7 @@ from nwc_webapp.logging_config import setup_logger
 from nwc_webapp.page_modules.nowcasting_utils import (
     check_gifs_exist,
     check_missing_predictions,
+    check_target_data_for_range,
     create_gifs_from_prediction_range,
     delete_predictions_in_range,
     get_gif_paths,
@@ -30,17 +31,28 @@ from nwc_webapp.utils import load_gif_as_bytesio
 logger = setup_logger(__name__)
 
 
-def load_and_display_gifs(gif_paths):
+def load_and_display_gifs(gif_paths, model_name=None, start_dt=None, end_dt=None):
     """
     Load GIFs from paths and display them using the visualization layout.
     Triggers clear page mode to show only GIFs.
 
     Args:
         gif_paths: Dictionary with GIF paths from get_gif_paths()
+        model_name: Model name (for caching parameters)
+        start_dt: Start datetime (for caching parameters)
+        end_dt: End datetime (for caching parameters)
     """
     # Cache the GIF paths and trigger "show only GIFs" mode
     st.session_state["gif_paths_cache"] = gif_paths
     st.session_state["show_gifs_only"] = True
+
+    # Store cache parameters if provided (for persistence across tab switches)
+    if model_name and start_dt and end_dt:
+        st.session_state["gif_cache_params"] = {
+            "model_name": model_name,
+            "start_dt": start_dt,
+            "end_dt": end_dt,
+        }
 
     # Trigger rerun to display only GIFs
     st.rerun()
@@ -74,6 +86,101 @@ def show_training_date_warning() -> bool:
             return False
 
     return False
+
+
+def show_missing_target_data_warning(start_dt: datetime, end_dt: datetime, missing_count: int, total_count: int, key_suffix: str = "") -> bool:
+    """
+    Show warning dialog when target data is missing.
+
+    Args:
+        start_dt: Start datetime
+        end_dt: End datetime
+        missing_count: Number of timestamps with missing target data
+        total_count: Total number of timestamps
+        key_suffix: Suffix for button keys to avoid duplicates
+
+    Returns:
+        True if user wants to proceed, False otherwise
+    """
+    first_missing = start_dt + timedelta(minutes=30)  # Target data starts at +30min
+    last_missing = end_dt + timedelta(minutes=60)  # Target data ends at +60min
+
+    st.warning(
+        f"⚠️ **Missing Target Data**\n\n"
+        f"Target data for **{missing_count}/{total_count}** timestamps is not available.\n\n"
+        f"**Range affected**: {first_missing.strftime('%d/%m/%Y %H:%M')} to {last_missing.strftime('%d/%m/%Y %H:%M')}\n\n"
+        f"If you proceed:\n"
+        f"- Target GIFs will show **empty frames** for missing data\n"
+        f"- Difference GIFs will show **empty frames** for missing data\n"
+        f"- Prediction GIFs will be created normally\n\n"
+        f"**Do you want to proceed?**"
+    )
+
+    col1, col2, _ = st.columns([1, 1, 3])
+
+    with col1:
+        if st.button("✅ YES, Continue", key=f"target_yes_{key_suffix}", width='stretch'):
+            st.session_state[f"target_warning_accepted_{key_suffix}"] = True
+            return True
+
+    with col2:
+        if st.button("❌ NO, Cancel", key=f"target_no_{key_suffix}", width='stretch'):
+            st.session_state[f"target_warning_accepted_{key_suffix}"] = False
+            st.info("Operation cancelled.")
+            return False
+
+    return False
+
+
+def check_and_warn_missing_target_data(start_dt: datetime, end_dt: datetime, key_suffix: str = "") -> bool:
+    """
+    Check if target data exists and show warning if missing.
+
+    Args:
+        start_dt: Start datetime
+        end_dt: End datetime
+        key_suffix: Suffix for session state keys to avoid duplicates
+
+    Returns:
+        True if should proceed with GIF creation, False otherwise
+    """
+    # Check if target data exists
+    all_target_exist, missing_target_timestamps, existing_target_timestamps = check_target_data_for_range(start_dt, end_dt)
+
+    if all_target_exist:
+        # All target data exists - proceed
+        logger.info("✅ All target data available")
+        return True
+
+    # Some target data is missing - show warning
+    total_count = len(missing_target_timestamps) + len(existing_target_timestamps)
+    missing_count = len(missing_target_timestamps)
+
+    logger.warning(f"⚠️  Missing target data for {missing_count}/{total_count} timestamps")
+
+    # Check if warning was already shown and accepted
+    session_key = f"target_warning_accepted_{key_suffix}"
+    if session_key not in st.session_state:
+        st.session_state[session_key] = None
+
+    # Show warning if not yet decided
+    if st.session_state[session_key] is None:
+        # Show info message about missing data
+        st.info(
+            f"ℹ️ **Target data not available for {missing_count}/{total_count} timestamps**\n\n"
+            f"Missing range: {(start_dt + timedelta(minutes=30)).strftime('%d/%m/%Y %H:%M')} to "
+            f"{(end_dt + timedelta(minutes=60)).strftime('%d/%m/%Y %H:%M')}"
+        )
+        user_decision = show_missing_target_data_warning(start_dt, end_dt, missing_count, total_count, key_suffix)
+        return user_decision
+    elif st.session_state[session_key]:
+        # User previously accepted - proceed
+        logger.info(f"User accepted missing target data for range {start_dt} to {end_dt}")
+        return True
+    else:
+        # User previously declined
+        st.info("Operation cancelled. Target data is required for complete GIF creation.")
+        return False
 
 
 def main_page(sidebar_args, sri_folder_dir) -> None:
@@ -165,6 +272,33 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
     start_dt = datetime.combine(start_date, start_time)
     end_dt = datetime.combine(end_date, end_time)
 
+    # Check if we have cached GIFs that match current selection
+    # This allows results to persist across tab switches
+    if "gif_paths_cache" in st.session_state and st.session_state.get("gif_cache_params"):
+        cached_params = st.session_state["gif_cache_params"]
+        if (cached_params["model_name"] == model_name and
+            cached_params["start_dt"] == start_dt and
+            cached_params["end_dt"] == end_dt):
+            # We have cached GIFs for this exact selection - offer to display them
+            st.success(f"✅ GIFs available for {model_name}: {start_dt.strftime('%d/%m/%Y %H:%M')} to {end_dt.strftime('%d/%m/%Y %H:%M')}")
+
+            col1, col2, _ = st.columns([1, 1, 2])
+            with col1:
+                if st.button("📺 Display Cached GIFs", key="display_cached_gifs", width='stretch', type="primary"):
+                    # Show the cached GIFs
+                    gif_paths = st.session_state["gif_paths_cache"]
+                    load_and_display_gifs(gif_paths, model_name, start_dt, end_dt)
+                    return
+
+            with col2:
+                if st.button("🔄 Recompute", key="recompute_from_cache", width='stretch'):
+                    # Clear cache and continue to recompute
+                    st.session_state.pop("gif_paths_cache", None)
+                    st.session_state.pop("gif_cache_params", None)
+                    st.rerun()
+
+            return  # Don't show the rest of the UI
+
     # Validate date range
     if end_dt < start_dt:
         st.error("❌ End date/time must be after start date/time!")
@@ -205,7 +339,98 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
         st.success(f"✅ All {total_count} predictions exist for {model_name}")
         st.info(f"**Range**: {start_dt.strftime('%d/%m/%Y %H:%M')} to {end_dt.strftime('%d/%m/%Y %H:%M')}")
 
-        # Ask if they want to recompute
+        # Initialize session state for GIF action tracking
+        if "gif_action" not in st.session_state:
+            st.session_state["gif_action"] = None
+
+        # Check if we're showing the recompute/display dialog
+        if st.session_state["gif_action"] == "show_dialog":
+            # GIFs already exist - show dialog
+            gif_paths = get_gif_paths(model_name, start_dt, end_dt)
+
+            st.warning("⚠️ **GIFs already exist!** Do you want to recompute them or display the existing ones?")
+
+            # Custom CSS for taller, more readable buttons
+            st.markdown(
+                """
+                <style>
+                div[data-testid="column"] .stButton > button {
+                    height: 80px;
+                    font-weight: bold;
+                    font-size: 18px;
+                    white-space: normal;
+                    word-wrap: break-word;
+                }
+                </style>
+            """,
+                unsafe_allow_html=True,
+            )
+
+            col_recompute, col_display, col_cancel = st.columns([1, 1, 1])
+
+            with col_recompute:
+                if st.button("🔄 Recompute\nGIFs", key="recompute_gifs_yes", width='stretch', type="primary"):
+                    st.session_state["gif_action"] = "recompute"
+                    st.rerun()
+
+            with col_display:
+                if st.button("📺 Display\nExisting", key="recompute_gifs_no", width='stretch', type="primary"):
+                    st.session_state["gif_action"] = "display"
+                    st.rerun()
+
+            with col_cancel:
+                if st.button("❌ Cancel", key="recompute_gifs_cancel", width='stretch'):
+                    st.session_state["gif_action"] = None
+                    st.rerun()
+
+            return
+
+        # Handle recompute action
+        if st.session_state["gif_action"] == "recompute":
+            st.info("🗑️ Deleting old GIFs and creating new ones...")
+            gif_paths = get_gif_paths(model_name, start_dt, end_dt)
+
+            # Delete old GIFs
+            for path in [
+                gif_paths["gt_t0"],
+                gif_paths["gt_t6"],
+                gif_paths["gt_t12"],
+                gif_paths["pred_t6"],
+                gif_paths["pred_t12"],
+                gif_paths["diff_t6"],
+                gif_paths["diff_t12"],
+            ]:
+                if path.exists():
+                    path.unlink()
+                    logger.info(f"Deleted old GIF: {path}")
+
+            with st.spinner("Creating GIFs..."):
+                gif_paths = create_gifs_from_prediction_range(model_name, start_dt, end_dt, sri_folder_dir)
+
+            # Reset action state
+            st.session_state["gif_action"] = None
+
+            if gif_paths:
+                st.success("✅ GIFs created successfully!")
+                # Display the GIFs
+                load_and_display_gifs(gif_paths, model_name, start_dt, end_dt)
+            else:
+                st.error("❌ Failed to create GIFs. Check logs for details.")
+            return
+
+        # Handle display existing action
+        if st.session_state["gif_action"] == "display":
+            st.success("📺 Loading existing GIFs...")
+            gif_paths = get_gif_paths(model_name, start_dt, end_dt)
+
+            # Reset action state
+            st.session_state["gif_action"] = None
+
+            # Display the GIFs
+            load_and_display_gifs(gif_paths, model_name, start_dt, end_dt)
+            return
+
+        # Show initial buttons
         col1, col2, _ = st.columns([1, 1, 3])
 
         with col1:
@@ -215,42 +440,9 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
                 gt_exist, pred_exist, diff_exist = check_gifs_exist(gif_paths)
 
                 if gt_exist or pred_exist or diff_exist:
-                    # GIFs already exist - ask user if they want to recompute
-                    st.warning("⚠️ **GIFs already exist!** Do you want to recompute them?")
-
-                    col_yes, col_no, _ = st.columns([1, 1, 2])
-                    with col_yes:
-                        if st.button("🔄 Recompute", key="recompute_gifs_yes"):
-                            st.info("🗑️ Deleting old GIFs and creating new ones...")
-                            # Delete old GIFs
-                            for path in [
-                                gif_paths["gt_t6"],
-                                gif_paths["gt_t12"],
-                                gif_paths["pred_t6"],
-                                gif_paths["pred_t12"],
-                                gif_paths["diff_t6"],
-                                gif_paths["diff_t12"],
-                            ]:
-                                if path.exists():
-                                    path.unlink()
-
-                            with st.spinner("Creating GIFs..."):
-                                gif_paths = create_gifs_from_prediction_range(
-                                    model_name, start_dt, end_dt, sri_folder_dir
-                                )
-
-                            if gif_paths:
-                                st.success("✅ GIFs created successfully!")
-                                # Display the GIFs
-                                load_and_display_gifs(gif_paths)
-                            else:
-                                st.error("❌ Failed to create GIFs. Check logs for details.")
-
-                    with col_no:
-                        if st.button("📺 Display Existing", key="recompute_gifs_no"):
-                            st.success("📺 Displaying existing GIFs...")
-                            load_and_display_gifs(gif_paths)
-                    return
+                    # GIFs already exist - show dialog next time
+                    st.session_state["gif_action"] = "show_dialog"
+                    st.rerun()
                 else:
                     # GIFs don't exist - create them
                     st.info("🎬 Creating sliding window GIFs from predictions...")
@@ -261,7 +453,7 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
                     if gif_paths:
                         st.success("✅ GIFs created successfully!")
                         # Display the GIFs
-                        load_and_display_gifs(gif_paths)
+                        load_and_display_gifs(gif_paths, model_name, start_dt, end_dt)
                     else:
                         st.error("❌ Failed to create GIFs. Check logs for details.")
                     return
@@ -397,7 +589,7 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
                 st.success("✅ GIFs created successfully!")
                 logger.info(f"GIF creation completed for {model_name}")
                 # Display the GIFs
-                load_and_display_gifs(gif_paths)
+                load_and_display_gifs(gif_paths, model_name, start_dt, end_dt)
             else:
                 st.error("❌ Failed to create GIFs. Check logs for details.")
                 logger.error(f"GIF creation failed for {model_name}")
@@ -538,7 +730,7 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
                             st.success("✅ GIFs created successfully!")
                             logger.info(f"GIF creation completed for {model_name}")
                             # Display the GIFs
-                            load_and_display_gifs(gif_paths)
+                            load_and_display_gifs(gif_paths, model_name, start_dt, end_dt)
                         else:
                             st.error("❌ Failed to create GIFs. Check logs for details.")
                             logger.error(f"GIF creation failed for {model_name}")
