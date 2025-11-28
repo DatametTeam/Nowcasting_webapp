@@ -18,6 +18,7 @@ from nwc_webapp.config.config import get_config
 from nwc_webapp.config.environment import is_hpc
 from nwc_webapp.evaluation.metrics import CSI
 from nwc_webapp.logging_config import setup_logger
+from nwc_webapp.visualization.figures import compute_figure_gpd
 from nwc_webapp.page_modules.nowcasting_utils import (
     check_single_prediction_exists,
     is_training_date,
@@ -176,49 +177,6 @@ def compute_csi_for_leadtime(
     # Create DataFrame
     df = pd.DataFrame(results)
     return df
-
-
-def matplotlib_to_plotly_colorscale(cmap, norm, n_colors=256):
-    """
-    Convert matplotlib colormap to Plotly colorscale format.
-
-    Args:
-        cmap: Matplotlib colormap
-        norm: Matplotlib normalization
-        n_colors: Number of colors to sample
-
-    Returns:
-        List of [value, color] pairs for Plotly
-    """
-    import matplotlib.pyplot as plt
-    import matplotlib.colors as mcolors
-
-    # Sample the colormap
-    if isinstance(cmap, str):
-        cmap = plt.get_cmap(cmap)
-
-    # Get the normalization range
-    if norm is not None:
-        vmin = norm.vmin if hasattr(norm, 'vmin') else 0
-        vmax = norm.vmax if hasattr(norm, 'vmax') else 1
-    else:
-        vmin, vmax = 0, 1
-
-    # Create normalized values
-    values = np.linspace(vmin, vmax, n_colors)
-
-    # Sample colors from colormap
-    colors = cmap(np.linspace(0, 1, n_colors))
-
-    # Convert to Plotly format: [[0.0, 'rgb(...)'], [0.5, 'rgb(...)'], ...]
-    colorscale = []
-    for i, (val, color) in enumerate(zip(values, colors)):
-        # Normalize value to [0, 1] range for Plotly
-        normalized_val = i / (n_colors - 1)
-        r, g, b = int(color[0] * 255), int(color[1] * 255), int(color[2] * 255)
-        colorscale.append([normalized_val, f'rgb({r},{g},{b})'])
-
-    return colorscale
 
 
 def show_training_date_warning() -> bool:
@@ -684,8 +642,8 @@ def display_comparison_results(
         model_names: List of model names
         predictions: Dictionary {model_name: prediction_array}
     """
-    from plotly.subplots import make_subplots
-    import plotly.graph_objects as go
+    import matplotlib.pyplot as plt
+    from io import BytesIO
 
     config = get_config()
 
@@ -719,111 +677,58 @@ def display_comparison_results(
 
     st.markdown("---")
 
-    # Get colormap configuration
-    from nwc_webapp.visualization.colormaps import configure_colorbar
-    cmap, norm, vmin, vmax, null_color, void_color, discrete, ticks = configure_colorbar("R", min_val=None, max_val=None)
-
-    # Convert matplotlib colormap to Plotly colorscale
-    plotly_colorscale = matplotlib_to_plotly_colorscale(cmap, norm)
-
     # Create grid for each lead time
     lead_times = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]
 
     for lead_idx, lead_time in enumerate(lead_times):
         st.markdown(f"### +{lead_time} minutes")
 
-        # Prepare data for all models at this lead time
-        gt_frame = gt_data[lead_idx]
-        pred_frames = {}
-        for model_name in model_names:
-            pred_data = predictions[model_name]
-            pred_frames[model_name] = pred_data[lead_idx]
+        # Calculate number of columns: 1 (GT) + len(models) + 1 (CSI table)
+        num_cols = 1 + len(model_names) + 1
+        # Make CSI table column wider to fit all models
+        csi_col_width = 0.8 + (len(model_names) * 0.2)  # Dynamic width based on number of models
+        cols = st.columns([1] * (num_cols - 1) + [csi_col_width])
 
-        # Create Plotly subplots with synchronized axes
-        num_models = len(model_names)
-        subplot_titles = ["Ground Truth"] + list(model_names)
-
-        fig = make_subplots(
-            rows=1, cols=num_models + 1,
-            subplot_titles=subplot_titles,
-            horizontal_spacing=0.01,
-            shared_xaxes=True,  # Synchronized x-axis
-            shared_yaxes=True   # Synchronized y-axis
-        )
-
-        # Add Ground Truth heatmap
-        fig.add_trace(
-            go.Heatmap(
-                z=gt_frame,
-                colorscale=plotly_colorscale,
-                zmin=vmin if vmin is not None else 0,
-                zmax=vmax if vmax is not None else 200,
-                showscale=True,
-                colorbar=dict(
-                    title="mm/h",
-                    x=1.0 / (num_models + 1) - 0.02,
-                    len=0.9,
-                    thickness=15
-                ),
-                hovertemplate='x: %{x}<br>y: %{y}<br>Rain: %{z:.1f} mm/h<extra></extra>'
-            ),
-            row=1, col=1
-        )
-
-        # Add model prediction heatmaps
-        for model_idx, model_name in enumerate(model_names):
-            pred_frame = pred_frames[model_name]
-
-            fig.add_trace(
-                go.Heatmap(
-                    z=pred_frame,
-                    colorscale=plotly_colorscale,
-                    zmin=vmin if vmin is not None else 0,
-                    zmax=vmax if vmax is not None else 200,
-                    showscale=True,
-                    colorbar=dict(
-                        title="mm/h",
-                        x=((model_idx + 2) / (num_models + 1)) - 0.02,
-                        len=0.9,
-                        thickness=15
-                    ),
-                    hovertemplate='x: %{x}<br>y: %{y}<br>Rain: %{z:.1f} mm/h<extra></extra>'
-                ),
-                row=1, col=model_idx + 2
-            )
-
-        # Update layout for synchronized zoom
-        fig.update_layout(
-            height=400,
-            showlegend=False,
-            margin=dict(l=20, r=20, t=50, b=20),
-            hovermode='closest'
-        )
-
-        # Update axes - maintain aspect ratio and enable synchronized zoom
-        for i in range(1, num_models + 2):
-            fig.update_xaxes(
-                scaleanchor=f"y{i}",
-                scaleratio=1,
-                row=1, col=i,
-                showticklabels=False,
-                showgrid=False
-            )
-            fig.update_yaxes(
-                autorange='reversed',  # Flip y-axis for image coordinates
-                row=1, col=i,
-                showticklabels=False,
-                showgrid=False
-            )
-
-        # Display Plotly figure with CSI table side-by-side
-        cols = st.columns([4, 1])  # Wider column for plots, narrower for CSI
-
+        # Column 0: Ground Truth
         with cols[0]:
-            st.plotly_chart(fig, use_container_width=True, key=f"plot_leadtime_{lead_time}")
+            st.markdown(f"**Ground Truth**")
+            gt_frame = gt_data[lead_idx]
 
-        # CSI table
-        with cols[1]:
+            # Create figure using compute_figure_gpd (includes Italy map)
+            gt_time = timestamp + timedelta(minutes=lead_time)
+            timestamp_str = f"GT +{lead_time}min - {gt_time.strftime('%d/%m/%Y %H:%M')}"
+            fig = compute_figure_gpd(gt_frame, timestamp_str, name="")
+
+            # Convert to BytesIO
+            buf = BytesIO()
+            fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+            buf.seek(0)
+
+            st.image(buf, use_container_width=True)
+
+        # Columns for models
+        pred_frames = {}
+        for model_idx, model_name in enumerate(model_names):
+            with cols[model_idx + 1]:
+                st.markdown(f"**{model_name}**")
+                pred_data = predictions[model_name]
+                pred_frame = pred_data[lead_idx]
+                pred_frames[model_name] = pred_frame
+
+                # Create figure using compute_figure_gpd (includes Italy map)
+                pred_time = timestamp + timedelta(minutes=lead_time)
+                timestamp_str = f"{model_name} +{lead_time}min - {pred_time.strftime('%d/%m/%Y %H:%M')}"
+                fig = compute_figure_gpd(pred_frame, timestamp_str, name="")
+
+                # Convert to BytesIO
+                buf = BytesIO()
+                fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+                buf.seek(0)
+
+                st.image(buf, use_container_width=True)
+
+        # Last column: CSI table
+        with cols[-1]:
             st.markdown("**CSI Metrics**")
 
             # Compute CSI for all models at this lead time
@@ -833,9 +738,18 @@ def display_comparison_results(
             csi_df = csi_df.set_index("Model").T
             csi_df.index.name = "Threshold"
 
+            # Display as table with smaller font
+            st.markdown("""
+                <style>
+                .small-table {
+                    font-size: 10px;
+                }
+                </style>
+            """, unsafe_allow_html=True)
+
             # Format CSI values to 3 decimal places
             csi_df = csi_df.applymap(lambda x: f"{x:.3f}" if isinstance(x, (int, float)) else x)
 
-            st.dataframe(csi_df, use_container_width=True, height=350)
+            st.dataframe(csi_df, use_container_width=True)
 
         st.markdown("---")
