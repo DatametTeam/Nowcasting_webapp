@@ -234,6 +234,8 @@ def show_model_comparison_page(model_list: List[str]):
         st.session_state["comparison_model_action"] = None  # "display", "compute", or None
     if "comparison_pending_model" not in st.session_state:
         st.session_state["comparison_pending_model"] = None
+    if "comparison_load_gt_action" not in st.session_state:
+        st.session_state["comparison_load_gt_action"] = None  # None, "show_warning", "load"
 
     # Timestamp selection
     st.subheader("📅 Select Timestamp")
@@ -266,25 +268,51 @@ def show_model_comparison_page(model_list: List[str]):
         st.session_state["comparison_gt"] = None
         st.session_state["comparison_predictions"] = {}
         st.session_state["comparison_show_results"] = False
+        st.session_state["comparison_load_gt_action"] = None
+        st.session_state["training_warning_accepted_comparison"] = False
 
-    # Load ground truth button
+    # Load ground truth workflow
     if st.session_state["comparison_gt"] is None:
-        if st.button("📊 Load Ground Truth", type="primary", width='stretch'):
-            # Check training date
+        # Step 1: Show "Load Ground Truth" button
+        if st.session_state["comparison_load_gt_action"] is None:
+            if st.button("📊 Load Ground Truth", type="primary", width='stretch'):
+                st.session_state["comparison_load_gt_action"] = "check_training"
+                st.rerun()
+            return
+
+        # Step 2: Check if training date warning needed
+        if st.session_state["comparison_load_gt_action"] == "check_training":
             if is_training_date(selected_datetime):
                 if not st.session_state.get("training_warning_accepted_comparison", False):
+                    # Show warning dialog
                     if not show_training_date_warning():
+                        # User hasn't clicked YES or NO yet - keep showing warning
+                        return
+                    # User clicked NO
+                    if not st.session_state.get("training_warning_accepted_comparison", False):
+                        st.session_state["comparison_load_gt_action"] = None
+                        st.rerun()
                         return
 
+            # Training date accepted or not a training date - proceed to load
+            st.session_state["comparison_load_gt_action"] = "load"
+            st.rerun()
+
+        # Step 3: Load ground truth
+        if st.session_state["comparison_load_gt_action"] == "load":
             with st.spinner("Loading ground truth..."):
                 gt_data = load_groundtruth_for_timestamp(selected_datetime)
 
             if gt_data is not None:
                 st.session_state["comparison_gt"] = gt_data
+                st.session_state["comparison_load_gt_action"] = None
                 st.success(f"✅ Ground truth loaded for {selected_datetime.strftime('%d/%m/%Y %H:%M')}")
                 st.rerun()
             else:
                 st.error("❌ Failed to load ground truth data")
+                st.session_state["comparison_load_gt_action"] = None
+            return
+
         return
 
     # Ground truth loaded - show model management
