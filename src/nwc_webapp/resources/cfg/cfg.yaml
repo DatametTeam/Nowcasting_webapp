@@ -63,6 +63,12 @@ visualization:
     max_value: 100
     data_values: [0, 1, 2, 5, 10, 20, 30, 50, 75, 100]
 
+  # Difference plot settings
+  difference:
+    vmin: -20
+    vmax: 20
+    colormap: "RdBu_r"  # Red for positive, Blue for negative
+
   # Minimum precipitation value threshold (values below this are filtered out)
   min_value_threshold: 0.2
 

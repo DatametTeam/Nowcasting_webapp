@@ -298,8 +298,8 @@ def init_second_tab_layout(groundtruth_images, target_frames, pred_frames):
                     frame_target = target_frames.get(timestamp_target, None)
 
                     if frame_pred is not None and frame_target is not None:
-                        # calculate differences
-                        frame_diff = np.abs(frame_target - frame_pred)
+                        # calculate signed difference (positive=target higher, negative=pred higher)
+                        frame_diff = frame_target - frame_pred
 
                         if frame_diff is not None:
                             fig_diff = compute_figure_gpd(frame_diff, "DIFF @ " + timestamp_pred, name="diff")

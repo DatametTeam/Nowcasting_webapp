@@ -967,21 +967,21 @@ def create_gifs_from_prediction_range(
         diff_30_figures = {}
         diff_60_figures = {}
 
-        # Difference +30: target30 - pred30
+        # Difference +30: target30 - pred30 (signed difference: positive=target higher, negative=pred higher)
         for timestamp in pred_30_figures.keys():
             if timestamp in target30_raw_data and timestamp in pred_30_raw_data:
                 try:
-                    diff_array = np.abs(target30_raw_data[timestamp] - pred_30_raw_data[timestamp])
+                    diff_array = target30_raw_data[timestamp] - pred_30_raw_data[timestamp]
                     fig = compute_figure_gpd(diff_array, timestamp.strftime("%d/%m/%Y %H:%M"), name="diff")
                     diff_30_figures[timestamp] = fig
                 except Exception as e:
                     logger.warning(f"Error computing diff +30 for {timestamp}: {e}")
 
-        # Difference +60: target60 - pred60
+        # Difference +60: target60 - pred60 (signed difference: positive=target higher, negative=pred higher)
         for timestamp in pred_60_figures.keys():
             if timestamp in target60_raw_data and timestamp in pred_60_raw_data:
                 try:
-                    diff_array = np.abs(target60_raw_data[timestamp] - pred_60_raw_data[timestamp])
+                    diff_array = target60_raw_data[timestamp] - pred_60_raw_data[timestamp]
                     fig = compute_figure_gpd(diff_array, timestamp.strftime("%d/%m/%Y %H:%M"), name="diff")
                     diff_60_figures[timestamp] = fig
                 except Exception as e:

@@ -25,6 +25,7 @@ class VisualizationConfig:
     zoom_start: int
     data_shape: Dict[str, int]
     colormap: Dict[str, Any]
+    difference: Dict[str, Any]  # Difference plot settings (vmin, vmax, colormap)
     min_value_threshold: float
     gif: Dict[str, Any]
 
@@ -237,6 +238,22 @@ class Config:
         """Get logging configuration."""
         log_config = self._config.get("logging", {})
         return LoggingConfig(**log_config)
+
+    # Difference plot settings
+    @property
+    def diff_vmin(self) -> float:
+        """Get minimum value for difference plots."""
+        return self._config.get("visualization", {}).get("difference", {}).get("vmin", -20)
+
+    @property
+    def diff_vmax(self) -> float:
+        """Get maximum value for difference plots."""
+        return self._config.get("visualization", {}).get("difference", {}).get("vmax", 20)
+
+    @property
+    def diff_colormap(self) -> str:
+        """Get colormap for difference plots."""
+        return self._config.get("visualization", {}).get("difference", {}).get("colormap", "RdBu_r")
 
     # Convenience methods
     def get_model_pbs_env(self, model_name: str) -> str:
