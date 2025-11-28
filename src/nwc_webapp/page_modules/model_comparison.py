@@ -16,8 +16,9 @@ import streamlit as st
 
 from nwc_webapp.config.config import get_config
 from nwc_webapp.config.environment import is_hpc
-from nwc_webapp.evaluation.metrics import compute_CSI
+from nwc_webapp.evaluation.metrics import CSI
 from nwc_webapp.logging_config import setup_logger
+from nwc_webapp.visualization.figures import compute_figure_gpd
 from nwc_webapp.page_modules.nowcasting_utils import (
     check_single_prediction_exists,
     is_training_date,
@@ -25,7 +26,6 @@ from nwc_webapp.page_modules.nowcasting_utils import (
     submit_date_range_prediction_job,
 )
 from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
-from nwc_webapp.visualization.colormaps import configure_colorbar
 
 # Set up logger
 logger = setup_logger(__name__)
@@ -165,7 +165,7 @@ def compute_csi_for_leadtime(
         row = {"Model": model_name}
 
         for threshold in thresholds:
-            csi = compute_CSI(gt_frame, pred_frame, threshold)
+            csi = CSI(gt_frame, pred_frame, threshold)
             row[f"{threshold} mm/h"] = csi
 
         # Add average CSI
@@ -647,14 +647,11 @@ def display_comparison_results(
 
     config = get_config()
 
-    # Load colormap and legend using the existing function
-    cmap, norm, vmin, vmax, null_color, void_color, discrete, ticks = configure_colorbar("R", min_val=None, max_val=None)
-
     st.markdown("---")
     st.subheader("📊 Comparison Results")
 
     # Get CSI thresholds from config
-    thresholds = config.threshold
+    thresholds = config.csi_threshold
 
     # Show current models with remove buttons
     st.write("**Current Models:**")
@@ -695,13 +692,10 @@ def display_comparison_results(
             st.markdown(f"**Ground Truth**")
             gt_frame = gt_data[lead_idx]
 
-            # Create figure
-            fig, ax = plt.subplots(figsize=(6, 6))
-            im = ax.pcolormesh(gt_frame, cmap=cmap, norm=norm)
-            ax.set_title(f"GT +{lead_time}min\n{(timestamp + timedelta(minutes=lead_time)).strftime('%H:%M')}")
-            ax.axis('off')
-            ax.set_aspect('equal')
-            plt.tight_layout()
+            # Create figure using compute_figure_gpd (includes Italy map)
+            gt_time = timestamp + timedelta(minutes=lead_time)
+            timestamp_str = f"GT +{lead_time}min - {gt_time.strftime('%d/%m/%Y %H:%M')}"
+            fig = compute_figure_gpd(gt_frame, timestamp_str, name="")
 
             # Convert to BytesIO
             buf = BytesIO()
@@ -720,13 +714,10 @@ def display_comparison_results(
                 pred_frame = pred_data[lead_idx]
                 pred_frames[model_name] = pred_frame
 
-                # Create figure
-                fig, ax = plt.subplots(figsize=(6, 6))
-                im = ax.pcolormesh(pred_frame, cmap=cmap, norm=norm)
-                ax.set_title(f"{model_name} +{lead_time}min")
-                ax.axis('off')
-                ax.set_aspect('equal')
-                plt.tight_layout()
+                # Create figure using compute_figure_gpd (includes Italy map)
+                pred_time = timestamp + timedelta(minutes=lead_time)
+                timestamp_str = f"{model_name} +{lead_time}min - {pred_time.strftime('%d/%m/%Y %H:%M')}"
+                fig = compute_figure_gpd(pred_frame, timestamp_str, name="")
 
                 # Convert to BytesIO
                 buf = BytesIO()
