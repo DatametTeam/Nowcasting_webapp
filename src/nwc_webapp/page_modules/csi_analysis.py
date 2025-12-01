@@ -416,28 +416,30 @@ def show_csi_analysis_page(model_list):
                                     models_for_csi.append(model)
 
                         if len(models_for_csi) > 0:
-                            st.info(f"🔄 Auto-computing CSI for {len(models_for_csi)} model(s)...")
+                            st.info(f"🔄 Auto-computing CSI/POD/FAR for {len(models_for_csi)} model(s)...")
 
-                            with st.spinner(f"Computing CSI for {len(models_for_csi)} model(s)..."):
+                            with st.spinner(f"Computing CSI/POD/FAR for {len(models_for_csi)} model(s)..."):
                                 try:
-                                    # Compute CSI for all models with predictions
-                                    csi_results = compute_csi_for_models(
+                                    # Compute CSI, POD, FAR for all models with predictions
+                                    csi_results, pod_results, far_results = compute_csi_for_models(
                                         models=models_for_csi,
                                         start_dt=start_datetime,
                                         end_dt=end_datetime
                                     )
 
-                                    if csi_results is not None:
+                                    if csi_results is not None and pod_results is not None and far_results is not None:
                                         # Store results in session state
                                         st.session_state["csi_results"] = csi_results
+                                        st.session_state["pod_results"] = pod_results
+                                        st.session_state["far_results"] = far_results
                                         st.session_state["csi_result_models"] = models_for_csi
                                         st.session_state["csi_result_interval"] = (start_datetime, end_datetime)
-                                        logger.info(f"✅ Auto-computed CSI for {len(models_for_csi)} model(s)")
+                                        logger.info(f"✅ Auto-computed CSI/POD/FAR for {len(models_for_csi)} model(s)")
                                     else:
-                                        logger.error("Failed to auto-compute CSI")
+                                        logger.error("Failed to auto-compute CSI/POD/FAR")
 
                                 except Exception as e:
-                                    logger.error(f"Error auto-computing CSI: {e}")
+                                    logger.error(f"Error auto-computing CSI/POD/FAR: {e}")
                                     import traceback
                                     logger.error(traceback.format_exc())
 
@@ -459,32 +461,34 @@ def show_csi_analysis_page(model_list):
             width='stretch',
             type="primary"
         ):
-            # Compute CSI
-            st.info(f"Computing CSI for: {', '.join(models_with_predictions)}")
+            # Compute CSI/POD/FAR
+            st.info(f"Computing CSI/POD/FAR for: {', '.join(models_with_predictions)}")
 
-            with st.spinner(f"Computing CSI for {len(models_with_predictions)} model(s)..."):
+            with st.spinner(f"Computing CSI/POD/FAR for {len(models_with_predictions)} model(s)..."):
                 try:
-                    # Compute CSI
-                    csi_results = compute_csi_for_models(
+                    # Compute CSI, POD, FAR
+                    csi_results, pod_results, far_results = compute_csi_for_models(
                         models=models_with_predictions,
                         start_dt=start_datetime,
                         end_dt=end_datetime
                     )
 
-                    if csi_results is not None:
+                    if csi_results is not None and pod_results is not None and far_results is not None:
                         # Store results in session state
                         st.session_state["csi_results"] = csi_results
+                        st.session_state["pod_results"] = pod_results
+                        st.session_state["far_results"] = far_results
                         st.session_state["csi_result_models"] = models_with_predictions
                         st.session_state["csi_result_interval"] = (start_datetime, end_datetime)
 
-                        st.success(f"✅ CSI computation completed for {len(models_with_predictions)} model(s)!")
+                        st.success(f"✅ CSI/POD/FAR computation completed for {len(models_with_predictions)} model(s)!")
                         st.rerun()
                     else:
-                        st.error("❌ Failed to compute CSI. Check logs for details.")
+                        st.error("❌ Failed to compute CSI/POD/FAR. Check logs for details.")
 
                 except Exception as e:
-                    st.error(f"❌ Error computing CSI: {e}")
-                    logger.error(f"Error computing CSI: {e}")
+                    st.error(f"❌ Error computing CSI/POD/FAR: {e}")
+                    logger.error(f"Error computing CSI/POD/FAR: {e}")
                     import traceback
                     logger.error(traceback.format_exc())
 

@@ -2,6 +2,56 @@ import numpy as np
 import pandas as pd
 
 
+def POD(obs, pred, threshold=0.1):
+    """
+    POD - Probability of Detection
+
+    POD = TP / (TP + FN) = hits / (hits + misses)
+
+    Measures the fraction of observed events that were correctly predicted.
+    Range: [0, 1], where 1 is perfect.
+
+    Args:
+        obs (numpy.ndarray): observations
+        pred (numpy.ndarray): predictions
+        threshold (float): threshold for rainfall values binarization
+
+    Returns:
+        float: POD value (None if undefined)
+    """
+    hits, misses, falsealarms, correctnegatives = prep_clf(obs=obs, pred=pred, threshold=threshold)
+
+    if (hits + misses) == 0:
+        return None
+
+    return hits / (hits + misses)
+
+
+def FAR(obs, pred, threshold=0.1):
+    """
+    FAR - False Alarm Rate
+
+    FAR = FP / (TP + FP) = falsealarms / (hits + falsealarms)
+
+    Measures the fraction of predicted events that did not occur.
+    Range: [0, 1], where 0 is perfect (no false alarms).
+
+    Args:
+        obs (numpy.ndarray): observations
+        pred (numpy.ndarray): predictions
+        threshold (float): threshold for rainfall values binarization
+
+    Returns:
+        float: FAR value (None if undefined)
+    """
+    hits, misses, falsealarms, correctnegatives = prep_clf(obs=obs, pred=pred, threshold=threshold)
+
+    if (hits + falsealarms) == 0:
+        return None
+
+    return falsealarms / (hits + falsealarms)
+
+
 def CSI(obs, pred, threshold=0.1):
     """
     CSI - critical success index

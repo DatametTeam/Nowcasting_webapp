@@ -137,9 +137,9 @@ def compute_csi_for_single_model(
     start_dt: datetime,
     end_dt: datetime,
     thresholds: List[float]
-) -> pd.DataFrame:
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    Compute CSI for a single model (helper function for parallel processing).
+    Compute CSI, POD, and FAR for a single model (helper function for parallel processing).
 
     Args:
         model: Model name
@@ -148,9 +148,9 @@ def compute_csi_for_single_model(
         thresholds: CSI thresholds
 
     Returns:
-        DataFrame with CSI scores (rows=thresholds, columns=lead times)
+        Tuple of three DataFrames (CSI, POD, FAR) with scores (rows=thresholds, columns=lead times)
     """
-    logger.info(f"🔄 [{model}] Starting CSI computation...")
+    logger.info(f"🔄 [{model}] Starting CSI/POD/FAR computation...")
 
     try:
         config = get_config()
@@ -163,8 +163,10 @@ def compute_csi_for_single_model(
         # Generate all base timestamps in range
         all_timestamps = generate_timestamp_range(start_dt, end_dt, verbose=False)
 
-        # Initialize storage for CSI by lead time
+        # Initialize storage for CSI, POD, FAR by lead time
         csi_by_leadtime = {lt: {th: [] for th in thresholds} for lt in range(12)}
+        pod_by_leadtime = {lt: {th: [] for th in thresholds} for lt in range(12)}
+        far_by_leadtime = {lt: {th: [] for th in thresholds} for lt in range(12)}
 
         logger.info(f"📊 [{model}] Loading predictions for {len(all_timestamps)} timestamps...")
 
@@ -218,12 +220,19 @@ def compute_csi_for_single_model(
                                 pred_data = pred_data * radar_mask
                                 pred_data = np.clip(pred_data, 0, 200)
 
-                                # Compute CSI for each threshold
-                                from nwc_webapp.evaluation.metrics import CSI
+                                # Compute CSI, POD, FAR for each threshold
+                                from nwc_webapp.evaluation.metrics import CSI, POD, FAR
                                 for th in thresholds:
                                     csi_value = CSI(target_data, pred_data, threshold=th)
+                                    pod_value = POD(target_data, pred_data, threshold=th)
+                                    far_value = FAR(target_data, pred_data, threshold=th)
+
                                     if csi_value is not None:
                                         csi_by_leadtime[lead_time_idx][th].append(csi_value)
+                                    if pod_value is not None:
+                                        pod_by_leadtime[lead_time_idx][th].append(pod_value)
+                                    if far_value is not None:
+                                        far_by_leadtime[lead_time_idx][th].append(far_value)
 
                         except Exception as e:
                             logger.warning(f"[{model}] Error loading target at {target_path}: {e}")
@@ -231,34 +240,64 @@ def compute_csi_for_single_model(
             except Exception as e:
                 logger.error(f"[{model}] Error processing prediction {pred_path}: {e}")
 
-        # Average CSI across all timestamps for each lead time
+        # Average CSI, POD, FAR across all timestamps for each lead time
         lead_time_labels = [f"{5 * (i + 1)}" for i in range(12)]
         csi_matrix = []
+        pod_matrix = []
+        far_matrix = []
 
         for th in thresholds:
-            row = []
+            csi_row = []
+            pod_row = []
+            far_row = []
+
             for lead_time_idx in range(12):
+                # CSI
                 csi_values = csi_by_leadtime[lead_time_idx][th]
                 if csi_values:
-                    avg_csi = np.mean(csi_values)
-                    row.append(avg_csi)
+                    csi_row.append(np.mean(csi_values))
                 else:
-                    row.append(0.0)
-            csi_matrix.append(row)
+                    csi_row.append(0.0)
 
-        # Create DataFrame
-        model_df = pd.DataFrame(csi_matrix, index=thresholds, columns=lead_time_labels)
-        model_df.index.name = "Threshold (mm/h)"
-        model_df.columns.name = "Lead Time (min)"
+                # POD
+                pod_values = pod_by_leadtime[lead_time_idx][th]
+                if pod_values:
+                    pod_row.append(np.mean(pod_values))
+                else:
+                    pod_row.append(0.0)
 
-        logger.info(f"✅ [{model}] CSI computation completed!")
-        return model_df
+                # FAR
+                far_values = far_by_leadtime[lead_time_idx][th]
+                if far_values:
+                    far_row.append(np.mean(far_values))
+                else:
+                    far_row.append(0.0)
+
+            csi_matrix.append(csi_row)
+            pod_matrix.append(pod_row)
+            far_matrix.append(far_row)
+
+        # Create DataFrames
+        csi_df = pd.DataFrame(csi_matrix, index=thresholds, columns=lead_time_labels)
+        csi_df.index.name = "Threshold (mm/h)"
+        csi_df.columns.name = "Lead Time (min)"
+
+        pod_df = pd.DataFrame(pod_matrix, index=thresholds, columns=lead_time_labels)
+        pod_df.index.name = "Threshold (mm/h)"
+        pod_df.columns.name = "Lead Time (min)"
+
+        far_df = pd.DataFrame(far_matrix, index=thresholds, columns=lead_time_labels)
+        far_df.index.name = "Threshold (mm/h)"
+        far_df.columns.name = "Lead Time (min)"
+
+        logger.info(f"✅ [{model}] CSI/POD/FAR computation completed!")
+        return csi_df, pod_df, far_df
 
     except Exception as e:
-        logger.error(f"❌ [{model}] Error computing CSI: {e}")
+        logger.error(f"❌ [{model}] Error computing CSI/POD/FAR: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return None
+        return None, None, None
 
 
 def compute_csi_for_models(
@@ -266,11 +305,11 @@ def compute_csi_for_models(
     start_dt: datetime,
     end_dt: datetime,
     thresholds: List[float] = None
-) -> Dict[str, pd.DataFrame]:
+) -> Tuple[Dict[str, pd.DataFrame], Dict[str, pd.DataFrame], Dict[str, pd.DataFrame]]:
     """
-    Compute CSI scores for multiple models over a date range in parallel.
+    Compute CSI, POD, and FAR scores for multiple models over a date range in parallel.
 
-    For each model, computes CSI averaged across all base timestamps in the interval,
+    For each model, computes metrics averaged across all base timestamps in the interval,
     but keeps lead times separate (+5min, +10min, ..., +60min).
 
     Args:
@@ -280,19 +319,21 @@ def compute_csi_for_models(
         thresholds: CSI thresholds (default: [1, 5, 10, 20, 50])
 
     Returns:
-        Dictionary mapping model names to DataFrames where:
+        Tuple of three dictionaries (CSI, POD, FAR), each mapping model names to DataFrames where:
         - Rows: Thresholds (mm/h)
         - Columns: Lead times (5, 10, 15, ..., 60 minutes)
-        - Values: CSI scores averaged across all timestamps in the interval
+        - Values: Metric scores averaged across all timestamps in the interval
     """
     if thresholds is None:
         config = get_config()
         thresholds = config.csi_thresholds if hasattr(config, 'csi_thresholds') else [1, 5, 10, 20, 50]
 
-    logger.info(f"🚀 Computing CSI for {len(models)} models in parallel from {start_dt} to {end_dt}")
+    logger.info(f"🚀 Computing CSI/POD/FAR for {len(models)} models in parallel from {start_dt} to {end_dt}")
 
-    # Store CSI dataframes (one per model)
+    # Store dataframes (one per model for each metric)
     model_csi_dfs = {}
+    model_pod_dfs = {}
+    model_far_dfs = {}
 
     # Use ThreadPoolExecutor for parallel processing
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -308,16 +349,18 @@ def compute_csi_for_models(
         for future in as_completed(future_to_model):
             model = future_to_model[future]
             try:
-                result = future.result()
-                if result is not None:
-                    model_csi_dfs[model] = result
+                csi_df, pod_df, far_df = future.result()
+                if csi_df is not None and pod_df is not None and far_df is not None:
+                    model_csi_dfs[model] = csi_df
+                    model_pod_dfs[model] = pod_df
+                    model_far_dfs[model] = far_df
             except Exception as e:
-                logger.error(f"❌ [{model}] Exception during CSI computation: {e}")
+                logger.error(f"❌ [{model}] Exception during CSI/POD/FAR computation: {e}")
 
     if not model_csi_dfs:
         logger.error("No CSI data computed for any model")
-        return None
+        return None, None, None
 
-    logger.info(f"CSI computation completed for {len(model_csi_dfs)} models")
+    logger.info(f"CSI/POD/FAR computation completed for {len(model_csi_dfs)} models")
 
-    return model_csi_dfs
+    return model_csi_dfs, model_pod_dfs, model_far_dfs
