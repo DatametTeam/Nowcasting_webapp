@@ -625,6 +625,60 @@ def show_csi_analysis_page(model_list):
                 st.pyplot(fig, width='stretch')
                 plt.close()
 
+                # Fit Diagrams - POD vs FAR with CSI coloring
+                st.markdown("---")
+                st.subheader("📐 Performance Fit Diagrams (POD vs FAR)")
+                st.markdown("**One diagram per threshold showing all models**")
+
+                # Get POD and FAR results from session state
+                pod_dict = st.session_state.get("pod_results", {})
+                far_dict = st.session_state.get("far_results", {})
+
+                if pod_dict and far_dict:
+                    from nwc_webapp.visualization.fit_diagram import create_performance_fit_diagram
+
+                    # Create one fit diagram per threshold
+                    for threshold in thresholds:
+                        st.markdown(f"#### Threshold: {threshold} mm/h")
+
+                        # Extract averaged POD, FAR, CSI values for this threshold (across all lead times)
+                        pod_values = []
+                        far_values = []
+                        csi_values = []
+
+                        for model in result_models:
+                            # Average across all lead times for this threshold
+                            pod_avg = pod_dict[model].loc[threshold].mean()
+                            far_avg = far_dict[model].loc[threshold].mean()
+                            csi_avg = results_dict[model].loc[threshold].mean()
+
+                            pod_values.append(pod_avg)
+                            far_values.append(far_avg)
+                            csi_values.append(csi_avg)
+
+                        # Create fit diagram
+                        try:
+                            fig_fit = create_performance_fit_diagram(
+                                pod_values=pod_values,
+                                far_values=far_values,
+                                csi_values=csi_values,
+                                model_names=result_models,
+                                threshold=threshold
+                            )
+
+                            st.pyplot(fig_fit, width='stretch')
+                            plt.close(fig_fit)
+
+                        except Exception as e:
+                            logger.error(f"Error creating fit diagram for threshold {threshold}: {e}")
+                            import traceback
+                            logger.error(traceback.format_exc())
+                            st.warning(f"⚠️ Could not generate fit diagram for threshold {threshold} mm/h")
+
+                        st.markdown("")  # Add spacing between diagrams
+                else:
+                    st.warning("⚠️ POD/FAR data not available. Please recompute metrics.")
+
                 # Bar chart comparing overall model performance (MOVED TO END)
                 st.markdown("---")
                 st.markdown("**Overall Model Comparison:**")
