@@ -584,21 +584,22 @@ def show_csi_analysis_page(model_list):
             # Get thresholds from first model's DataFrame
             thresholds = results_dict[result_models[0]].index.tolist()
 
-            # Create centered column with 0.6 width
-            col_left, col_center, col_right = st.columns([0.2, 0.6, 0.2])
+            # Get POD and FAR results from session state
+            pod_dict = st.session_state.get("pod_results", {})
+            far_dict = st.session_state.get("far_results", {})
 
-            with col_center:
-                # Create one plot per threshold showing CSI vs lead time (one per row)
-                n_thresholds = len(thresholds)
-                n_cols = 1
-                n_rows = n_thresholds
+            # Display CSI plots and Fit Diagrams side by side for each threshold
+            for threshold in thresholds:
+                st.markdown(f"### 📊 Threshold: {threshold} mm/h")
 
-                # Reduced figure size
-                fig, axes = plt.subplots(n_rows, n_cols, figsize=(8, 3 * n_rows))
-                axes = axes.flatten() if n_thresholds > 1 else [axes]
+                # Create two columns: CSI plot on left, Fit diagram on right
+                col_csi, col_fit = st.columns(2)
 
-                for idx, threshold in enumerate(thresholds):
-                    ax = axes[idx]
+                with col_csi:
+                    st.markdown("**CSI vs Lead Time**")
+
+                    # Create CSI plot for this threshold
+                    fig_csi, ax_csi = plt.subplots(figsize=(6, 4))
 
                     # Plot each model as a line
                     for model in result_models:
@@ -606,40 +607,25 @@ def show_csi_analysis_page(model_list):
                         lead_times = [int(col) for col in model_df.columns]  # Convert "5", "10", ... to integers
                         csi_values = model_df.loc[threshold].values
 
-                        ax.plot(lead_times, csi_values, marker='o', label=model, linewidth=2, markersize=4)
+                        ax_csi.plot(lead_times, csi_values, marker='o', label=model, linewidth=2, markersize=4)
 
-                    ax.set_title(f"CSI @ {threshold} mm/h", fontsize=11, fontweight='bold')
-                    ax.set_xlabel("Lead Time (minutes)", fontsize=9)
-                    ax.set_ylabel("CSI Score", fontsize=9)
-                    ax.set_ylim([0, 1])
-                    ax.set_xlim([0, 65])
-                    ax.grid(True, alpha=0.3)
-                    ax.legend(fontsize=7, loc='best')
-                    ax.set_xticks([5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60])
+                    ax_csi.set_xlabel("Lead Time (minutes)", fontsize=9)
+                    ax_csi.set_ylabel("CSI Score", fontsize=9)
+                    ax_csi.set_ylim([0, 1])
+                    ax_csi.set_xlim([0, 65])
+                    ax_csi.grid(True, alpha=0.3)
+                    ax_csi.legend(fontsize=7, loc='best')
+                    ax_csi.set_xticks([5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60])
 
-                # Hide unused subplots
-                for idx in range(n_thresholds, len(axes)):
-                    axes[idx].set_visible(False)
+                    plt.tight_layout()
+                    st.pyplot(fig_csi, use_container_width=True)
+                    plt.close(fig_csi)
 
-                plt.tight_layout()
-                st.pyplot(fig, width='stretch')
-                plt.close()
+                with col_fit:
+                    st.markdown("**Performance Fit Diagram (POD vs FAR)**")
 
-                # Fit Diagrams - POD vs FAR with CSI coloring
-                st.markdown("---")
-                st.subheader("📐 Performance Fit Diagrams (POD vs FAR)")
-                st.markdown("**One diagram per threshold showing all models**")
-
-                # Get POD and FAR results from session state
-                pod_dict = st.session_state.get("pod_results", {})
-                far_dict = st.session_state.get("far_results", {})
-
-                if pod_dict and far_dict:
-                    from nwc_webapp.visualization.fit_diagram import create_performance_fit_diagram
-
-                    # Create one fit diagram per threshold
-                    for threshold in thresholds:
-                        st.markdown(f"#### Threshold: {threshold} mm/h")
+                    if pod_dict and far_dict:
+                        from nwc_webapp.visualization.fit_diagram import create_performance_fit_diagram
 
                         # Extract averaged POD, FAR, CSI values for this threshold (across all lead times)
                         pod_values = []
@@ -666,43 +652,43 @@ def show_csi_analysis_page(model_list):
                                 threshold=threshold
                             )
 
-                            st.pyplot(fig_fit, width='stretch')
+                            st.pyplot(fig_fit, use_container_width=True)
                             plt.close(fig_fit)
 
                         except Exception as e:
                             logger.error(f"Error creating fit diagram for threshold {threshold}: {e}")
                             import traceback
                             logger.error(traceback.format_exc())
-                            st.warning(f"⚠️ Could not generate fit diagram for threshold {threshold} mm/h")
+                            st.warning(f"⚠️ Could not generate fit diagram")
+                    else:
+                        st.warning("⚠️ POD/FAR data not available")
 
-                        st.markdown("")  # Add spacing between diagrams
-                else:
-                    st.warning("⚠️ POD/FAR data not available. Please recompute metrics.")
+                st.markdown("---")  # Separator between thresholds
 
-                # Bar chart comparing overall model performance (MOVED TO END)
-                st.markdown("---")
-                st.markdown("**Overall Model Comparison:**")
-                fig_avg, ax_avg = plt.subplots(figsize=(8, 4))
+            # Bar chart comparing overall model performance
+            st.markdown("---")
+            st.markdown("**Overall Model Comparison:**")
+            fig_avg, ax_avg = plt.subplots(figsize=(8, 4))
 
-                avg_sorted = avg_series.sort_values(ascending=False)
-                bars = avg_sorted.plot(kind='bar', ax=ax_avg, color='skyblue', edgecolor='black')
+            avg_sorted = avg_series.sort_values(ascending=False)
+            bars = avg_sorted.plot(kind='bar', ax=ax_avg, color='skyblue', edgecolor='black')
 
-                ax_avg.set_title("Average CSI Score by Model (All Thresholds & Lead Times)", fontsize=12, fontweight='bold')
-                ax_avg.set_xlabel("Model", fontsize=10)
-                ax_avg.set_ylabel("Average CSI Score", fontsize=10)
-                ax_avg.set_ylim([0, 1])
-                ax_avg.grid(True, alpha=0.3, axis='y')
-                ax_avg.axhline(y=overall_avg, color='red', linestyle='--', linewidth=2, label=f'Overall Avg: {overall_avg:.3f}')
-                ax_avg.legend()
-                ax_avg.tick_params(axis='x', rotation=45)
+            ax_avg.set_title("Average CSI Score by Model (All Thresholds & Lead Times)", fontsize=12, fontweight='bold')
+            ax_avg.set_xlabel("Model", fontsize=10)
+            ax_avg.set_ylabel("Average CSI Score", fontsize=10)
+            ax_avg.set_ylim([0, 1])
+            ax_avg.grid(True, alpha=0.3, axis='y')
+            ax_avg.axhline(y=overall_avg, color='red', linestyle='--', linewidth=2, label=f'Overall Avg: {overall_avg:.3f}')
+            ax_avg.legend()
+            ax_avg.tick_params(axis='x', rotation=45)
 
-                # Add value labels
-                for container in ax_avg.containers:
-                    ax_avg.bar_label(container, fmt='%.3f')
+            # Add value labels
+            for container in ax_avg.containers:
+                ax_avg.bar_label(container, fmt='%.3f')
 
-                plt.tight_layout()
-                st.pyplot(fig_avg, width='stretch')
-                plt.close()
+            plt.tight_layout()
+            st.pyplot(fig_avg, width='stretch')
+            plt.close()
 
         except Exception as e:
             logger.error(f"Error creating plots: {e}")
