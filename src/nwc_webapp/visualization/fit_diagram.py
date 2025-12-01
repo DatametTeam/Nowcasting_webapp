@@ -61,7 +61,7 @@ def create_performance_fit_diagram(pod_values, far_values, csi_values, model_nam
     available_markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', '*', 'h', 'H', 'd', 'P', 'X']
 
     # Create a white background plot (match CSI plot height)
-    fig, ax = plt.subplots(figsize=(6, 4))
+    fig, ax = plt.subplots(figsize=(8, 5))
 
     # Set white background
     ax.set_facecolor('white')
@@ -139,10 +139,18 @@ def create_performance_fit_diagram(pod_values, far_values, csi_values, model_nam
     legend = plt.legend(
         handles,
         labels,
-        loc="lower left",
-        fontsize="xx-small",
+        loc="lower right",
+        fontsize=6,  # smaller text
         ncol=ncol,
-        framealpha=0.9
+        framealpha=0.9,
+
+        # spacing controls:
+        labelspacing=0.2,  # vertical space between rows
+        columnspacing=0.5,  # horizontal space between columns
+        handletextpad=0.3,  # space between marker and text
+
+        # marker size control:
+        markerscale=0.6  # shrink markers in the legend
     )
 
     plt.tight_layout()
