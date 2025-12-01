@@ -60,8 +60,8 @@ def create_performance_fit_diagram(pod_values, far_values, csi_values, model_nam
     # Define available markers (cycling through if more models than markers)
     available_markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', '*', 'h', 'H', 'd', 'P', 'X']
 
-    # Create a white background plot
-    fig, ax = plt.subplots(figsize=(8, 6))
+    # Create a white background plot (match CSI plot height)
+    fig, ax = plt.subplots(figsize=(6, 4))
 
     # Set white background
     ax.set_facecolor('white')
@@ -110,11 +110,6 @@ def create_performance_fit_diagram(pod_values, far_values, csi_values, model_nam
     ax.set_yticks(np.arange(0, 1.1, 0.1))
     ax.tick_params(labelsize=8)
 
-    # Add annotations for ideal regions
-    ax.text(0.95, 0.05, 'Ideal\n(High POD,\nLow FAR)',
-            ha='right', va='bottom', fontsize=8, style='italic',
-            bbox=dict(boxstyle='round,pad=0.5', facecolor='lightgreen', alpha=0.3))
-
     # Plot each model with dynamic color and marker assignment
     for idx, (model_name, pod, far, csi) in enumerate(zip(model_names, pod_values, far_values, csi_values)):
         # Assign color and marker based on index (cycling through lists)
@@ -134,17 +129,21 @@ def create_performance_fit_diagram(pod_values, far_values, csi_values, model_nam
             linewidths=1.5
         )
 
-    # Create legend
+    # Create legend with 2 rows
     handles, labels = plt.gca().get_legend_handles_labels()
+
+    # Calculate number of columns to get 2 rows
+    num_models = len(model_names)
+    ncol = (num_models + 1) // 2  # Divide by 2, rounding up
 
     legend = plt.legend(
         handles,
         labels,
         loc="lower left",
         fontsize="xx-small",
-        ncol=min(len(model_names), 6),
+        ncol=ncol,
+        framealpha=0.9
     )
-    plt.setp(legend.get_title(), fontsize="small")
 
     plt.title(f"Fit Diagram @ {threshold} mm/h")
     plt.tight_layout()
