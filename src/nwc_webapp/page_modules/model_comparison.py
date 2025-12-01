@@ -2,10 +2,12 @@
 Model Comparison page - compare multiple models side-by-side at a single timestamp.
 """
 
+import base64
 import os
 import time
 from datetime import datetime, timedelta
 from datetime import time as dt_time
+from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -13,6 +15,7 @@ import h5py
 import numpy as np
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from nwc_webapp.config.config import get_config
 from nwc_webapp.config.environment import is_hpc
@@ -676,59 +679,166 @@ def display_comparison_results(
             st.rerun()
 
     st.markdown("---")
+    st.info("🔍 **Synchronized Zoom**: Mouse wheel to zoom, click & drag to pan, double-click to reset")
 
     # Create grid for each lead time
     lead_times = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]
 
     for lead_idx, lead_time in enumerate(lead_times):
-        st.markdown(f"### +{lead_time} minutes")
+        st.markdown(f"### ⏱️ +{lead_time} minutes")
 
-        # Calculate number of columns: 1 (GT) + len(models) + 1 (CSI table)
-        num_cols = 1 + len(model_names) + 1
-        # Make CSI table column wider to fit all models
-        csi_col_width = 0.8 + (len(model_names) * 0.2)  # Dynamic width based on number of models
-        cols = st.columns([1] * (num_cols - 1) + [csi_col_width])
+        # Prepare data for all models at this lead time
+        gt_frame = gt_data[lead_idx]
+        pred_frames = {}
 
-        # Column 0: Ground Truth
-        with cols[0]:
-            st.markdown(f"**Ground Truth**")
-            gt_frame = gt_data[lead_idx]
+        # Generate matplotlib figures and convert to base64
+        images_b64 = []
 
-            # Create figure using compute_figure_gpd (includes Italy map)
-            gt_time = timestamp + timedelta(minutes=lead_time)
-            timestamp_str = f"GT +{lead_time}min - {gt_time.strftime('%d/%m/%Y %H:%M')}"
-            fig = compute_figure_gpd(gt_frame, timestamp_str, name="")
+        # Ground Truth
+        gt_time = timestamp + timedelta(minutes=lead_time)
+        timestamp_str = f"GT +{lead_time}min - {gt_time.strftime('%d/%m/%Y %H:%M')}"
+        fig = compute_figure_gpd(gt_frame, timestamp_str, name="")
+        buf = BytesIO()
+        fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+        buf.seek(0)
+        images_b64.append(base64.b64encode(buf.read()).decode())
+        plt.close(fig)
 
-            # Convert to BytesIO
+        # Models
+        for model_name in model_names:
+            pred_data = predictions[model_name]
+            pred_frame = pred_data[lead_idx]
+            pred_frames[model_name] = pred_frame
+
+            pred_time = timestamp + timedelta(minutes=lead_time)
+            timestamp_str = f"{model_name} +{lead_time}min - {pred_time.strftime('%d/%m/%Y %H:%M')}"
+            fig = compute_figure_gpd(pred_frame, timestamp_str, name="")
             buf = BytesIO()
             fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
             buf.seek(0)
+            images_b64.append(base64.b64encode(buf.read()).decode())
+            plt.close(fig)
 
-            st.image(buf, use_container_width=True)
+        # Create HTML with JavaScript synchronized zoom
+        html_template = """
+        <div class="zoom-container" data-row="{row_id}">
+            {image_divs}
+        </div>
 
-        # Columns for models
-        pred_frames = {}
-        for model_idx, model_name in enumerate(model_names):
-            with cols[model_idx + 1]:
-                st.markdown(f"**{model_name}**")
-                pred_data = predictions[model_name]
-                pred_frame = pred_data[lead_idx]
-                pred_frames[model_name] = pred_frame
+        <style>
+        .zoom-container {{
+            display: flex;
+            gap: 10px;
+            margin: 10px 0 20px 0;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            overflow: hidden;
+        }}
 
-                # Create figure using compute_figure_gpd (includes Italy map)
-                pred_time = timestamp + timedelta(minutes=lead_time)
-                timestamp_str = f"{model_name} +{lead_time}min - {pred_time.strftime('%d/%m/%Y %H:%M')}"
-                fig = compute_figure_gpd(pred_frame, timestamp_str, name="")
+        .zoom-wrapper {{
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background: white;
+            border: 2px solid #dee2e6;
+            border-radius: 4px;
+            cursor: grab;
+        }}
 
-                # Convert to BytesIO
-                buf = BytesIO()
-                fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-                buf.seek(0)
+        .zoom-wrapper:active {{
+            cursor: grabbing;
+        }}
 
-                st.image(buf, use_container_width=True)
+        .zoom-image {{
+            width: 100%;
+            height: auto;
+            display: block;
+            transform-origin: center center;
+            transition: transform 0.05s ease-out;
+        }}
+        </style>
 
-        # Last column: CSI table
-        with cols[-1]:
+        <script>
+        (function() {{
+            const container = document.querySelector('[data-row="{row_id}"]');
+            const images = container.querySelectorAll('.zoom-image');
+            const wrappers = container.querySelectorAll('.zoom-wrapper');
+
+            let scale = 1;
+            let translateX = 0;
+            let translateY = 0;
+            let isDragging = false;
+            let startX = 0;
+            let startY = 0;
+
+            function updateTransform() {{
+                const transform = `translate(${{translateX}}px, ${{translateY}}px) scale(${{scale}})`;
+                images.forEach(img => {{
+                    img.style.transform = transform;
+                }});
+            }}
+
+            wrappers.forEach(wrapper => {{
+                // Mouse wheel for zoom
+                wrapper.addEventListener('wheel', (e) => {{
+                    e.preventDefault();
+                    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+                    const newScale = scale * delta;
+                    if (newScale >= 0.5 && newScale <= 10) {{
+                        scale = newScale;
+                        updateTransform();
+                    }}
+                }}, {{ passive: false }});
+
+                // Mouse events for pan
+                wrapper.addEventListener('mousedown', (e) => {{
+                    isDragging = true;
+                    startX = e.clientX - translateX;
+                    startY = e.clientY - translateY;
+                }});
+
+                wrapper.addEventListener('mousemove', (e) => {{
+                    if (!isDragging) return;
+                    translateX = e.clientX - startX;
+                    translateY = e.clientY - startY;
+                    updateTransform();
+                }});
+
+                wrapper.addEventListener('mouseup', () => {{
+                    isDragging = false;
+                }});
+
+                wrapper.addEventListener('mouseleave', () => {{
+                    isDragging = false;
+                }});
+
+                // Double click to reset
+                wrapper.addEventListener('dblclick', () => {{
+                    scale = 1;
+                    translateX = 0;
+                    translateY = 0;
+                    updateTransform();
+                }});
+            }});
+        }})();
+        </script>
+        """
+
+        # Build image divs
+        image_divs = ""
+        for img_b64 in images_b64:
+            image_divs += f'<div class="zoom-wrapper"><img src="data:image/png;base64,{img_b64}" class="zoom-image" draggable="false"></div>\n'
+
+        html_code = html_template.format(row_id=f"row_{lead_idx}", image_divs=image_divs)
+
+        # Display synchronized images and CSI table side-by-side
+        cols = st.columns([4, 1])
+
+        with cols[0]:
+            components.html(html_code, height=500, scrolling=False)
+
+        with cols[1]:
             st.markdown("**CSI Metrics**")
 
             # Compute CSI for all models at this lead time
@@ -738,18 +848,9 @@ def display_comparison_results(
             csi_df = csi_df.set_index("Model").T
             csi_df.index.name = "Threshold"
 
-            # Display as table with smaller font
-            st.markdown("""
-                <style>
-                .small-table {
-                    font-size: 10px;
-                }
-                </style>
-            """, unsafe_allow_html=True)
-
             # Format CSI values to 3 decimal places
             csi_df = csi_df.applymap(lambda x: f"{x:.3f}" if isinstance(x, (int, float)) else x)
 
-            st.dataframe(csi_df, use_container_width=True)
+            st.dataframe(csi_df, use_container_width=True, height=400)
 
         st.markdown("---")
