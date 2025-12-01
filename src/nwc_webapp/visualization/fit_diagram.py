@@ -83,13 +83,13 @@ def create_performance_fit_diagram(pod_values, far_values, csi_values, model_nam
 
     # Create contour lines for specific CSI values
     contours = ax.contour(POD_mesh, FAR_mesh, CSI_mesh, levels=csi_levels, colors='gray',
-                          linewidths=1, alpha=0.5, zorder=2)
+                          linewidths=0.7, alpha=0.5, zorder=2)
 
     # Add labels to contour lines
-    ax.clabel(contours, inline=True, fontsize=8, fmt='CSI=%.1f')
+    ax.clabel(contours, inline=True, fontsize=7, fmt='CSI=%.1f')
 
     # Draw grid lines
-    ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.3, zorder=3)
+    ax.grid(True, linestyle='--', linewidth=0.4, alpha=0.3, zorder=3)
 
     # Set axis limits to go from 0 to 1
     ax.set_xlim(0, 1)
@@ -121,12 +121,12 @@ def create_performance_fit_diagram(pod_values, far_values, csi_values, model_nam
             far,
             label=f"{model_name} (CSI={csi:.3f})",
             color=color,
-            s=150,
+            s=80,  # Reduced from 150
             zorder=5,
             alpha=0.9,
             marker=marker,
             edgecolors='black',
-            linewidths=1.5
+            linewidths=1.0  # Reduced from 1.5
         )
 
     # Create legend with 2 rows
@@ -145,7 +145,6 @@ def create_performance_fit_diagram(pod_values, far_values, csi_values, model_nam
         framealpha=0.9
     )
 
-    plt.title(f"Fit Diagram @ {threshold} mm/h")
     plt.tight_layout()
 
     return fig
