@@ -56,7 +56,11 @@ def main(app_config, sri_folder, count_value):
         logger.info("🎭 Mock realtime service started (local mode)")
 
     model_list = app_config.models
-    sidebar_args = configure_sidebar(model_list)
+
+    # Filter out "Test" model for all tabs except Real-time Prediction
+    model_list_no_test = [m for m in model_list if m.upper() != "TEST"]
+
+    sidebar_args = configure_sidebar(model_list_no_test)
 
     if sidebar_args["submitted"] and "prediction_result" in st.session_state:
         st.session_state.prediction_result = {}
@@ -72,19 +76,24 @@ def main(app_config, sri_folder, count_value):
 
     with tab1:
         st.session_state["sync_end"] = 1
+        # Real-time tab uses full model list (includes Test)
         show_real_time_prediction(model_list, sri_folder, count_value)
 
     with tab2:
+        # Nowcasting uses sidebar_args which already has filtered models
         main_page(sidebar_args, sri_folder)
 
     with tab3:
-        show_prediction_page(model_list)
+        # Prediction by Date uses filtered list (no Test)
+        show_prediction_page(model_list_no_test)
 
     with tab4:
-        show_model_comparison_page(model_list)
+        # Model Comparison uses filtered list (no Test)
+        show_model_comparison_page(model_list_no_test)
 
     with tab5:
-        show_csi_analysis_page(model_list)
+        # Metrics Analysis uses filtered list (no Test) - also filters internally
+        show_csi_analysis_page(model_list_no_test)
 
 
 # Get configuration (safe to call at module level - no session state access)
