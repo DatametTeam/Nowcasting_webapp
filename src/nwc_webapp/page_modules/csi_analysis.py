@@ -3,6 +3,7 @@ Metrics Analysis page for model evaluation.
 """
 import time
 from datetime import datetime, timedelta
+import numpy as np
 
 import pandas as pd
 import streamlit as st
@@ -767,7 +768,6 @@ def show_csi_analysis_page(model_list):
                         model_overall_fss[model] = np.mean(all_fss_values)
 
                 if model_overall_fss:
-                    import numpy as np
                     fss_summary_series = pd.Series(model_overall_fss).sort_values(ascending=False)
 
                     # Display as bar chart

@@ -1,0 +1,69 @@
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job:
+    chdir: false
+
+model:
+  name: sprog
+  is_ensemble: false
+  seed: 42
+  args:
+    probmatching_method: 'cdf'
+    # mask_method: 'obs'
+    precip_thr: -15
+    # kmperpixel: 1.0
+    # timestep: 5.0
+    num_workers: 24  
+
+
+transforms:
+  # 0:
+  #   name: BrPadding
+  #   args:
+  #     height: 256
+  #     width: 256
+  #     fill_value: -9999
+  0:
+    name: "LogarithmicTransform"
+    args:
+      # if smooth=True: [a, b] original is shifted in [a+thresh, b+thresh]
+      # else: [a, threshold] --> {threshold}
+      threshold: 0.2
+    adjust: [
+      "threshold"
+    ]
+
+  # 2:
+  #   name: MinMaxNormalize
+  #   args:
+  #     excluded_value: -9999
+  #     data_min: 0.0
+  #     data_max: 300.0
+  #     min_val: 0.0
+  #     max_val: 1.0
+
+#sample_strategy:
+#  name: stratify_by_seasons
+#  num_samples: 100
+#  seed: 42
+
+dataframe_strategy:
+  name: from_hdf_folder_1_hour
+  args:
+    data_folder: "/davinci-1/work/protezionecivile/data1/SRI_adj"
+    datetime_format: "%d-%m-%Y-%H-%M"
+  
+
+windows_extraction_args:
+  hdf_key: /dataset1/data1/data
+  lead_time: 12
+  wlen: 12
+  stride: 1
+  parallel: True
+
+save_path: /davinci-1/work/protezionecivile/nwc_webapp/real_time_results/SPROG
+save_npz: False
+save_npy: True
+# device: 'cuda:3'
