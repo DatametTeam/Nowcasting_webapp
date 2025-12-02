@@ -416,30 +416,31 @@ def show_csi_analysis_page(model_list):
                                     models_for_csi.append(model)
 
                         if len(models_for_csi) > 0:
-                            st.info(f"🔄 Auto-computing CSI/POD/FAR for {len(models_for_csi)} model(s)...")
+                            st.info(f"🔄 Auto-computing CSI/POD/FAR/FSS for {len(models_for_csi)} model(s)...")
 
-                            with st.spinner(f"Computing CSI/POD/FAR for {len(models_for_csi)} model(s)..."):
+                            with st.spinner(f"Computing CSI/POD/FAR/FSS for {len(models_for_csi)} model(s)..."):
                                 try:
-                                    # Compute CSI, POD, FAR for all models with predictions
-                                    csi_results, pod_results, far_results = compute_csi_for_models(
+                                    # Compute CSI, POD, FAR, FSS for all models with predictions
+                                    csi_results, pod_results, far_results, fss_results = compute_csi_for_models(
                                         models=models_for_csi,
                                         start_dt=start_datetime,
                                         end_dt=end_datetime
                                     )
 
-                                    if csi_results is not None and pod_results is not None and far_results is not None:
+                                    if csi_results is not None and pod_results is not None and far_results is not None and fss_results is not None:
                                         # Store results in session state
                                         st.session_state["csi_results"] = csi_results
                                         st.session_state["pod_results"] = pod_results
                                         st.session_state["far_results"] = far_results
+                                        st.session_state["fss_results"] = fss_results
                                         st.session_state["csi_result_models"] = models_for_csi
                                         st.session_state["csi_result_interval"] = (start_datetime, end_datetime)
-                                        logger.info(f"✅ Auto-computed CSI/POD/FAR for {len(models_for_csi)} model(s)")
+                                        logger.info(f"✅ Auto-computed CSI/POD/FAR/FSS for {len(models_for_csi)} model(s)")
                                     else:
-                                        logger.error("Failed to auto-compute CSI/POD/FAR")
+                                        logger.error("Failed to auto-compute CSI/POD/FAR/FSS")
 
                                 except Exception as e:
-                                    logger.error(f"Error auto-computing CSI/POD/FAR: {e}")
+                                    logger.error(f"Error auto-computing CSI/POD/FAR/FSS: {e}")
                                     import traceback
                                     logger.error(traceback.format_exc())
 
@@ -461,34 +462,35 @@ def show_csi_analysis_page(model_list):
             width='stretch',
             type="primary"
         ):
-            # Compute CSI/POD/FAR
-            st.info(f"Computing CSI/POD/FAR for: {', '.join(models_with_predictions)}")
+            # Compute CSI/POD/FAR/FSS
+            st.info(f"Computing CSI/POD/FAR/FSS for: {', '.join(models_with_predictions)}")
 
-            with st.spinner(f"Computing CSI/POD/FAR for {len(models_with_predictions)} model(s)..."):
+            with st.spinner(f"Computing CSI/POD/FAR/FSS for {len(models_with_predictions)} model(s)..."):
                 try:
-                    # Compute CSI, POD, FAR
-                    csi_results, pod_results, far_results = compute_csi_for_models(
+                    # Compute CSI, POD, FAR, FSS
+                    csi_results, pod_results, far_results, fss_results = compute_csi_for_models(
                         models=models_with_predictions,
                         start_dt=start_datetime,
                         end_dt=end_datetime
                     )
 
-                    if csi_results is not None and pod_results is not None and far_results is not None:
+                    if csi_results is not None and pod_results is not None and far_results is not None and fss_results is not None:
                         # Store results in session state
                         st.session_state["csi_results"] = csi_results
                         st.session_state["pod_results"] = pod_results
                         st.session_state["far_results"] = far_results
+                        st.session_state["fss_results"] = fss_results
                         st.session_state["csi_result_models"] = models_with_predictions
                         st.session_state["csi_result_interval"] = (start_datetime, end_datetime)
 
-                        st.success(f"✅ CSI/POD/FAR computation completed for {len(models_with_predictions)} model(s)!")
+                        st.success(f"✅ CSI/POD/FAR/FSS computation completed for {len(models_with_predictions)} model(s)!")
                         st.rerun()
                     else:
-                        st.error("❌ Failed to compute CSI/POD/FAR. Check logs for details.")
+                        st.error("❌ Failed to compute CSI/POD/FAR/FSS. Check logs for details.")
 
                 except Exception as e:
-                    st.error(f"❌ Error computing CSI/POD/FAR: {e}")
-                    logger.error(f"Error computing CSI/POD/FAR: {e}")
+                    st.error(f"❌ Error computing CSI/POD/FAR/FSS: {e}")
+                    logger.error(f"Error computing CSI/POD/FAR/FSS: {e}")
                     import traceback
                     logger.error(traceback.format_exc())
 
@@ -506,192 +508,280 @@ def show_csi_analysis_page(model_list):
         end_str = result_interval[1].strftime("%d/%m/%Y %H:%M")
         st.info(f"**Models**: {', '.join(result_models)}  \n**Interval**: {start_str} to {end_str}")
 
-        # Show tables per model with expandable sections
-        st.markdown("**📊 CSI by Lead Time (per model):**")
+        # Create tabs for CSI and FSS results
+        tab_csi, tab_fss = st.tabs(["CSI Results", "FSS Results"])
 
-        with st.expander("📋 Show detailed tables", expanded=False):
-            for model in result_models:
-                st.markdown(f"**{model}:**")
-                model_df = results_dict[model]
-                # Style: row-wise gradient (best lead time per threshold in green, worst in red)
-                # axis=1 means compute gradient within each row (across columns/lead times)
-                # No vmin/vmax - each table uses its own min/max for independent coloring
-                styled = model_df.style.format("{:.3f}").background_gradient(cmap='RdYlGn', axis=1)
-                st.dataframe(styled, width='stretch')
-                st.markdown("")
+        with tab_csi:
+            # Show tables per model with expandable sections
+            st.markdown("**📊 CSI by Lead Time (per model):**")
 
-        # Compute average CSI per threshold (averaged across lead times)
-        st.markdown("**📈 Overall Model Performance by Threshold:**")
+            with st.expander("📋 Show detailed tables", expanded=False):
+                for model in result_models:
+                    st.markdown(f"**{model}:**")
+                    model_df = results_dict[model]
+                    # Style: row-wise gradient (best lead time per threshold in green, worst in red)
+                    # axis=1 means compute gradient within each row (across columns/lead times)
+                    # No vmin/vmax - each table uses its own min/max for independent coloring
+                    styled = model_df.style.format("{:.3f}").background_gradient(cmap='RdYlGn', axis=1)
+                    st.dataframe(styled, width='stretch')
+                    st.markdown("")
 
-        # Build DataFrame: rows=models, columns=thresholds
-        model_threshold_avg = {}
-        thresholds = results_dict[result_models[0]].index.tolist()
+            # Compute average CSI per threshold (averaged across lead times)
+            st.markdown("**📈 Overall Model Performance by Threshold:**")
 
-        for model in result_models:
-            model_df = results_dict[model]
-            # For each threshold, compute mean across all lead times (columns)
-            model_threshold_avg[model] = model_df.mean(axis=1)  # Mean across columns (lead times)
-
-        # Create DataFrame: rows=models, columns=thresholds
-        performance_df = pd.DataFrame(model_threshold_avg).T  # Transpose so models are rows
-        performance_df.columns.name = "Threshold (mm/h)"
-        performance_df.index.name = "Model"
-
-        # Sort by mean CSI (best to worst)
-        performance_df['Mean CSI'] = performance_df.mean(axis=1)
-        performance_df = performance_df.sort_values('Mean CSI', ascending=False)
-
-        # Style and display with gradient per threshold (column-wise: axis=0)
-        # For each threshold (column), best model = green, worst = red
-        # No vmin/vmax - each column uses its own min/max for independent coloring
-        styled = performance_df.style.format("{:.3f}").background_gradient(cmap='RdYlGn', axis=0)
-        st.dataframe(styled, width='stretch')
-
-        # Compute overall average CSI per model (across all thresholds and lead times)
-        model_overall_avg = {}
-        for model in result_models:
-            model_overall_avg[model] = results_dict[model].values.mean()
-
-        avg_series = pd.Series(model_overall_avg).sort_values(ascending=False)
-
-        # Display summary statistics
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            best_model = avg_series.idxmax()
-            best_score = avg_series.max()
-            st.metric("Best Model", best_model)
-            st.caption(f"Average CSI: {best_score:.3f}")
-
-        with col2:
-            worst_model = avg_series.idxmin()
-            worst_score = avg_series.min()
-            st.metric("Worst Model", worst_model)
-            st.caption(f"Average CSI: {worst_score:.3f}")
-
-        with col3:
-            overall_avg = avg_series.mean()
-            st.metric("Overall Average", f"{overall_avg:.3f}")
-            st.caption("Across all models")
-
-        # Visualization - CSI vs Lead Time plots
-        st.markdown("---")
-        st.subheader("📊 CSI vs Lead Time")
-
-        try:
-            import matplotlib.pyplot as plt
-
-            # Get thresholds from first model's DataFrame
+            # Build DataFrame: rows=models, columns=thresholds
+            model_threshold_avg = {}
             thresholds = results_dict[result_models[0]].index.tolist()
 
-            # Get POD and FAR results from session state
-            pod_dict = st.session_state.get("pod_results", {})
-            far_dict = st.session_state.get("far_results", {})
+            for model in result_models:
+                model_df = results_dict[model]
+                # For each threshold, compute mean across all lead times (columns)
+                model_threshold_avg[model] = model_df.mean(axis=1)  # Mean across columns (lead times)
 
-            # Display CSI plots and Fit Diagrams side by side for each threshold
-            for threshold in thresholds:
-                st.markdown(f"### 📊 Threshold: {threshold} mm/h")
+            # Create DataFrame: rows=models, columns=thresholds
+            performance_df = pd.DataFrame(model_threshold_avg).T  # Transpose so models are rows
+            performance_df.columns.name = "Threshold (mm/h)"
+            performance_df.index.name = "Model"
 
-                # Create two columns: CSI plot on left, Fit diagram on right
-                col_csi, col_fit = st.columns(2)
+            # Sort by mean CSI (best to worst)
+            performance_df['Mean CSI'] = performance_df.mean(axis=1)
+            performance_df = performance_df.sort_values('Mean CSI', ascending=False)
 
-                with col_csi:
-                    st.markdown("**CSI vs Lead Time**")
+            # Style and display with gradient per threshold (column-wise: axis=0)
+            # For each threshold (column), best model = green, worst = red
+            # No vmin/vmax - each column uses its own min/max for independent coloring
+            styled = performance_df.style.format("{:.3f}").background_gradient(cmap='RdYlGn', axis=0)
+            st.dataframe(styled, width='stretch')
 
-                    # Create CSI plot for this threshold
-                    fig_csi, ax_csi = plt.subplots(figsize=(6, 4))
+            # Compute overall average CSI per model (across all thresholds and lead times)
+            model_overall_avg = {}
+            for model in result_models:
+                model_overall_avg[model] = results_dict[model].values.mean()
 
-                    # Plot each model as a line
-                    for model in result_models:
-                        model_df = results_dict[model]
-                        lead_times = [int(col) for col in model_df.columns]  # Convert "5", "10", ... to integers
-                        csi_values = model_df.loc[threshold].values
+            avg_series = pd.Series(model_overall_avg).sort_values(ascending=False)
 
-                        ax_csi.plot(lead_times, csi_values, marker='o', label=model, linewidth=2, markersize=4)
+            # Display summary statistics
+            col1, col2, col3 = st.columns(3)
 
-                    ax_csi.set_xlabel("Lead Time (minutes)", fontsize=9)
-                    ax_csi.set_ylabel("CSI Score", fontsize=9)
-                    ax_csi.set_ylim([0, 1])
-                    ax_csi.set_xlim([0, 65])
-                    ax_csi.grid(True, alpha=0.3)
-                    ax_csi.legend(fontsize=7, loc='best')
-                    ax_csi.set_xticks([5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60])
+            with col1:
+                best_model = avg_series.idxmax()
+                best_score = avg_series.max()
+                st.metric("Best Model", best_model)
+                st.caption(f"Average CSI: {best_score:.3f}")
+
+            with col2:
+                worst_model = avg_series.idxmin()
+                worst_score = avg_series.min()
+                st.metric("Worst Model", worst_model)
+                st.caption(f"Average CSI: {worst_score:.3f}")
+
+            with col3:
+                overall_avg = avg_series.mean()
+                st.metric("Overall Average", f"{overall_avg:.3f}")
+                st.caption("Across all models")
+
+            # Visualization - CSI vs Lead Time plots
+            st.markdown("---")
+            st.subheader("📊 CSI vs Lead Time")
+
+            try:
+                import matplotlib.pyplot as plt
+
+                # Get thresholds from first model's DataFrame
+                thresholds = results_dict[result_models[0]].index.tolist()
+
+                # Get POD and FAR results from session state
+                pod_dict = st.session_state.get("pod_results", {})
+                far_dict = st.session_state.get("far_results", {})
+
+                # Display CSI plots and Fit Diagrams side by side for each threshold
+                for threshold in thresholds:
+                    st.markdown(f"### 📊 Threshold: {threshold} mm/h")
+
+                    # Create two columns: CSI plot on left, Fit diagram on right
+                    col_csi, col_fit = st.columns(2)
+
+                    with col_csi:
+                        st.markdown("**CSI vs Lead Time**")
+
+                        # Create CSI plot for this threshold
+                        fig_csi, ax_csi = plt.subplots(figsize=(6, 4))
+
+                        # Plot each model as a line
+                        for model in result_models:
+                            model_df = results_dict[model]
+                            lead_times = [int(col) for col in model_df.columns]  # Convert "5", "10", ... to integers
+                            csi_values = model_df.loc[threshold].values
+
+                            ax_csi.plot(lead_times, csi_values, marker='o', label=model, linewidth=2, markersize=4)
+
+                        ax_csi.set_xlabel("Lead Time (minutes)", fontsize=9)
+                        ax_csi.set_ylabel("CSI Score", fontsize=9)
+                        ax_csi.set_ylim([0, 1])
+                        ax_csi.set_xlim([0, 65])
+                        ax_csi.grid(True, alpha=0.3)
+                        ax_csi.legend(fontsize=7, loc='best')
+                        ax_csi.set_xticks([5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60])
+
+                        plt.tight_layout()
+                        st.pyplot(fig_csi, use_container_width=True)
+                        plt.close(fig_csi)
+
+                    with col_fit:
+                        st.markdown("**Performance Fit Diagram (POD vs FAR)**")
+
+                        if pod_dict and far_dict:
+                            from nwc_webapp.visualization.fit_diagram import create_performance_fit_diagram
+
+                            # Extract averaged POD, FAR, CSI values for this threshold (across all lead times)
+                            pod_values = []
+                            far_values = []
+                            csi_values = []
+
+                            for model in result_models:
+                                # Average across all lead times for this threshold
+                                pod_avg = pod_dict[model].loc[threshold].mean()
+                                far_avg = far_dict[model].loc[threshold].mean()
+                                csi_avg = results_dict[model].loc[threshold].mean()
+
+                                pod_values.append(pod_avg)
+                                far_values.append(far_avg)
+                                csi_values.append(csi_avg)
+
+                            # Create fit diagram
+                            try:
+                                fig_fit = create_performance_fit_diagram(
+                                    pod_values=pod_values,
+                                    far_values=far_values,
+                                    csi_values=csi_values,
+                                    model_names=result_models,
+                                    threshold=threshold
+                                )
+
+                                st.pyplot(fig_fit, use_container_width=True)
+                                plt.close(fig_fit)
+
+                            except Exception as e:
+                                logger.error(f"Error creating fit diagram for threshold {threshold}: {e}")
+                                import traceback
+                                logger.error(traceback.format_exc())
+                                st.warning(f"⚠️ Could not generate fit diagram")
+                        else:
+                            st.warning("⚠️ POD/FAR data not available")
+
+                    st.markdown("---")  # Separator between thresholds
+
+                # Bar chart comparing overall model performance
+                st.markdown("---")
+                st.markdown("**Overall Model Comparison:**")
+                fig_avg, ax_avg = plt.subplots(figsize=(8, 4))
+
+                avg_sorted = avg_series.sort_values(ascending=False)
+                bars = avg_sorted.plot(kind='bar', ax=ax_avg, color='skyblue', edgecolor='black')
+
+                ax_avg.set_title("Average CSI Score by Model (All Thresholds & Lead Times)", fontsize=12, fontweight='bold')
+                ax_avg.set_xlabel("Model", fontsize=10)
+                ax_avg.set_ylabel("Average CSI Score", fontsize=10)
+                ax_avg.set_ylim([0, 1])
+                ax_avg.grid(True, alpha=0.3, axis='y')
+                ax_avg.axhline(y=overall_avg, color='red', linestyle='--', linewidth=2, label=f'Overall Avg: {overall_avg:.3f}')
+                ax_avg.legend()
+                ax_avg.tick_params(axis='x', rotation=45)
+
+                # Add value labels
+                for container in ax_avg.containers:
+                    ax_avg.bar_label(container, fmt='%.3f')
+
+                plt.tight_layout()
+                st.pyplot(fig_avg, width='stretch')
+                plt.close()
+
+            except Exception as e:
+                logger.error(f"Error creating plots: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                st.warning("⚠️ Could not generate plots")
+
+        with tab_fss:
+            # Display FSS results
+            st.markdown("**📊 FSS (Fractions Skill Score) by Window Size:**")
+
+            fss_dict = st.session_state.get("fss_results", {})
+
+            if fss_dict:
+                # Get thresholds and window sizes
+                thresholds = list(fss_dict.keys())
+
+                # Display FSS tables for each threshold
+                for threshold in thresholds:
+                    st.markdown(f"### 📏 Threshold: {threshold} mm/h")
+
+                    fss_df = fss_dict[threshold]  # DataFrame with rows=window_sizes, columns=models
+
+                    # Style with gradient: higher FSS (closer to 1) = green, lower = red
+                    styled = fss_df.style.format("{:.3f}").background_gradient(cmap='RdYlGn', axis=None, vmin=0, vmax=1)
+                    st.dataframe(styled, width='stretch')
+
+                    st.markdown("")  # Space between thresholds
+
+                # Overall summary: average FSS across all thresholds for each model
+                st.markdown("---")
+                st.markdown("**📈 Overall FSS Summary (Averaged Across All Thresholds):**")
+
+                # Compute average FSS for each model across all thresholds and window sizes
+                model_overall_fss = {}
+                for model in result_models:
+                    all_fss_values = []
+                    for threshold in thresholds:
+                        fss_df = fss_dict[threshold]
+                        if model in fss_df.columns:
+                            all_fss_values.extend(fss_df[model].values.tolist())
+
+                    if all_fss_values:
+                        model_overall_fss[model] = np.mean(all_fss_values)
+
+                if model_overall_fss:
+                    import numpy as np
+                    fss_summary_series = pd.Series(model_overall_fss).sort_values(ascending=False)
+
+                    # Display as bar chart
+                    fig_fss, ax_fss = plt.subplots(figsize=(8, 4))
+                    fss_summary_series.plot(kind='bar', ax=ax_fss, color='skyblue', edgecolor='black')
+
+                    ax_fss.set_title("Average FSS Score by Model (All Thresholds & Window Sizes)", fontsize=12, fontweight='bold')
+                    ax_fss.set_xlabel("Model", fontsize=10)
+                    ax_fss.set_ylabel("Average FSS Score", fontsize=10)
+                    ax_fss.set_ylim([0, 1])
+                    ax_fss.grid(True, alpha=0.3, axis='y')
+                    ax_fss.tick_params(axis='x', rotation=45)
+
+                    # Add value labels
+                    for container in ax_fss.containers:
+                        ax_fss.bar_label(container, fmt='%.3f')
 
                     plt.tight_layout()
-                    st.pyplot(fig_csi, use_container_width=True)
-                    plt.close(fig_csi)
+                    st.pyplot(fig_fss, width='stretch')
+                    plt.close()
 
-                with col_fit:
-                    st.markdown("**Performance Fit Diagram (POD vs FAR)**")
+                    # Display metrics
+                    col1, col2, col3 = st.columns(3)
 
-                    if pod_dict and far_dict:
-                        from nwc_webapp.visualization.fit_diagram import create_performance_fit_diagram
+                    with col1:
+                        best_model_fss = fss_summary_series.idxmax()
+                        best_score_fss = fss_summary_series.max()
+                        st.metric("Best Model", best_model_fss)
+                        st.caption(f"Average FSS: {best_score_fss:.3f}")
 
-                        # Extract averaged POD, FAR, CSI values for this threshold (across all lead times)
-                        pod_values = []
-                        far_values = []
-                        csi_values = []
+                    with col2:
+                        worst_model_fss = fss_summary_series.idxmin()
+                        worst_score_fss = fss_summary_series.min()
+                        st.metric("Worst Model", worst_model_fss)
+                        st.caption(f"Average FSS: {worst_score_fss:.3f}")
 
-                        for model in result_models:
-                            # Average across all lead times for this threshold
-                            pod_avg = pod_dict[model].loc[threshold].mean()
-                            far_avg = far_dict[model].loc[threshold].mean()
-                            csi_avg = results_dict[model].loc[threshold].mean()
+                    with col3:
+                        overall_avg_fss = fss_summary_series.mean()
+                        st.metric("Overall Average", f"{overall_avg_fss:.3f}")
+                        st.caption("Across all models")
 
-                            pod_values.append(pod_avg)
-                            far_values.append(far_avg)
-                            csi_values.append(csi_avg)
-
-                        # Create fit diagram
-                        try:
-                            fig_fit = create_performance_fit_diagram(
-                                pod_values=pod_values,
-                                far_values=far_values,
-                                csi_values=csi_values,
-                                model_names=result_models,
-                                threshold=threshold
-                            )
-
-                            st.pyplot(fig_fit, use_container_width=True)
-                            plt.close(fig_fit)
-
-                        except Exception as e:
-                            logger.error(f"Error creating fit diagram for threshold {threshold}: {e}")
-                            import traceback
-                            logger.error(traceback.format_exc())
-                            st.warning(f"⚠️ Could not generate fit diagram")
-                    else:
-                        st.warning("⚠️ POD/FAR data not available")
-
-                st.markdown("---")  # Separator between thresholds
-
-            # Bar chart comparing overall model performance
-            st.markdown("---")
-            st.markdown("**Overall Model Comparison:**")
-            fig_avg, ax_avg = plt.subplots(figsize=(8, 4))
-
-            avg_sorted = avg_series.sort_values(ascending=False)
-            bars = avg_sorted.plot(kind='bar', ax=ax_avg, color='skyblue', edgecolor='black')
-
-            ax_avg.set_title("Average CSI Score by Model (All Thresholds & Lead Times)", fontsize=12, fontweight='bold')
-            ax_avg.set_xlabel("Model", fontsize=10)
-            ax_avg.set_ylabel("Average CSI Score", fontsize=10)
-            ax_avg.set_ylim([0, 1])
-            ax_avg.grid(True, alpha=0.3, axis='y')
-            ax_avg.axhline(y=overall_avg, color='red', linestyle='--', linewidth=2, label=f'Overall Avg: {overall_avg:.3f}')
-            ax_avg.legend()
-            ax_avg.tick_params(axis='x', rotation=45)
-
-            # Add value labels
-            for container in ax_avg.containers:
-                ax_avg.bar_label(container, fmt='%.3f')
-
-            plt.tight_layout()
-            st.pyplot(fig_avg, width='stretch')
-            plt.close()
-
-        except Exception as e:
-            logger.error(f"Error creating plots: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            st.warning("⚠️ Could not generate plots")
+            else:
+                st.warning("⚠️ FSS data not available")

@@ -136,24 +136,32 @@ def compute_csi_for_single_model(
     model: str,
     start_dt: datetime,
     end_dt: datetime,
-    thresholds: List[float]
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    thresholds: List[float],
+    window_sizes: List[int] = None
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[float, pd.Series]]:
     """
-    Compute CSI, POD, and FAR for a single model (helper function for parallel processing).
+    Compute CSI, POD, FAR, and FSS for a single model (helper function for parallel processing).
 
     Args:
         model: Model name
         start_dt: Start datetime
         end_dt: End datetime
         thresholds: CSI thresholds
+        window_sizes: FSS window sizes (default: [5, 10, 20, 40, 80])
 
     Returns:
-        Tuple of three DataFrames (CSI, POD, FAR) with scores (rows=thresholds, columns=lead times)
+        Tuple of (CSI_df, POD_df, FAR_df, FSS_dict) where:
+        - CSI_df, POD_df, FAR_df: DataFrames with rows=thresholds, columns=lead times
+        - FSS_dict: Dict[threshold, Series] where Series has window_sizes as index
     """
-    logger.info(f"🔄 [{model}] Starting CSI/POD/FAR computation...")
+    logger.info(f"🔄 [{model}] Starting CSI/POD/FAR/FSS computation...")
 
     try:
         config = get_config()
+
+        # Set default window sizes if not provided
+        if window_sizes is None:
+            window_sizes = config.fss_window_sizes if hasattr(config, 'fss_window_sizes') else [5, 10, 20, 40, 80]
 
         # Load radar mask
         mask_path = Path(__file__).resolve().parent.parent / "resources/mask/radar_mask.hdf"
@@ -167,6 +175,9 @@ def compute_csi_for_single_model(
         csi_by_leadtime = {lt: {th: [] for th in thresholds} for lt in range(12)}
         pod_by_leadtime = {lt: {th: [] for th in thresholds} for lt in range(12)}
         far_by_leadtime = {lt: {th: [] for th in thresholds} for lt in range(12)}
+
+        # Initialize storage for FSS: {threshold: {window_size: [values]}}
+        fss_storage = {th: {ws: [] for ws in window_sizes} for th in thresholds}
 
         logger.info(f"📊 [{model}] Loading predictions for {len(all_timestamps)} timestamps...")
 
@@ -220,8 +231,8 @@ def compute_csi_for_single_model(
                                 pred_data = pred_data * radar_mask
                                 pred_data = np.clip(pred_data, 0, 200)
 
-                                # Compute CSI, POD, FAR for each threshold
-                                from nwc_webapp.evaluation.metrics import CSI, POD, FAR
+                                # Compute CSI, POD, FAR, FSS for each threshold
+                                from nwc_webapp.evaluation.metrics import CSI, POD, FAR, FSS
                                 for th in thresholds:
                                     csi_value = CSI(target_data, pred_data, threshold=th)
                                     pod_value = POD(target_data, pred_data, threshold=th)
@@ -233,6 +244,12 @@ def compute_csi_for_single_model(
                                         pod_by_leadtime[lead_time_idx][th].append(pod_value)
                                     if far_value is not None:
                                         far_by_leadtime[lead_time_idx][th].append(far_value)
+
+                                    # Compute FSS for each window size (averaged across all lead times)
+                                    for ws in window_sizes:
+                                        fss_value = FSS(target_data, pred_data, threshold=th, window_size=ws)
+                                        if fss_value is not None:
+                                            fss_storage[th][ws].append(fss_value)
 
                         except Exception as e:
                             logger.warning(f"[{model}] Error loading target at {target_path}: {e}")
@@ -290,24 +307,38 @@ def compute_csi_for_single_model(
         far_df.index.name = "Threshold (mm/h)"
         far_df.columns.name = "Lead Time (min)"
 
-        logger.info(f"✅ [{model}] CSI/POD/FAR computation completed!")
-        return csi_df, pod_df, far_df
+        # Create FSS results: Dict[threshold, Series(window_sizes)]
+        fss_results = {}
+        for th in thresholds:
+            fss_row = []
+            for ws in window_sizes:
+                fss_values = fss_storage[th][ws]
+                if fss_values:
+                    fss_row.append(np.mean(fss_values))
+                else:
+                    fss_row.append(0.0)
+
+            fss_results[th] = pd.Series(fss_row, index=window_sizes, name=model)
+
+        logger.info(f"✅ [{model}] CSI/POD/FAR/FSS computation completed!")
+        return csi_df, pod_df, far_df, fss_results
 
     except Exception as e:
-        logger.error(f"❌ [{model}] Error computing CSI/POD/FAR: {e}")
+        logger.error(f"❌ [{model}] Error computing CSI/POD/FAR/FSS: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return None, None, None
+        return None, None, None, None
 
 
 def compute_csi_for_models(
     models: List[str],
     start_dt: datetime,
     end_dt: datetime,
-    thresholds: List[float] = None
-) -> Tuple[Dict[str, pd.DataFrame], Dict[str, pd.DataFrame], Dict[str, pd.DataFrame]]:
+    thresholds: List[float] = None,
+    window_sizes: List[int] = None
+) -> Tuple[Dict[str, pd.DataFrame], Dict[str, pd.DataFrame], Dict[str, pd.DataFrame], Dict[float, pd.DataFrame]]:
     """
-    Compute CSI, POD, and FAR scores for multiple models over a date range in parallel.
+    Compute CSI, POD, FAR, and FSS scores for multiple models over a date range in parallel.
 
     For each model, computes metrics averaged across all base timestamps in the interval,
     but keeps lead times separate (+5min, +10min, ..., +60min).
@@ -317,23 +348,28 @@ def compute_csi_for_models(
         start_dt: Start datetime
         end_dt: End datetime
         thresholds: CSI thresholds (default: [1, 5, 10, 20, 50])
+        window_sizes: FSS window sizes (default: [5, 10, 20, 40, 80])
 
     Returns:
-        Tuple of three dictionaries (CSI, POD, FAR), each mapping model names to DataFrames where:
-        - Rows: Thresholds (mm/h)
-        - Columns: Lead times (5, 10, 15, ..., 60 minutes)
-        - Values: Metric scores averaged across all timestamps in the interval
+        Tuple of (CSI_dict, POD_dict, FAR_dict, FSS_dict) where:
+        - CSI_dict, POD_dict, FAR_dict: Dict[model, DataFrame(thresholds × lead_times)]
+        - FSS_dict: Dict[threshold, DataFrame(window_sizes × models)]
     """
     if thresholds is None:
         config = get_config()
         thresholds = config.csi_thresholds if hasattr(config, 'csi_thresholds') else [1, 5, 10, 20, 50]
 
-    logger.info(f"🚀 Computing CSI/POD/FAR for {len(models)} models in parallel from {start_dt} to {end_dt}")
+    if window_sizes is None:
+        config = get_config()
+        window_sizes = config.fss_window_sizes if hasattr(config, 'fss_window_sizes') else [5, 10, 20, 40, 80]
+
+    logger.info(f"🚀 Computing CSI/POD/FAR/FSS for {len(models)} models in parallel from {start_dt} to {end_dt}")
 
     # Store dataframes (one per model for each metric)
     model_csi_dfs = {}
     model_pod_dfs = {}
     model_far_dfs = {}
+    model_fss_dicts = {}  # Dict[model, Dict[threshold, Series]]
 
     # Use ThreadPoolExecutor for parallel processing
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -341,7 +377,7 @@ def compute_csi_for_models(
     with ThreadPoolExecutor(max_workers=min(len(models), 4)) as executor:
         # Submit all tasks
         future_to_model = {
-            executor.submit(compute_csi_for_single_model, model, start_dt, end_dt, thresholds): model
+            executor.submit(compute_csi_for_single_model, model, start_dt, end_dt, thresholds, window_sizes): model
             for model in models
         }
 
@@ -349,18 +385,37 @@ def compute_csi_for_models(
         for future in as_completed(future_to_model):
             model = future_to_model[future]
             try:
-                csi_df, pod_df, far_df = future.result()
-                if csi_df is not None and pod_df is not None and far_df is not None:
+                csi_df, pod_df, far_df, fss_dict = future.result()
+                if csi_df is not None and pod_df is not None and far_df is not None and fss_dict is not None:
                     model_csi_dfs[model] = csi_df
                     model_pod_dfs[model] = pod_df
                     model_far_dfs[model] = far_df
+                    model_fss_dicts[model] = fss_dict
             except Exception as e:
-                logger.error(f"❌ [{model}] Exception during CSI/POD/FAR computation: {e}")
+                logger.error(f"❌ [{model}] Exception during CSI/POD/FAR/FSS computation: {e}")
 
     if not model_csi_dfs:
         logger.error("No CSI data computed for any model")
-        return None, None, None
+        return None, None, None, None
 
-    logger.info(f"CSI/POD/FAR computation completed for {len(model_csi_dfs)} models")
+    # Reorganize FSS results: from Dict[model, Dict[threshold, Series]]
+    # to Dict[threshold, DataFrame(window_sizes × models)]
+    fss_by_threshold = {}
+    for th in thresholds:
+        # Collect Series from all models for this threshold
+        series_list = []
+        for model in models:
+            if model in model_fss_dicts:
+                series = model_fss_dicts[model][th]
+                series.name = model  # Rename series to model name
+                series_list.append(series)
 
-    return model_csi_dfs, model_pod_dfs, model_far_dfs
+        if series_list:
+            # Combine into DataFrame: rows=window_sizes, columns=models
+            fss_df = pd.concat(series_list, axis=1)
+            fss_df.index.name = "Window Size (px)"
+            fss_by_threshold[th] = fss_df
+
+    logger.info(f"CSI/POD/FAR/FSS computation completed for {len(model_csi_dfs)} models")
+
+    return model_csi_dfs, model_pod_dfs, model_far_dfs, fss_by_threshold
