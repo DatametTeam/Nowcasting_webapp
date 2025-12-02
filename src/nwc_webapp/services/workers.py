@@ -187,15 +187,10 @@ def worker_thread(event, latest_file, model, ctx):
         if model.upper() != "TEST" and is_pbs_available() and check_count % 3 == 0:
             current_status = get_model_job_status(model)
 
-            # Status changed - no need to trigger rerun, fragment handles UI updates
-            if current_status != last_status:
-                logger.info(f"[{model}] Job status changed: {last_status} -> {current_status}")
-                last_status = current_status
-                # Fragment updates independently every 2s - no manual rerun needed!
-
             # Job disappeared from queue - immediately check result
+            # Check this BEFORE updating last_status!
             if last_status and not current_status:
-                logger.info(f"[{model}] Job finished - checking for output file")
+                logger.info(f"[{model}] Job finished (was {last_status}, now None) - checking for output file")
 
                 # Give it one brief moment for filesystem sync (1 second)
                 time.sleep(1)
@@ -211,6 +206,12 @@ def worker_thread(event, latest_file, model, ctx):
 
                 # Exit the main wait loop since job is done
                 break
+
+            # Status changed - log it (after completion check)
+            if current_status != last_status:
+                logger.info(f"[{model}] Job status changed: {last_status} -> {current_status}")
+                last_status = current_status
+                # Fragment updates independently every 2s - no manual rerun needed!
 
         time.sleep(2)
 
