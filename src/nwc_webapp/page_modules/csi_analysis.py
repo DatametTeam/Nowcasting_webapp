@@ -518,11 +518,12 @@ def show_csi_analysis_page(model_list):
             .stTabs [data-baseweb="tab"] {
                 height: 60px;
                 padding: 10px 30px;
-                font-size: 18px;
-                font-weight: 600;
+                font-size: 22px;
+                font-weight: 700;
             }
             .stTabs [aria-selected="true"] {
                 background-color: #ff4b4b;
+                color: white !important;
             }
             </style>
         """, unsafe_allow_html=True)
@@ -737,8 +738,14 @@ def show_csi_analysis_page(model_list):
 
                     fss_df = fss_dict[threshold]  # DataFrame with rows=window_sizes, columns=models
 
+                    # Add average row at the bottom
+                    fss_df_with_avg = fss_df.copy()
+                    avg_row = fss_df.mean(axis=0)  # Average across window sizes for each model
+                    avg_row.name = "Average"
+                    fss_df_with_avg = pd.concat([fss_df_with_avg, avg_row.to_frame().T])
+
                     # Style with gradient: higher FSS (closer to 1) = green, lower = red
-                    styled = fss_df.style.format("{:.3f}").background_gradient(cmap='RdYlGn', axis=None, vmin=0, vmax=1)
+                    styled = fss_df_with_avg.style.format("{:.3f}").background_gradient(cmap='RdYlGn', axis=None, vmin=0, vmax=1)
                     st.dataframe(styled, width='stretch')
 
                     st.markdown("")  # Space between thresholds

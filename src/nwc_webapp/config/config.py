@@ -142,6 +142,11 @@ class Config:
         """Get CSI thresholds."""
         return self._config.get("csi_threshold", [])
 
+    @property
+    def fss_window_sizes(self) -> List[int]:
+        """Get FSS window sizes (in pixels)."""
+        return self._config.get("fss_window_sizes", [5, 10, 20, 40, 80])
+
     # Paths (environment-aware)
     def get_paths(self) -> Dict[str, str]:
         """Get paths based on current environment."""
