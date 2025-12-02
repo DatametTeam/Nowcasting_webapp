@@ -66,8 +66,8 @@ def main(app_config, sri_folder, count_value):
         "Real Time Prediction",
         "Nowcasting",
         "Prediction by Date & Time",
-        "CSI Analysis",
-        "Model Comparison"
+        "Model Comparison",
+        "Metrics Analysis"
     ])
 
     with tab1:
@@ -81,10 +81,10 @@ def main(app_config, sri_folder, count_value):
         show_prediction_page(model_list)
 
     with tab4:
-        show_csi_analysis_page(model_list)
+        show_model_comparison_page(model_list)
 
     with tab5:
-        show_model_comparison_page(model_list)
+        show_csi_analysis_page(model_list)
 
 
 # Get configuration (safe to call at module level - no session state access)

@@ -1,5 +1,5 @@
 """
-CSI Analysis page for model evaluation.
+Metrics Analysis page for model evaluation.
 """
 import time
 from datetime import datetime, timedelta
@@ -49,12 +49,12 @@ def get_model_prediction_status(model_name: str, start_dt: datetime, end_dt: dat
 
 def show_csi_analysis_page(model_list):
     """
-    Display CSI Analysis page.
+    Display Metrics Analysis page.
 
     Args:
         model_list: List of available models
     """
-    st.title("CSI Analysis")
+    st.title("Metrics Analysis")
 
     # Initialize session state for job monitoring
     if "csi_computing_models" not in st.session_state:
@@ -457,7 +457,7 @@ def show_csi_analysis_page(model_list):
     with col_csi:
         can_compute_csi = len(models_with_predictions) > 0
         if st.button(
-            "📊 Compute CSI for Selected Models",
+            "📊 Compute Metrics for Selected Models",
             disabled=not can_compute_csi,
             width='stretch',
             type="primary"
@@ -494,10 +494,10 @@ def show_csi_analysis_page(model_list):
                     import traceback
                     logger.error(traceback.format_exc())
 
-    # Display CSI results if available
+    # Display metrics results if available
     if st.session_state["csi_results"] is not None:
         st.markdown("---")
-        st.subheader("📈 CSI Results")
+        st.subheader("📈 Metrics Results")
 
         results_dict = st.session_state["csi_results"]  # Dict[str, DataFrame]
         result_models = st.session_state.get("csi_result_models", [])
@@ -507,6 +507,25 @@ def show_csi_analysis_page(model_list):
         start_str = result_interval[0].strftime("%d/%m/%Y %H:%M")
         end_str = result_interval[1].strftime("%d/%m/%Y %H:%M")
         st.info(f"**Models**: {', '.join(result_models)}  \n**Interval**: {start_str} to {end_str}")
+
+        # Add CSS to make tabs bigger and more visible
+        st.markdown("""
+            <style>
+            /* Make metric tabs bigger */
+            .stTabs [data-baseweb="tab-list"] {
+                gap: 8px;
+            }
+            .stTabs [data-baseweb="tab"] {
+                height: 60px;
+                padding: 10px 30px;
+                font-size: 18px;
+                font-weight: 600;
+            }
+            .stTabs [aria-selected="true"] {
+                background-color: #ff4b4b;
+            }
+            </style>
+        """, unsafe_allow_html=True)
 
         # Create tabs for CSI and FSS results
         tab_csi, tab_fss = st.tabs(["CSI Results", "FSS Results"])
