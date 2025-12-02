@@ -4,6 +4,7 @@ Map creation and rendering utilities.
 
 import base64
 import io
+from pathlib import Path
 
 import branca.colormap as cm
 import folium
@@ -19,6 +20,73 @@ from nwc_webapp.utils import cmap, norm
 
 # Set up logger
 logger = setup_logger(__name__)
+
+
+def parse_radar_positions():
+    """
+    Parse radar positions from the radar_positions.txt file.
+    Format: RADARNAME = lon lat
+
+    Returns:
+        list: List of dictionaries with 'name', 'lon', and 'lat' keys
+    """
+    radar_file = Path(__file__).parent.parent / "resources" / "legends" / "radar_positions.txt"
+    radars = []
+
+    try:
+        with open(radar_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+
+                # Parse line format: "RADARNAME = lon lat"
+                if '=' in line:
+                    parts = line.split('=')
+                    name = parts[0].strip()
+                    coords = parts[1].strip().split()
+
+                    if len(coords) >= 2:
+                        try:
+                            lon = float(coords[0])
+                            lat = float(coords[1])
+                            radars.append({
+                                'name': name,
+                                'lon': lon,
+                                'lat': lat
+                            })
+                        except ValueError:
+                            logger.warning(f"Could not parse coordinates for radar: {name}")
+
+    except FileNotFoundError:
+        logger.error(f"Radar positions file not found: {radar_file}")
+    except Exception as e:
+        logger.error(f"Error parsing radar positions: {e}")
+
+    logger.info(f"Loaded {len(radars)} radar positions")
+    return radars
+
+
+def get_radar_icon_base64():
+    """
+    Convert radar icon to base64 for embedding in HTML.
+
+    Returns:
+        str: Base64 encoded PNG image
+    """
+    icon_path = Path(__file__).parent.parent.parent / "imgs" / "radar.png"
+
+    try:
+        with open(icon_path, 'rb') as f:
+            icon_data = f.read()
+            icon_base64 = base64.b64encode(icon_data).decode()
+            return icon_base64
+    except FileNotFoundError:
+        logger.error(f"Radar icon not found: {icon_path}")
+        return None
+    except Exception as e:
+        logger.error(f"Error loading radar icon: {e}")
+        return None
 
 
 def create_map():
@@ -54,6 +122,11 @@ def create_only_map(rgba_img, prediction: bool = False):
         prediction: If True, add prediction overlay to map
     """
     logger.info("creating map")
+
+    # Load radar positions and icon for markers
+    radars = parse_radar_positions()
+    radar_icon_base64 = get_radar_icon_base64()
+
     if st.session_state.selected_model and st.session_state.selected_time:
         if "display_prediction" in st.session_state:
             if st.session_state["display_prediction"]:
@@ -103,6 +176,22 @@ def create_only_map(rgba_img, prediction: bool = False):
         tiles="OpenStreetMap",
         attr="OpenStreetMap",
     )
+
+    # Add radar markers to the map
+    if radar_icon_base64 and radars:
+        for radar in radars:
+            # Create custom icon using base64 encoded image
+            icon = folium.CustomIcon(
+                icon_image=f"data:image/png;base64,{radar_icon_base64}",
+                icon_size=(24, 24),  # Size of the icon (not too big, not too small)
+            )
+
+            # Add marker with tooltip
+            folium.Marker(
+                location=[radar['lat'], radar['lon']],
+                icon=icon,
+                tooltip=radar['name']  # Tooltip shows radar name on hover
+            ).add_to(map)
 
     if prediction:
         # ricreazione totale della mappa + predizione
@@ -555,6 +644,10 @@ def create_animated_map_html(rgba_images_dict, latest_file=None):
         rgba_images_dict: Dictionary mapping time_option -> RGBA image array
         latest_file: Latest SRI filename to extract base datetime
     """
+    # Parse radar positions and get icon
+    radars = parse_radar_positions()
+    radar_icon_base64 = get_radar_icon_base64()
+
     # Parse base datetime from latest_file
     base_dt = None
     if latest_file:
@@ -612,6 +705,12 @@ def create_animated_map_html(rgba_images_dict, latest_file=None):
     for img_data in image_data_urls:
         images_js += f"  {{timestamp: '{img_data['timestamp']}', label: '{img_data['display_label']}', url: '{img_data['data_url']}'}},\n"
     images_js += "]"
+
+    # Build JavaScript array of radar positions
+    radars_js = "[\n"
+    for radar in radars:
+        radars_js += f"  {{name: '{radar['name']}', lat: {radar['lat']}, lon: {radar['lon']}}},\n"
+    radars_js += "]"
 
     # Get first display label for initial display
     first_label = image_data_urls[0]["display_label"] if image_data_urls else timestamps[0]
@@ -905,6 +1004,34 @@ def create_animated_map_html(rgba_images_dict, latest_file=None):
                 const latlng = e.geocode.center;
                 map.setView(latlng, 10);
             }});
+
+            // Add radar markers with custom icons
+            const radars = {radars_js};
+            const radarIconBase64 = '{radar_icon_base64}';
+
+            // Create custom icon for radars
+            const radarIcon = L.icon({{
+                iconUrl: 'data:image/png;base64,' + radarIconBase64,
+                iconSize: [24, 24],  // Size of the icon (not too big, not too small)
+                iconAnchor: [12, 12],  // Point of the icon which corresponds to marker's location
+                tooltipAnchor: [0, -12]  // Point from which the tooltip should open relative to the iconAnchor
+            }});
+
+            // Add markers for each radar
+            radars.forEach(radar => {{
+                const marker = L.marker([radar.lat, radar.lon], {{
+                    icon: radarIcon
+                }}).addTo(map);
+
+                // Add tooltip that shows on hover
+                marker.bindTooltip(radar.name, {{
+                    permanent: false,
+                    direction: 'top',
+                    className: 'radar-tooltip'
+                }});
+            }});
+
+            console.log('Added', radars.length, 'radar markers');
 
             // Image data
             const images = {images_js};
