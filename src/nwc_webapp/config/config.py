@@ -77,9 +77,7 @@ class PBSConfig:
     """PBS/HPC settings."""
 
     queue: str
-    target_gpu: str
     walltime: str
-    log_folder: str
     environments: Dict[str, str]
 
 

@@ -6,10 +6,14 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+from nwc_webapp.config.config import get_config
 from nwc_webapp.logging_config import setup_logger
 
 # Set up logger
 logger = setup_logger(__name__)
+
+# Get config instance
+config = get_config()
 
 
 def is_pbs_available() -> bool:
@@ -132,26 +136,16 @@ def get_pbs_header(job_name, q_name, pbs_log_path, target_gpu=None):
 """
 
 
-# TO UPDATE!
 def get_pbs_env(model):
-    if model == "ED_ConvLSTM":
-        env = f"""
+    """
+    Get PBS environment setup for a given model.
+    Reads environment name from config and generates the activation commands.
+    """
+    env_name = config.get_model_pbs_env(model)
+    env = f"""
             module load proxy
             module load anaconda3
-            source activate protezionecivile
-            """
-    elif model == "pystep":
-
-        env = f"""
-            module load proxy
-            module load anaconda3
-            source activate nowcasting
-            """
-    else:
-        env = f"""
-            module load proxy
-            module load anaconda3
-            source activate nowcasting3.12
+            source activate {env_name}
             """
     return env
 
@@ -222,9 +216,11 @@ def start_prediction_job(model, latest_data):
         start_date={str(latest_data)}
         """
     else:
+        # Construct path to model config in repository
+        config_path = Path(__file__).resolve().parent.parent / "resources/cfg/real_time_prediction_cfg" / f"{model}.yaml"
         cmd_string = f"""
     python "/davinci-1/home/guidim/spatiotemporal-nowcast/spatiotemporal_forecast/scripts/webapp_predictions.py" \
-        --cfg_path "/davinci-1/work/protezionecivile/nwc_webapp/configs/{model}.yaml"
+        --cfg_path "{config_path}"
         """
 
     logger.info(f"cmd_string: \n > {cmd_string}")
@@ -238,9 +234,9 @@ def start_prediction_job(model, latest_data):
     pbs_script += f"\n{cmd_string}"
 
     src_dir = Path(__file__).resolve().parent.parent
-    pbs_scripts = Path(os.path.join(src_dir, "pbs_scripts"))
+    pbs_scripts = src_dir / "pbs_scripts" / "real_time_pred_scripts"
     pbs_scripts.mkdir(parents=True, exist_ok=True)
-    pbs_script_path = pbs_scripts / f"run_{model}_inference.sh"
+    pbs_script_path = pbs_scripts / f"run_{model}_inference_realtime.sh"
     with open(pbs_script_path, "w", encoding="utf-8") as f:
         f.write(pbs_script)
 

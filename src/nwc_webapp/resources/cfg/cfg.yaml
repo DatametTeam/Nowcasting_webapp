@@ -131,15 +131,12 @@ prediction:
 # PBS/HPC settings
 pbs:
   queue: "fast"
-  target_gpu: "dvgpu006"
   walltime: "12:00:00"
-  log_folder: "/davinci-1/home/guidim/pbs_logs"
 
   # Conda environments for each model
   environments:
     ED_ConvLSTM: "protezionecivile"
-    pystep: "nowcasting"
-    default: "sole24_310"
+    default: "nowcasting3.12"
 
 # Auto-refresh settings
 auto_refresh:
@@ -155,5 +152,5 @@ auto_refresh:
 # Logging
 logging:
   level: "INFO"
-  log_to_file: true
+  log_to_file: false
   log_to_console: true
