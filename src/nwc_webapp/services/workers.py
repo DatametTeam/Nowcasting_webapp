@@ -84,7 +84,10 @@ def get_latest_file(folder_path, terminate_event):
 
             if new_file != latest_file:
                 logger.info(f"New file detected: {new_file}")
+                # Update both local variable AND session state
                 latest_file = new_file
+                ctx.session_state["latest_thread"] = new_file
+                ctx.session_state["new_update"] = True
                 break
 
             time.sleep(1)
@@ -102,6 +105,9 @@ def get_latest_file(folder_path, terminate_event):
         # Restart the application to force the refresh of the main loop
         logger.info("Rerun main")
         session_info = runtime._session_mgr.get_active_session_info(ctx.session_id)
+        if session_info is None:
+            logger.warning("Session info is None - session may have been closed")
+            continue
         time.sleep(0.2)
         session_info.session.request_rerun(None)
     logger.warning("TERMINATE event is_set().")

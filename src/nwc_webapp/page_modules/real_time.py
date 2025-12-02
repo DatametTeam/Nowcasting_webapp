@@ -390,7 +390,10 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
 
                 logger.info(f"Updated latest_file to {latest_file} - ready for next update")
         else:
-            logger.debug(f"Current SRI == Latest file processed! {latest_file}. Skipped prediction")
+            logger.debug(
+                f"No new data detected (latest: {latest_file}, last processed: {st.session_state.latest_file}). "
+                f"Skipped prediction launch."
+            )
 
         # Load and display animated predictions
         if st.session_state.selected_model:
