@@ -113,8 +113,8 @@ class Config:
             config_path: Path to config YAML file. If None, uses default.
         """
         if config_path is None:
-            # config.py is in src/nwc_webapp/config/, resources is in src/nwc_webapp/resources/
-            config_path = Path(__file__).parent.parent / "resources" / "cfg" / "cfg.yaml"
+            # config.py is in src/nwc_webapp/config/, cfg.yaml is in the same directory
+            config_path = Path(__file__).parent / "cfg.yaml"
 
         self.config_path = config_path
         self._config: Dict[str, Any] = {}

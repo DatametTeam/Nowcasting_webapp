@@ -626,7 +626,7 @@ def modify_yaml_config_for_date_range(model_name: str, start_dt: datetime, end_d
     """
     Modify YAML config with start/end dates for date-range predictions.
 
-    Reads the config from start_end_prediction_cfg/{model_name}.yaml,
+    Reads the config from config/model_configs/start_end/{model_name}.yaml,
     modifies the start_date and end_date fields, and overwrites the file.
 
     Args:
@@ -640,7 +640,7 @@ def modify_yaml_config_for_date_range(model_name: str, start_dt: datetime, end_d
     import yaml
 
     # Source YAML path
-    config_path = Path(__file__).parent.parent / "resources" / "cfg" / "start_end_prediction_cfg" / f"{model_name}.yaml"
+    config_path = Path(__file__).parent.parent / "config" / "model_configs" / "start_end" / f"{model_name}.yaml"
 
     if not config_path.exists():
         logger.error(f"Config file not found: {config_path}")
