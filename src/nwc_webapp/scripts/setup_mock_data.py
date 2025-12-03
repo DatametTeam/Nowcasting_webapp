@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from nwc_webapp.config.environment import get_data_root, get_prediction_output_dir, get_sri_folder, is_local
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.services.mock.mock_data_generator import setup_mock_prediction_data, setup_mock_sri_data
+from nwc_webapp.mock.generator import setup_mock_prediction_data, setup_mock_sri_data
 
 # Set up logger
 logger = setup_logger(__name__)

@@ -13,7 +13,7 @@ from matplotlib import pyplot as plt
 from PIL import Image
 
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.visualization.figures import compute_figure_gpd
+from nwc_webapp.rendering.figures import compute_figure_gpd
 
 # Set up logger
 logger = setup_logger(__name__)

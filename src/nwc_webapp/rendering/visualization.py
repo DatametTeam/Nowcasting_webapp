@@ -11,18 +11,18 @@ import streamlit as st
 from PIL import Image
 
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.page_modules.nowcasting_utils import extract_timestamp_slices
-from nwc_webapp.prediction.jobs import submit_prediction_job
-from nwc_webapp.prediction.loaders import get_prediction_results
-from nwc_webapp.services.parallel_code import (
+from nwc_webapp.pages.nowcasting_utils import extract_timestamp_slices
+from nwc_webapp.core.jobs import submit_prediction_job
+from nwc_webapp.models.predictions import get_prediction_results
+from nwc_webapp.rendering.gifs import (
     create_diff_dict_in_parallel,
     create_fig_dict_in_parallel,
     create_sliding_window_gifs,
     create_sliding_window_gifs_for_predictions,
 )
-from nwc_webapp.ui.layouts import init_prediction_visualization_layout
-from nwc_webapp.data.gif_utils import check_if_gif_present, load_gif_as_bytesio
-from nwc_webapp.visualization.figures import compute_figure_gpd, create_colorbar_fig
+from nwc_webapp.ui.components import init_prediction_visualization_layout
+from nwc_webapp.data.gifs import check_if_gif_present, load_gif_as_bytesio
+from nwc_webapp.rendering.figures import compute_figure_gpd, create_colorbar_fig
 
 # Set up logger
 logger = setup_logger(__name__)

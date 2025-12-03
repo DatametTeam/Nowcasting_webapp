@@ -14,7 +14,7 @@ import streamlit as st
 from nwc_webapp.config.config import get_config
 from nwc_webapp.geo.warping import warp_map
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.visualization.colormaps import configure_colorbar
+from nwc_webapp.rendering.colormaps import configure_colorbar
 
 # Set up logger
 logger = setup_logger(__name__)

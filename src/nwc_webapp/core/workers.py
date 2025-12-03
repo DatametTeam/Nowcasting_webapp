@@ -21,9 +21,9 @@ logger = setup_logger(__name__)
 
 # Import environment-aware job submission
 if is_hpc():
-    from nwc_webapp.services.pbs import start_prediction_job
+    from nwc_webapp.hpc.pbs import start_prediction_job
 else:
-    from nwc_webapp.services.mock.mock import start_prediction_job
+    from nwc_webapp.mock.predictions import start_prediction_job
 
 
 def get_latest_file(folder_path, terminate_event):
@@ -178,7 +178,7 @@ def worker_thread(event, latest_file, model, ctx):
         logger.error(f"[{model}] Job submission failed!")
 
     # STEP 3: Monitor job status and wait for file
-    from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
+    from nwc_webapp.hpc.pbs import get_model_job_status, is_pbs_available
 
     last_status = None
     check_count = 0
@@ -321,3 +321,71 @@ def load_prediction_thread(st, time_options, latest_file):
 
     session_info = runtime._session_mgr.get_active_session_info(ctx.session_id)
     session_info.session.request_rerun(None)
+
+
+# ============================================================================
+# Functions merged from background/workers.py
+# ============================================================================
+
+def thread_for_position():
+    """
+    Background thread to monitor and update map position.
+    """
+    thread_id = threading.get_ident()
+    logger.info(f"Worker thread (ID: {thread_id}) is starting...")
+    while True:
+        if "st_map" in st.session_state:
+            st_map = st.session_state["st_map"]
+            if "center" in st_map.keys() and "zoom" in st_map.keys():
+                st.session_state["center"] = st_map["center"]
+                st.session_state["zoom"] = st_map["zoom"]
+        time.sleep(0.4)
+
+
+def load_prediction(time_options, latest_file, prediction_num):
+    """
+    Start a background thread to load prediction data.
+
+    Args:
+        time_options: List of available time options
+        latest_file: Path to latest file
+        prediction_num: Prediction number identifier
+    """
+    ctx = get_script_run_ctx()
+    load_pred_thread = threading.Thread(
+        target=load_prediction_thread, args=(st, time_options, latest_file), daemon=True
+    )
+    add_script_run_ctx(load_pred_thread, ctx)
+    logger.info("LOAD PREDICTION -- " + str(prediction_num) + " --..")
+    st.session_state["load_prediction_thread"] = True
+    load_pred_thread.start()
+
+
+def monitor_time():
+    """
+    Monitor time and trigger app rerun at specific intervals.
+    Checks if current minute is a multiple of 5 to force new predictions.
+    Respects realtime_paused flag for debugging.
+    """
+    logger.debug("Starting Monitor time thread")
+    while True:
+        # Check if real-time is paused
+        try:
+            is_paused = st.session_state.get("realtime_paused", False)
+            if is_paused:
+                logger.debug("Real-time paused - skipping auto-rerun check")
+                time.sleep(5)
+                continue
+        except RuntimeError:
+            # Session state not available yet - skip this iteration
+            time.sleep(2)
+            continue
+
+        now = datetime.now()
+        # Check if the current minute is a multiple of 5 and seconds are close to 0
+        if now.minute % 5 == 0 and now.second < 5:
+            logger.info(f"Time is {now}! Restarting app to force new prediction")
+            time.sleep(5)
+            st.rerun()
+
+        time.sleep(2)  # Check every 2 seconds

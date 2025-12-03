@@ -11,8 +11,8 @@ import streamlit as st
 from nwc_webapp.config.config import get_config
 from nwc_webapp.config.environment import is_hpc
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.page_modules.csi_utils import compute_csi_for_models
-from nwc_webapp.page_modules.nowcasting_utils import (
+from nwc_webapp.pages.csi_utils import compute_csi_for_models
+from nwc_webapp.pages.nowcasting_utils import (
     check_missing_predictions,
     submit_date_range_prediction_job,
 )
@@ -187,7 +187,7 @@ def show_csi_analysis_page(model_list):
         if model in st.session_state["csi_computing_models"]:
             # Check PBS job status
             try:
-                from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
+                from nwc_webapp.hpc.pbs import get_model_job_status, is_pbs_available
 
                 if is_pbs_available():
                     job_status = get_model_job_status(model)
@@ -253,7 +253,7 @@ def show_csi_analysis_page(model_list):
             # Delete existing predictions for models that have them
             if len(models_with_predictions) > 0:
                 st.info(f"🗑️ Deleting existing predictions for {len(models_with_predictions)} model(s)...")
-                from nwc_webapp.page_modules.nowcasting_utils import delete_predictions_in_range
+                from nwc_webapp.pages.nowcasting_utils import delete_predictions_in_range
 
                 for model in models_with_predictions:
                     deleted = delete_predictions_in_range(model, start_datetime, end_datetime)
@@ -282,7 +282,7 @@ def show_csi_analysis_page(model_list):
                 st.success(f"✅ Submitted {len(submission_results)} job(s) successfully!")
 
                 # Check if this is HPC or local mode
-                from nwc_webapp.services.pbs import is_pbs_available
+                from nwc_webapp.hpc.pbs import is_pbs_available
 
                 if not is_pbs_available():
                     # Local mode: predictions already created, skip monitoring
@@ -319,7 +319,7 @@ def show_csi_analysis_page(model_list):
                         model_placeholders[model] = st.empty()
 
                     # Monitor all jobs
-                    from nwc_webapp.services.pbs import get_model_job_status
+                    from nwc_webapp.hpc.pbs import get_model_job_status
 
                     max_iterations = 1800  # 1 hour max
                     iteration = 0
@@ -652,7 +652,7 @@ def show_csi_analysis_page(model_list):
                         st.markdown("**Performance Fit Diagram (POD vs FAR)**")
 
                         if pod_dict and far_dict:
-                            from nwc_webapp.visualization.fit_diagram import create_performance_fit_diagram
+                            from nwc_webapp.rendering.fit_diagram import create_performance_fit_diagram
 
                             # Extract averaged POD, FAR, CSI values for this threshold (across all lead times)
                             pod_values = []

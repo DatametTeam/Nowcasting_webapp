@@ -12,13 +12,13 @@ import streamlit as st
 from nwc_webapp.config.config import get_config
 from nwc_webapp.config.environment import is_hpc
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.page_modules.nowcasting_utils import (
+from nwc_webapp.pages.nowcasting_utils import (
     check_single_prediction_exists,
     is_training_date,
     load_single_prediction_data,
     submit_date_range_prediction_job,
 )
-from nwc_webapp.ui.layouts import init_second_tab_layout, precompute_images
+from nwc_webapp.ui.components import init_second_tab_layout, precompute_images
 
 # Set up logger
 logger = setup_logger(__name__)
@@ -205,7 +205,7 @@ def show_prediction_page(model_list):
                 if st.button("🔄 Recompute", key="recompute_pred"):
                     # Delete existing prediction and recompute
                     st.info("🗑️ Deleting old prediction...")
-                    from nwc_webapp.page_modules.nowcasting_utils import delete_predictions_in_range
+                    from nwc_webapp.pages.nowcasting_utils import delete_predictions_in_range
 
                     deleted = delete_predictions_in_range(selected_model, selected_datetime, selected_datetime)
                     if deleted > 0:
@@ -223,7 +223,7 @@ def show_prediction_page(model_list):
             st.warning(f"⚠️ Prediction not found for {selected_model} at {selected_datetime.strftime('%d/%m/%Y %H:%M')}")
 
             # Check if target data exists (needed for difference images)
-            from nwc_webapp.page_modules.nowcasting_utils import check_target_data_exists
+            from nwc_webapp.pages.nowcasting_utils import check_target_data_exists
 
             targets_exist, found_count, total_count = check_target_data_exists(selected_datetime)
 
@@ -343,7 +343,7 @@ def show_prediction_page(model_list):
             out_folder_path = config.real_time_pred / selected_model
 
             # Monitor job status
-            from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
+            from nwc_webapp.hpc.pbs import get_model_job_status, is_pbs_available
 
             max_iterations = 1800  # 1 hour max (1800 * 2 second checks)
             iteration = 0

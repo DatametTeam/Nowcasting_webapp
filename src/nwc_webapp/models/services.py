@@ -9,13 +9,13 @@ from typing import Any, Dict, Optional, Tuple
 
 from nwc_webapp.config.config import get_config
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.services.pbs import is_pbs_available
+from nwc_webapp.hpc.pbs import is_pbs_available
 
 # Import PBS or mock based on environment
 if is_pbs_available():
-    from nwc_webapp.services.pbs import get_job_status, submit_inference
+    from nwc_webapp.hpc.pbs import get_job_status, submit_inference
 else:
-    from nwc_webapp.services.mock.mock import get_job_status, submit_inference
+    from nwc_webapp.mock.predictions import get_job_status, submit_inference
 
 logger = get_logger(__name__)
 

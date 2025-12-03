@@ -6,16 +6,16 @@ from datetime import datetime
 
 import streamlit as st
 
-from nwc_webapp.background.workers import monitor_time
+from nwc_webapp.core.workers import monitor_time
 from nwc_webapp.config.config import get_config
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.page_modules.csi_analysis import show_csi_analysis_page
-from nwc_webapp.page_modules.home import show_home_page
-from nwc_webapp.page_modules.model_comparison import show_model_comparison_page
-from nwc_webapp.page_modules.nowcasting import main_page
-from nwc_webapp.page_modules.prediction_by_date import show_prediction_page
-from nwc_webapp.page_modules.real_time import show_real_time_prediction
-from nwc_webapp.ui.layouts import configure_sidebar
+from nwc_webapp.pages.csi_analysis import show_csi_analysis_page
+from nwc_webapp.pages.home import show_home_page
+from nwc_webapp.pages.model_comparison import show_model_comparison_page
+from nwc_webapp.pages.nowcasting import main_page
+from nwc_webapp.pages.prediction_by_date import show_prediction_page
+from nwc_webapp.pages.real_time import show_real_time_prediction
+from nwc_webapp.ui.components import configure_sidebar
 
 # Set up logger
 logger = setup_logger(__name__)
@@ -46,7 +46,7 @@ def main(app_config, sri_folder, count_value):
     if is_local() and "mock_service_started" not in st.session_state:
         import logging
 
-        from nwc_webapp.services.mock_realtime_service import start_mock_service
+        from nwc_webapp.mock.realtime import start_mock_service
 
         logging.basicConfig(level=logging.INFO)
 

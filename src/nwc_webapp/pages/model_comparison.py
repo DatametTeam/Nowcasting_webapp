@@ -21,14 +21,14 @@ from nwc_webapp.config.config import get_config
 from nwc_webapp.config.environment import is_hpc
 from nwc_webapp.evaluation.metrics import CSI
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.visualization.figures import compute_figure_gpd
-from nwc_webapp.page_modules.nowcasting_utils import (
+from nwc_webapp.rendering.figures import compute_figure_gpd
+from nwc_webapp.pages.nowcasting_utils import (
     check_single_prediction_exists,
     is_training_date,
     load_prediction_array,
     submit_date_range_prediction_job,
 )
-from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
+from nwc_webapp.hpc.pbs import get_model_job_status, is_pbs_available
 
 # Set up logger
 logger = setup_logger(__name__)

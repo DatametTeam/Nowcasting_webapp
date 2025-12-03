@@ -13,7 +13,7 @@ from nwc_webapp.config.config import get_config
 from nwc_webapp.config.environment import is_hpc
 from nwc_webapp.evaluation.metrics import compute_CSI
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.page_modules.nowcasting_utils import generate_timestamp_range, load_prediction_array
+from nwc_webapp.pages.nowcasting_utils import generate_timestamp_range, load_prediction_array
 
 # Set up logger
 logger = setup_logger(__name__)

@@ -13,8 +13,8 @@ import numpy as np
 from nwc_webapp.config.config import get_config
 from nwc_webapp.config.environment import is_hpc
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.services.parallel_code import create_single_gif_from_dict
-from nwc_webapp.visualization.figures import compute_figure_gpd
+from nwc_webapp.rendering.gifs import create_single_gif_from_dict
+from nwc_webapp.rendering.figures import compute_figure_gpd
 
 # Set up logger
 logger = setup_logger(__name__)
@@ -711,7 +711,7 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
         logger.info(f"🖥️  Running in LOCAL mode - generating mock predictions for {model_name}")
 
         try:
-            from nwc_webapp.services.mock.mock_data_generator import generate_mock_predictions_for_range
+            from nwc_webapp.mock.generator import generate_mock_predictions_for_range
 
             # Generate mock predictions with ORIGINAL start_dt (not adjusted)
             # The mock generator should handle predictions starting from start_dt

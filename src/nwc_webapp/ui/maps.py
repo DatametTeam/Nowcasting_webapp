@@ -16,7 +16,7 @@ from PIL import Image
 from streamlit_folium import st_folium
 
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.visualization.colormaps import cmap, norm
+from nwc_webapp.rendering.colormaps import cmap, norm
 
 # Set up logger
 logger = setup_logger(__name__)

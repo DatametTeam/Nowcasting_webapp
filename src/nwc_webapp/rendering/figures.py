@@ -11,7 +11,7 @@ import numpy as np
 
 from nwc_webapp.geo.coordinates import lincol_2_yx, par
 from nwc_webapp.geo.shapefiles import load_italy_shape
-from nwc_webapp.visualization.colormaps import configure_colorbar
+from nwc_webapp.rendering.colormaps import configure_colorbar
 
 # Suppress specific matplotlib warnings
 warnings.filterwarnings(

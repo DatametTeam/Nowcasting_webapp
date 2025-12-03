@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from nwc_webapp.config.config import get_config
-from nwc_webapp.services.mock.mock_data_generator import create_mock_hdf_file, create_mock_prediction_file
+from nwc_webapp.mock.generator import create_mock_hdf_file, create_mock_prediction_file
 
 logger = logging.getLogger(__name__)
 

@@ -8,7 +8,7 @@ from pathlib import Path
 import streamlit as st
 
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.page_modules.nowcasting_utils import (
+from nwc_webapp.pages.nowcasting_utils import (
     check_gifs_exist,
     check_missing_predictions,
     check_target_data_for_range,
@@ -19,13 +19,13 @@ from nwc_webapp.page_modules.nowcasting_utils import (
     is_training_date,
     submit_date_range_prediction_job,
 )
-from nwc_webapp.prediction.visualization import (
+from nwc_webapp.rendering.visualization import (
     compute_prediction_results,
     create_gifs_from_realtime_data,
     display_results,
     update_prediction_visualization,
 )
-from nwc_webapp.data.gif_utils import load_gif_as_bytesio
+from nwc_webapp.data.gifs import load_gif_as_bytesio
 
 # Set up logger
 logger = setup_logger(__name__)
@@ -634,7 +634,7 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
         import os
         import time
 
-        from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
+        from nwc_webapp.hpc.pbs import get_model_job_status, is_pbs_available
 
         max_iterations = 1800  # 1 hour max (1800 * 2 second checks)
         iteration = 0

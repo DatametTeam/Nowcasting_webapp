@@ -14,8 +14,8 @@ from nwc_webapp.config.config import get_config
 from nwc_webapp.data.loaders import load_all_predictions
 from nwc_webapp.logging_config import setup_logger
 from nwc_webapp.ui.maps import create_animated_map_html, create_only_map
-from nwc_webapp.ui.state import initial_state_management
-from nwc_webapp.services.workers import get_latest_file, launch_thread_execution
+from nwc_webapp.core.session import initial_state_management
+from nwc_webapp.core.workers import get_latest_file, launch_thread_execution
 
 # Set up logger
 logger = setup_logger(__name__)
@@ -71,7 +71,7 @@ def _get_model_status(model, latest_file, config):
     # Try to get PBS job status (quick check, non-blocking with try/except)
     job_status = None
     try:
-        from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
+        from nwc_webapp.hpc.pbs import get_model_job_status, is_pbs_available
 
         if is_pbs_available():
             job_status = get_model_job_status(model)

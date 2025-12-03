@@ -12,7 +12,7 @@ from typing import Optional, Tuple
 
 from nwc_webapp.config.config import get_config
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.services.mock.mock_data_generator import create_mock_prediction_file
+from nwc_webapp.mock.generator import create_mock_prediction_file
 
 # Set up logger
 logger = setup_logger(__name__)

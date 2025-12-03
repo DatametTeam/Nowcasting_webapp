@@ -11,9 +11,9 @@ import streamlit as st
 from nwc_webapp.config.environment import is_hpc
 
 if is_hpc():
-    from nwc_webapp.services.pbs import submit_inference
+    from nwc_webapp.hpc.pbs import submit_inference
 else:
-    from nwc_webapp.services.mock.mock import submit_inference
+    from nwc_webapp.mock.predictions import submit_inference
 
 
 def submit_prediction_job(sidebar_args):

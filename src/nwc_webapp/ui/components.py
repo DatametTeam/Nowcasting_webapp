@@ -11,7 +11,7 @@ from streamlit_folium import st_folium
 
 from nwc_webapp.evaluation.plots import generate_metrics_plot
 from nwc_webapp.ui.maps import create_map
-from nwc_webapp.visualization.figures import compute_figure_gpd, create_colorbar_fig
+from nwc_webapp.rendering.figures import compute_figure_gpd, create_colorbar_fig
 
 
 def round_to_previous_5_minutes():
