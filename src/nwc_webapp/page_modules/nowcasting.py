@@ -25,7 +25,7 @@ from nwc_webapp.prediction.visualization import (
     display_results,
     update_prediction_visualization,
 )
-from nwc_webapp.utils import load_gif_as_bytesio
+from nwc_webapp.data.gif_utils import load_gif_as_bytesio
 
 # Set up logger
 logger = setup_logger(__name__)

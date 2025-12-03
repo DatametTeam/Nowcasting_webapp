@@ -10,7 +10,7 @@ import h5py
 import numpy as np
 
 from nwc_webapp.config.config import get_config
-from nwc_webapp.config.logging_config import get_logger
+from nwc_webapp.logging_config import setup_logger
 
 logger = get_logger(__name__)
 

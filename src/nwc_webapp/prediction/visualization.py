@@ -21,7 +21,8 @@ from nwc_webapp.services.parallel_code import (
     create_sliding_window_gifs_for_predictions,
 )
 from nwc_webapp.ui.layouts import init_prediction_visualization_layout
-from nwc_webapp.utils import check_if_gif_present, compute_figure_gpd, create_colorbar_fig, load_gif_as_bytesio
+from nwc_webapp.data.gif_utils import check_if_gif_present, load_gif_as_bytesio
+from nwc_webapp.visualization.figures import compute_figure_gpd, create_colorbar_fig
 
 # Set up logger
 logger = setup_logger(__name__)

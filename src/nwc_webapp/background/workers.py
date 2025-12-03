@@ -10,7 +10,7 @@ import streamlit as st
 from streamlit.runtime.scriptrunner_utils.script_run_context import add_script_run_ctx, get_script_run_ctx
 
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.utils import load_prediction_thread
+from nwc_webapp.services.workers import load_prediction_thread
 
 # Set up logger
 logger = setup_logger(__name__)

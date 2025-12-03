@@ -14,7 +14,7 @@ from nwc_webapp.config.config import get_config
 from nwc_webapp.config.environment import is_hpc
 from nwc_webapp.logging_config import setup_logger
 from nwc_webapp.services.parallel_code import create_single_gif_from_dict
-from nwc_webapp.utils import compute_figure_gpd
+from nwc_webapp.visualization.figures import compute_figure_gpd
 
 # Set up logger
 logger = setup_logger(__name__)

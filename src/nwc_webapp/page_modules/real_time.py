@@ -15,7 +15,7 @@ from nwc_webapp.data.loaders import load_all_predictions
 from nwc_webapp.logging_config import setup_logger
 from nwc_webapp.ui.maps import create_animated_map_html, create_only_map
 from nwc_webapp.ui.state import initial_state_management
-from nwc_webapp.utils import get_latest_file, launch_thread_execution
+from nwc_webapp.services.workers import get_latest_file, launch_thread_execution
 
 # Set up logger
 logger = setup_logger(__name__)

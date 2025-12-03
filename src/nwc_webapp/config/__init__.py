@@ -31,7 +31,7 @@ from nwc_webapp.config.environment import (
 )
 
 # Logging setup
-from nwc_webapp.config.logging_config import get_logger, setup_logging
+from nwc_webapp.logging_config import setup_logger, setup_logging
 
 __all__ = [
     # Config classes and functions

@@ -237,22 +237,6 @@ def worker_thread(event, latest_file, model, ctx):
     event.set()  # Signal that the worker thread is done
 
 
-def worker_thread_test(event):
-    """
-    Test worker thread that simulates prediction time.
-
-    Args:
-        event: Threading event to signal completion
-    """
-    thread_id = threading.get_ident()
-    logger.info(f"Worker thread (ID: {thread_id}) is starting prediction...")
-
-    time.sleep(10)
-
-    logger.info(f"Worker thread (ID: {thread_id}) has finished!")
-    event.set()
-
-
 def launch_thread_execution(st, latest_file, columns, model_list):
     """
     Launch worker threads for prediction execution for all models.

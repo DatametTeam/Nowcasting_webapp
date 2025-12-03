@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from nwc_webapp.config.config import get_config
-from nwc_webapp.config.logging_config import get_logger
+from nwc_webapp.logging_config import setup_logger
 from nwc_webapp.services.pbs import is_pbs_available
 
 # Import PBS or mock based on environment
