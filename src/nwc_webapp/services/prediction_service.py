@@ -1,10 +1,11 @@
 """
 Prediction service for handling model inference and job management.
 """
-from pathlib import Path
-from typing import Dict, Any, Tuple, Optional
-from datetime import datetime
+
 import time
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
 
 from nwc_webapp.config.config import get_config
 from nwc_webapp.config.logging_config import get_logger
@@ -12,9 +13,9 @@ from nwc_webapp.services.pbs import is_pbs_available
 
 # Import PBS or mock based on environment
 if is_pbs_available():
-    from nwc_webapp.services.pbs import submit_inference, get_job_status
+    from nwc_webapp.services.pbs import get_job_status, submit_inference
 else:
-    from nwc_webapp.services.mock.mock import submit_inference, get_job_status
+    from nwc_webapp.services.mock.mock import get_job_status, submit_inference
 
 logger = get_logger(__name__)
 
@@ -43,9 +44,9 @@ class PredictionService:
         Returns:
             Tuple of (job_id, output_dir) or (None, None) on error
         """
-        model_name = args.get('model_name', 'Test')
-        start_date = args.get('start_date')
-        end_date = args.get('end_date')
+        model_name = args.get("model_name", "Test")
+        start_date = args.get("start_date")
+        end_date = args.get("end_date")
 
         self.logger.info(f"Submitting prediction job for model '{model_name}'")
         self.logger.debug(f"Job parameters: {args}")
@@ -65,12 +66,7 @@ class PredictionService:
             self.logger.error(f"Error submitting job: {e}", exc_info=True)
             return None, None
 
-    def wait_for_job_completion(
-        self,
-        job_id: str,
-        timeout: int = 3600,
-        check_interval: int = 5
-    ) -> bool:
+    def wait_for_job_completion(self, job_id: str, timeout: int = 3600, check_interval: int = 5) -> bool:
         """
         Wait for a job to complete.
 
@@ -122,11 +118,7 @@ class PredictionService:
             self.logger.error(f"Error getting job status: {e}", exc_info=True)
             return "unknown"
 
-    def get_prediction_paths(
-        self,
-        model_name: str,
-        timestamp: Optional[datetime] = None
-    ) -> Dict[str, Path]:
+    def get_prediction_paths(self, model_name: str, timestamp: Optional[datetime] = None) -> Dict[str, Path]:
         """
         Get paths to prediction outputs for a model.
 
@@ -140,13 +132,13 @@ class PredictionService:
         pred_folder = self.config.prediction_output / model_name
 
         paths = {
-            'predictions': pred_folder / 'predictions.npy',
-            'model_folder': pred_folder,
+            "predictions": pred_folder / "predictions.npy",
+            "model_folder": pred_folder,
         }
 
         if timestamp:
-            timestamp_str = timestamp.strftime('%d%m%Y_%H%M')
-            paths['timestamped'] = pred_folder / f"{timestamp_str}.npy"
+            timestamp_str = timestamp.strftime("%d%m%Y_%H%M")
+            paths["timestamped"] = pred_folder / f"{timestamp_str}.npy"
 
         return paths
 

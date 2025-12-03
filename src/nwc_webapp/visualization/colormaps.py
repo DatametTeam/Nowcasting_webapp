@@ -2,9 +2,11 @@
 Colormap and legend management for radar visualization.
 Handles custom colormaps from legend files.
 """
+
 from pathlib import Path
-import numpy as np
+
 import matplotlib.colors as mcolors
+import numpy as np
 
 ROOT_PATH = Path(__file__).parent.parent.absolute()
 
@@ -25,27 +27,27 @@ def get_legend_data(filepath) -> dict:
         "null_color": (0, 0, 0, 0),
         "void_color": (0, 0, 0, 0),
         "discrete": 0,
-        "label": []
+        "label": [],
     }
 
-    with open(filepath, 'r') as file:
+    with open(filepath, "r") as file:
         lines = file.readlines()
 
     for line in lines:
         parts = line.strip().split()
         key = parts[0].lower()
-        if key == 'thresh':
+        if key == "thresh":
             legend_data["Thresh"].append(float(parts[2]))
-        elif key == 'rgb':
+        elif key == "rgb":
             color = tuple(float(c) / 255.0 for c in parts[2:])
             legend_data["rgb"].append(color)
-        elif key == 'null_color':
+        elif key == "null_color":
             legend_data["null_color"] = tuple(float(c) / 255.0 for c in parts[2:])
-        elif key == 'void_color':
+        elif key == "void_color":
             legend_data["void_color"] = tuple(float(c) / 255.0 for c in parts[2:])
-        elif key == 'discrete':
+        elif key == "discrete":
             legend_data["discrete"] = int(parts[2])
-        elif key == 'label':
+        elif key == "label":
             legend_data["label"].append(" ".join((parts[2:])))
 
     return legend_data
@@ -102,7 +104,7 @@ def create_colormap_from_legend(legend_data, parname, min_value, max_value):
     Returns:
         Tuple of (cmap, norm, extended_thresh)
     """
-    cmap_name = 'colormap_from_legend'
+    cmap_name = "colormap_from_legend"
 
     if legend_data["discrete"] == 0:
         thresh = legend_data["Thresh"]
@@ -148,7 +150,7 @@ def configure_colorbar(parameter_name, min_val, max_val):
         discrete = legend_data.get("discrete")
         ticks = extended_thresh
     else:
-        cmap = 'jet'
+        cmap = "jet"
         norm = None
         vmin = None
         vmax = None

@@ -1,12 +1,14 @@
 """
 Status indicators and spinners for background operations.
 """
+
 import streamlit as st
 
 from nwc_webapp.logging_config import setup_logger
 
 # Set up logger
 logger = setup_logger(__name__)
+
 
 def background_checker_spinner(columns):
     """

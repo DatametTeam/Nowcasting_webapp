@@ -2,15 +2,16 @@
 Real-time mock data service for local development.
 Continuously generates radar data files to simulate live data stream.
 """
-import time
-import threading
-from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Optional
-import logging
 
-from nwc_webapp.services.mock.mock_data_generator import create_mock_hdf_file, create_mock_prediction_file
+import logging
+import threading
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Optional
+
 from nwc_webapp.config.config import get_config
+from nwc_webapp.services.mock.mock_data_generator import create_mock_hdf_file, create_mock_prediction_file
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +38,7 @@ class MockRealtimeService:
 
         # Start from the last 5-minute mark
         now = datetime.now()
-        self.current_time = now.replace(
-            minute=(now.minute // 5) * 5,
-            second=0,
-            microsecond=0
-        )
+        self.current_time = now.replace(minute=(now.minute // 5) * 5, second=0, microsecond=0)
 
         # Ensure folders exist
         self.sri_folder.mkdir(parents=True, exist_ok=True)
@@ -137,11 +134,7 @@ class MockRealtimeService:
 
         # Round current time DOWN to nearest 5-minute mark
         now = datetime.now()
-        rounded_now = now.replace(
-            minute=(now.minute // 5) * 5,
-            second=0,
-            microsecond=0
-        )
+        rounded_now = now.replace(minute=(now.minute // 5) * 5, second=0, microsecond=0)
 
         # Go back in time by num_files * 5 minutes
         base_time = rounded_now - timedelta(minutes=5 * num_files)
@@ -217,10 +210,7 @@ if __name__ == "__main__":
     # Test the service
     import sys
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
     logger.info("Starting mock realtime service for testing...")
     logger.info("Press Ctrl+C to stop\n")

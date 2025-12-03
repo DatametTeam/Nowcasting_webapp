@@ -1,6 +1,7 @@
 """
 Home page display.
 """
+
 import streamlit as st
 
 

@@ -2,11 +2,12 @@
 Background worker threads for real-time prediction monitoring.
 Handles file monitoring and prediction job submission.
 """
+
 import os
-import time
 import threading
-from pathlib import Path
+import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from streamlit.runtime import get_instance
 from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
@@ -54,8 +55,8 @@ def get_latest_file(folder_path, terminate_event):
         logger.debug(f"Latest SRI file: {files[0]}")
 
         if files[0] != latest_file:
-            ctx.session_state['latest_thread'] = files[0]
-            ctx.session_state['new_update'] = True
+            ctx.session_state["latest_thread"] = files[0]
+            ctx.session_state["new_update"] = True
             latest_file = files[0]
 
         now = datetime.now()
@@ -83,14 +84,30 @@ def get_latest_file(folder_path, terminate_event):
 
             if new_file != latest_file:
                 logger.info(f"New file detected: {new_file}")
+                # Update both local variable AND session state
                 latest_file = new_file
+                ctx.session_state["latest_thread"] = new_file
+                ctx.session_state["new_update"] = True
                 break
 
             time.sleep(1)
 
+        # Check if real-time is paused before rerunning
+        try:
+            if "realtime_paused" in ctx.session_state and ctx.session_state["realtime_paused"]:
+                logger.info("Real-time paused - skipping rerun")
+                time.sleep(5)  # Wait a bit before checking again
+                continue
+        except (KeyError, AttributeError):
+            # Session state not accessible or key doesn't exist - continue normally
+            pass
+
         # Restart the application to force the refresh of the main loop
         logger.info("Rerun main")
         session_info = runtime._session_mgr.get_active_session_info(ctx.session_id)
+        if session_info is None:
+            logger.warning("Session info is None - session may have been closed")
+            continue
         time.sleep(0.2)
         session_info.session.request_rerun(None)
     logger.warning("TERMINATE event is_set().")
@@ -136,7 +153,7 @@ def worker_thread(event, latest_file, model, ctx):
         return
 
     # For non-TEST models: use date-based filename
-    new_file = Path(latest_file).stem + '.npy'
+    new_file = Path(latest_file).stem + ".npy"
     logger.info(f"Looking for prediction file: {new_file}")
     model_output = output_dir / model / new_file
 
@@ -162,6 +179,7 @@ def worker_thread(event, latest_file, model, ctx):
 
     # STEP 3: Monitor job status and wait for file
     from nwc_webapp.services.pbs import get_model_job_status, is_pbs_available
+
     last_status = None
     check_count = 0
     max_wait_iterations = 1800  # 1 hour max (1800 * 2 seconds)
@@ -175,15 +193,10 @@ def worker_thread(event, latest_file, model, ctx):
         if model.upper() != "TEST" and is_pbs_available() and check_count % 3 == 0:
             current_status = get_model_job_status(model)
 
-            # Status changed - no need to trigger rerun, fragment handles UI updates
-            if current_status != last_status:
-                logger.info(f"[{model}] Job status changed: {last_status} -> {current_status}")
-                last_status = current_status
-                # Fragment updates independently every 2s - no manual rerun needed!
-
             # Job disappeared from queue - immediately check result
+            # Check this BEFORE updating last_status!
             if last_status and not current_status:
-                logger.info(f"[{model}] Job finished - checking for output file")
+                logger.info(f"[{model}] Job finished (was {last_status}, now None) - checking for output file")
 
                 # Give it one brief moment for filesystem sync (1 second)
                 time.sleep(1)
@@ -200,9 +213,11 @@ def worker_thread(event, latest_file, model, ctx):
                 # Exit the main wait loop since job is done
                 break
 
-        # Log progress every 60 seconds (reduced from 30s to reduce noise)
-        if check_count % 30 == 0:
-            logger.info(f"[{model}] Still waiting for output... ({check_count * 2}s elapsed)")
+            # Status changed - log it (after completion check)
+            if current_status != last_status:
+                logger.info(f"[{model}] Job status changed: {last_status} -> {current_status}")
+                last_status = current_status
+                # Fragment updates independently every 2s - no manual rerun needed!
 
         time.sleep(2)
 
@@ -210,7 +225,9 @@ def worker_thread(event, latest_file, model, ctx):
     if model_output.exists():
         logger.info(f"[{model}] ✅ SUCCESS - Prediction file ready!")
     else:
-        logger.error(f"[{model}] ❌ TIMEOUT - Can't find prediction at path: {model_output} (waited {check_count * 2}s)")
+        logger.error(
+            f"[{model}] ❌ TIMEOUT - Can't find prediction at path: {model_output} (waited {check_count * 2}s)"
+        )
 
     # Remove model from computing set
     if model in ctx.session_state["computing_models"]:
@@ -268,6 +285,7 @@ def launch_thread_execution(st, latest_file, columns, model_list):
         # Start worker thread for this model
         thread = threading.Thread(target=worker_thread, args=(event, latest_file, model, ctx), daemon=True)
         from streamlit.runtime.scriptrunner_utils.script_run_context import add_script_run_ctx
+
         add_script_run_ctx(thread, ctx)
         threads.append(thread)
         thread.start()
@@ -310,10 +328,10 @@ def load_prediction_thread(st, time_options, latest_file):
 
     rgba_img = load_prediction_data(st, time_options, latest_file)
 
-    ctx.session_state['prediction_data_thread'] = rgba_img
-    ctx.session_state['new_prediction'] = False
-    ctx.session_state['load_prediction_thread'] = False
-    ctx.session_state['display_prediction'] = True
+    ctx.session_state["prediction_data_thread"] = rgba_img
+    ctx.session_state["new_prediction"] = False
+    ctx.session_state["load_prediction_thread"] = False
+    ctx.session_state["display_prediction"] = True
 
     logger.info("load prediction TERMINATED..")
 

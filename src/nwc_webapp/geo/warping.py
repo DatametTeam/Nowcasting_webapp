@@ -4,6 +4,7 @@ Map warping utilities for reprojecting radar data.
 This module provides functionality to warp radar data from one projection to another,
 using pyproj for coordinate transformations.
 """
+
 import numpy as np
 from pyproj import Proj
 
@@ -37,12 +38,7 @@ def warp_map(source_data: np.ndarray) -> np.ndarray:
 
     # Create source projection (Transverse Mercator)
     source_proj = Proj(
-        proj='tmerc',
-        lat_0=source_params.prj_lat,
-        lon_0=source_params.prj_lon,
-        x_0=0,
-        y_0=0,
-        ellps='WGS84'
+        proj="tmerc", lat_0=source_params.prj_lat, lon_0=source_params.prj_lon, x_0=0, y_0=0, ellps="WGS84"
     )
 
     # Get grid dimensions
@@ -82,15 +78,14 @@ def warp_map(source_data: np.ndarray) -> np.ndarray:
 
     # Create mask for valid indices (within source grid bounds)
     valid_mask = (
-        (dest_col_indices >= 0) & (dest_col_indices < ncols_src) &
-        (dest_line_indices >= 0) & (dest_line_indices < nlines_src)
+        (dest_col_indices >= 0)
+        & (dest_col_indices < ncols_src)
+        & (dest_line_indices >= 0)
+        & (dest_line_indices < nlines_src)
     )
 
     # Sample source data at valid locations using nearest-neighbor
-    warped_data[valid_mask] = source_data[
-        dest_line_indices[valid_mask],
-        dest_col_indices[valid_mask]
-    ]
+    warped_data[valid_mask] = source_data[dest_line_indices[valid_mask], dest_col_indices[valid_mask]]
 
     # Flip vertically to match expected orientation
     warped_data = np.flipud(warped_data)

@@ -9,9 +9,9 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from nwc_webapp.services.mock.mock_data_generator import setup_mock_sri_data, setup_mock_prediction_data
-from nwc_webapp.config.environment import get_data_root, get_sri_folder, get_prediction_output_dir, is_local
+from nwc_webapp.config.environment import get_data_root, get_prediction_output_dir, get_sri_folder, is_local
 from nwc_webapp.logging_config import setup_logger
+from nwc_webapp.services.mock.mock_data_generator import setup_mock_prediction_data, setup_mock_sri_data
 
 # Set up logger
 logger = setup_logger(__name__)
@@ -47,6 +47,7 @@ def main():
     logger.info("\nYou can now run the app with:")
     logger.info("  streamlit run src/nwc_webapp/hello.py")
     logger.info()
+
 
 if __name__ == "__main__":
     main()

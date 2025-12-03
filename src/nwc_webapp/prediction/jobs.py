@@ -1,7 +1,9 @@
 """
 Job submission and management for predictions.
 """
+
 import time
+
 import numpy as np
 import streamlit as st
 
@@ -25,7 +27,7 @@ def submit_prediction_job(sidebar_args):
         Tuple of (error, out_dir)
     """
     error = None
-    with st.status(f':hammer_and_wrench: **Running prediction...**', expanded=True) as status:
+    with st.status(f":hammer_and_wrench: **Running prediction...**", expanded=True) as status:
         prediction_placeholder = st.empty()
         with prediction_placeholder:
             with prediction_placeholder.container():

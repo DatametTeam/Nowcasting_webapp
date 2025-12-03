@@ -1,10 +1,11 @@
 """
 Centralized logging configuration for the nowcasting application.
 """
+
 import logging
 import sys
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 # Create logs directory
@@ -17,14 +18,14 @@ class ColoredFormatter(logging.Formatter):
 
     # ANSI color codes
     COLORS = {
-        'DEBUG': '\033[36m',      # Cyan
-        'INFO': '\033[32m',       # Green
-        'WARNING': '\033[33m',    # Yellow
-        'ERROR': '\033[31m',      # Red
-        'CRITICAL': '\033[35m',   # Magenta
+        "DEBUG": "\033[36m",  # Cyan
+        "INFO": "\033[32m",  # Green
+        "WARNING": "\033[33m",  # Yellow
+        "ERROR": "\033[31m",  # Red
+        "CRITICAL": "\033[35m",  # Magenta
     }
-    RESET = '\033[0m'
-    BOLD = '\033[1m'
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
 
     def format(self, record):
         # Add color to level name
@@ -42,10 +43,7 @@ class ColoredFormatter(logging.Formatter):
 
 
 def setup_logging(
-    name: str = "nowcasting",
-    level: str = "INFO",
-    log_to_file: bool = True,
-    log_to_console: bool = True
+    name: str = "nowcasting", level: str = "INFO", log_to_file: bool = True, log_to_console: bool = True
 ) -> logging.Logger:
     """
     Setup and configure logging for the application.
@@ -72,10 +70,7 @@ def setup_logging(
     if log_to_console:
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(logging.INFO)
-        console_formatter = ColoredFormatter(
-            fmt='%(levelname)s | %(name)s | %(message)s',
-            datefmt='%H:%M:%S'
-        )
+        console_formatter = ColoredFormatter(fmt="%(levelname)s | %(name)s | %(message)s", datefmt="%H:%M:%S")
         console_handler.setFormatter(console_formatter)
         logger.addHandler(console_handler)
 
@@ -84,11 +79,11 @@ def setup_logging(
         timestamp = datetime.now().strftime("%Y%m%d")
         log_file = LOGS_DIR / f"{name}_{timestamp}.log"
 
-        file_handler = logging.FileHandler(log_file, mode='a')
+        file_handler = logging.FileHandler(log_file, mode="a")
         file_handler.setLevel(logging.DEBUG)
         file_formatter = logging.Formatter(
-            fmt='%(asctime)s | %(levelname)-8s | %(name)s | %(funcName)s:%(lineno)d | %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(funcName)s:%(lineno)d | %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
         )
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
@@ -109,6 +104,7 @@ def get_logger(name: Optional[str] = None) -> logging.Logger:
     if name is None:
         # Try to get the calling module name
         import inspect
+
         frame = inspect.currentframe()
         if frame and frame.f_back:
             caller_module = inspect.getmodule(frame.f_back)

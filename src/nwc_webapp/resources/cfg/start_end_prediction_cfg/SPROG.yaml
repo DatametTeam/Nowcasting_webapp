@@ -5,21 +5,17 @@ hydra:
   job:
     chdir: false
 
-trainings_artifacts:
-  training_cfg_path: '/davinci-1/work/protezionecivile/RADMET_MODELS/ConvLSTM/config_used.yaml'
-  checkpoint_path: '/davinci-1/work/protezionecivile/RADMET_MODELS/ConvLSTM/epoch=56-CriticalSuccessIndex_10=0.25.ckpt'
-
-# model:
-#   name: steps
-#   is_ensemble: true
-#   seed: 42
-#   args:
-#     probmatching_method: 'cdf'
-#     mask_method: 'obs'
-#     precip_thr: -15
-#     kmperpixel: 1.0
-#     timestep: 5.0
-#     num_workers: 24  
+model:
+  name: sprog
+  is_ensemble: false
+  seed: 42
+  args:
+    probmatching_method: 'cdf'
+    # mask_method: 'obs'
+    precip_thr: -15
+    # kmperpixel: 1.0
+    # timestep: 5.0
+    num_workers: 24
 
 
 transforms:
@@ -43,19 +39,19 @@ transforms:
     adjust: [
         "threshold"
     ]
-  1:
-    name: "MinMaxNormalize"
-    args:
-      excluded_value: -9999
-      input_min: 0.0
-      input_max: 300.0
-      output_min: 0.0
-      output_max: 1.0
-    adjust: [
-        "input_min",
-        "input_max",
-        "excluded_value"
-    ]
+#  1:
+#    name: "MinMaxNormalize"
+#    args:
+#      excluded_value: -9999
+#      input_min: 0.0
+#      input_max: 300.0
+#      output_min: 0.0
+#      output_max: 1.0
+#    adjust: [
+#        "input_min",
+#        "input_max",
+#        "excluded_value"
+#    ]
 
 
 #sample_strategy:
@@ -80,7 +76,7 @@ windows_extraction_args:
   parallel: False
 
 
-save_path: /davinci-1/work/protezionecivile/nwc_webapp/real_time_results/ConvLSTM
+save_path: /davinci-1/work/protezionecivile/nwc_webapp/real_time_results/SPROG
 save_npz: False
 save_npy: True
 # device: 'cuda:3'

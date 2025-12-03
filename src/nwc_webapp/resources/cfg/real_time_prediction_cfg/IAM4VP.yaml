@@ -6,9 +6,8 @@ hydra:
     chdir: false
 
 trainings_artifacts:
-   training_cfg_path: '/davinci-1/work/protezionecivile/RADMET_MODELS/PredFormer/config_used.yaml'
-   checkpoint_path: '/davinci-1/work/protezionecivile/RADMET_MODELS/PredFormer/epoch=53-CriticalSuccessIndex_10=0.23.ckpt'
-
+   training_cfg_path: '/davinci-1/work/protezionecivile/RADMET_MODELS/IAM4VP/config_used.yaml'
+   checkpoint_path: '/davinci-1/work/protezionecivile/RADMET_MODELS/IAM4VP/epoch=11-CriticalSuccessIndex_10=0.28.ckpt'
 
 # model:
 #   name: steps
@@ -20,21 +19,21 @@ trainings_artifacts:
 #     precip_thr: -15
 #     kmperpixel: 1.0
 #     timestep: 5.0
-#     num_workers: 24
+#     num_workers: 24  
 
 
 transforms:
-  #  0:
-  #  # this transformation is needed to keep the outside border patches (if they exists)
-  #  # if Downscale is present, height (width) = H (W) / N
-  #    name: "BrPadding"
-  #    args:
-  #      height: 256
-  #      width: 256
-  #      fill_value: -9999
-  #    adjust: [
-  #      "fill_value"
-  #    ]
+#  0:
+#  # this transformation is needed to keep the outside border patches (if they exists)
+#  # if Downscale is present, height (width) = H (W) / N
+#    name: "BrPadding"
+#    args:
+#      height: 256
+#      width: 256
+#      fill_value: -9999
+#    adjust: [
+#      "fill_value"
+#    ]
   0:
     name: "LogarithmicTransform"
     args:
@@ -42,7 +41,7 @@ transforms:
       # else: [a, threshold] --> {threshold}
       threshold: 0.2
     adjust: [
-        "threshold"
+      "threshold"
     ]
   1:
     name: "MinMaxNormalize"
@@ -53,10 +52,11 @@ transforms:
       output_min: 0.0
       output_max: 1.0
     adjust: [
-        "input_min",
-        "input_max",
-        "excluded_value"
+      "input_min",
+      "input_max",
+      "excluded_value"
     ]
+
 
 
 #sample_strategy:
@@ -65,14 +65,10 @@ transforms:
 #  seed: 42
 
 dataframe_strategy:
-  name: from_hdf_folder_start_end
+  name: from_hdf_folder_1_hour
   args:
-    data_folder: "/davinci-1/work/protezionecivile/data"
-    fallback_folder: "/davinci-1/work/protezionecivile/data1/SRI_adj"
+    data_folder: "/davinci-1/work/protezionecivile/data1/SRI_adj"
     datetime_format: "%d-%m-%Y-%H-%M"
-    start_date: "2025-11-12 12:00"
-    end_date: "2025-11-14 12:00"
-
 windows_extraction_args:
   hdf_key: /dataset1/data1/data
   lead_time: 12
@@ -81,7 +77,7 @@ windows_extraction_args:
   parallel: False
 
 
-save_path: /davinci-1/work/protezionecivile/nwc_webapp/real_time_results/PredFormer
+save_path: /davinci-1/work/protezionecivile/nwc_webapp/real_time_results/IAM4VP
 save_npz: False
 save_npy: True
 # device: 'cuda:3'

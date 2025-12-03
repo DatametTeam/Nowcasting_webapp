@@ -2,8 +2,10 @@
 Geographic shapefile utilities.
 Handles loading and processing of Italian region shapefiles.
 """
+
 import os
 from pathlib import Path
+
 import geopandas as gpd
 
 from nwc_webapp.geo.coordinates import lat_0, lon_0
@@ -43,7 +45,7 @@ def load_italy_shape():
         "y_0": 0,  # False northing (no shift applied)
         "datum": "WGS84",  # Geodetic datum
         "units": "m",  # Units in meters
-        "no_defs": True  # Do not use external defaults
+        "no_defs": True,  # Do not use external defaults
     }
 
     # Load shapefile

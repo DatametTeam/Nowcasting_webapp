@@ -1,24 +1,26 @@
 import os.path
 import re
 import subprocess
-from pathlib import Path
 
 # from constants import OUTPUT_DATA_DIR, TARGET_GPU
 from datetime import datetime
+from pathlib import Path
 
+from nwc_webapp.config.config import get_config
 from nwc_webapp.logging_config import setup_logger
 
 # Set up logger
 logger = setup_logger(__name__)
 
+# Get config instance
+config = get_config()
+
+
 def is_pbs_available() -> bool:
     """Check if PBS is available by running qstat silently."""
     try:
         result = subprocess.run(
-            ["qstat", "-u", "guidim"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=2
+            ["qstat", "-u", "guidim"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2
         )
         return result.returncode == 0
     except:
@@ -28,12 +30,7 @@ def is_pbs_available() -> bool:
 def get_job_status(job_id):
     try:
         # Run the command and capture the output
-        result = subprocess.run(
-            ["qstat", "-f", job_id],
-            check=True,
-            text=True,
-            capture_output=True
-        )
+        result = subprocess.run(["qstat", "-f", job_id], check=True, text=True, capture_output=True)
         # Filter for the "job_state" line
         for line in result.stdout.splitlines():
             if "job_state" in line:
@@ -61,15 +58,12 @@ def get_model_job_status(model):
         # Try fast path: check stored job_id directly
         try:
             import streamlit as st
+
             job_id = st.session_state.get(f"job_id_{model}")
             if job_id:
                 # Direct check for this specific job
                 result = subprocess.run(
-                    ["qstat", "-f", job_id],
-                    text=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
-                    timeout=2
+                    ["qstat", "-f", job_id], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=2
                 )
                 if result.returncode == 0:
                     # Job still exists - extract status from line 3 (always "job_state = X")
@@ -89,25 +83,21 @@ def get_model_job_status(model):
         # Slow fallback path: search all jobs (for backward compatibility)
         job_name = f"nwc_{model}"
         result = subprocess.run(
-            ["qstat", "-u", "guidim"],
-            check=True,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL
+            ["qstat", "-u", "guidim"], check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
         )
 
-        for line in result.stdout.split('\n'):
+        for line in result.stdout.split("\n"):
             if line.startswith("Job id") or line.startswith("---") or line.startswith("davinci") or not line.strip():
                 continue
 
             if line and line[0].isdigit():
-                job_id = line.split()[0].split('.')[0]
+                job_id = line.split()[0].split(".")[0]
                 result2 = subprocess.run(
                     ["qstat", "-f", f"{job_id}"],
                     check=True,
                     text=True,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL
+                    stderr=subprocess.DEVNULL,
                 )
                 if job_name in result2.stdout:
                     for line2 in result2.stdout.splitlines():
@@ -133,7 +123,7 @@ def get_pbs_header(job_name, q_name, pbs_log_path, target_gpu=None):
 #PBS -l select=1:ncpus=0:ngpus=0
 #PBS -k oe
 #PBS -j oe
-#PBS -o {pbs_log_path} 
+#PBS -o {pbs_log_path}
 """
     else:
         return f"""
@@ -142,30 +132,20 @@ def get_pbs_header(job_name, q_name, pbs_log_path, target_gpu=None):
 #PBS -l host={target_gpu},walltime=12:00:00
 #PBS -k oe
 #PBS -j oe
-#PBS -o {pbs_log_path} 
+#PBS -o {pbs_log_path}
 """
 
 
-# TO UPDATE!
 def get_pbs_env(model):
-    if model == 'ED_ConvLSTM':
-        env = f"""
+    """
+    Get PBS environment setup for a given model.
+    Reads environment name from config and generates the activation commands.
+    """
+    env_name = config.get_model_pbs_env(model)
+    env = f"""
             module load proxy
             module load anaconda3
-            source activate protezionecivile
-            """
-    elif model == 'pystep':
-
-        env = f"""
-            module load proxy
-            module load anaconda3
-            source activate nowcasting
-            """
-    else:
-        env = f"""
-            module load proxy
-            module load anaconda3
-            source activate nowcasting3.12
+            source activate {env_name}
             """
     return env
 
@@ -227,18 +207,20 @@ def start_prediction_job(model, latest_data):
         logger.warning(f"[{model}] TEST model detected - skipping job submission")
         return None
 
-    latest_data = latest_data.split('.')[0]
+    latest_data = latest_data.split(".")[0]
 
-    if model == 'ED_ConvLSTM':
+    if model == "ED_ConvLSTM":
 
         cmd_string = f"""
     python "/davinci-1/work/protezionecivile/backup_old_stuff/nowcasting_OLD_TEO_CODE/nwc_test_webapp.py" \
         start_date={str(latest_data)}
         """
     else:
+        # Construct path to model config in repository
+        config_path = Path(__file__).resolve().parent.parent / "resources/cfg/real_time_prediction_cfg" / f"{model}.yaml"
         cmd_string = f"""
     python "/davinci-1/home/guidim/spatiotemporal-nowcast/spatiotemporal_forecast/scripts/webapp_predictions.py" \
-        --cfg_path "/davinci-1/work/protezionecivile/nwc_webapp/configs/{model}.yaml"
+        --cfg_path "{config_path}"
         """
 
     logger.info(f"cmd_string: \n > {cmd_string}")
@@ -247,14 +229,14 @@ def start_prediction_job(model, latest_data):
     pbs_logs.mkdir(parents=True, exist_ok=True)
 
     pbs_script = "#!/bin/bash"
-    pbs_script += get_pbs_header(f"nwc_{model}", 'fast', str(pbs_logs / "pbs.log"))
+    pbs_script += get_pbs_header(f"nwc_{model}", "fast", str(pbs_logs / "pbs.log"))
     pbs_script += get_pbs_env(model)
     pbs_script += f"\n{cmd_string}"
 
     src_dir = Path(__file__).resolve().parent.parent
-    pbs_scripts = Path(os.path.join(src_dir, "pbs_scripts"))
+    pbs_scripts = src_dir / "pbs_scripts" / "real_time_pred_scripts"
     pbs_scripts.mkdir(parents=True, exist_ok=True)
-    pbs_script_path = pbs_scripts / f"run_{model}_inference.sh"
+    pbs_script_path = pbs_scripts / f"run_{model}_inference_realtime.sh"
     with open(pbs_script_path, "w", encoding="utf-8") as f:
         f.write(pbs_script)
 

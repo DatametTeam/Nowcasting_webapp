@@ -140,10 +140,175 @@ logger.error("Something went wrong!", exc_info=True)
 
 ### Adding a New Model
 
-1. Add model name to `cfg/cfg.yaml` under `models:`
-2. (Optional) Add PBS environment under `pbs.environments:`
-3. Create prediction script in `inference_scripts/`
-4. The model will automatically appear in the UI
+Adding a new model to the webapp is straightforward and requires creating configuration files and ensuring your inference script is compatible. Follow these steps:
+
+#### 1. Add Model to Main Configuration
+
+Add your model name to the models list in `src/nwc_webapp/resources/cfg/cfg.yaml`:
+
+```yaml
+models:
+  - ConvLSTM
+  - ED_ConvLSTM
+  - IAM4VP
+  - PredFormer
+  - SPROG
+  - YourNewModel  # ← Add here
+```
+
+#### 2. Create Real-Time Prediction Config
+
+Create `src/nwc_webapp/resources/cfg/real_time_prediction_cfg/{YourNewModel}.yaml`:
+
+```yaml
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job:
+    chdir: false
+
+trainings_artifacts:
+  training_cfg_path: '/path/to/your/model/config_used.yaml'
+  checkpoint_path: '/path/to/your/model/best_checkpoint.ckpt'
+
+transforms:
+  0:
+    name: "LogarithmicTransform"
+    args:
+      threshold: 0.2
+    adjust: ["threshold"]
+  1:
+    name: "MinMaxNormalize"
+    args:
+      excluded_value: -9999
+      input_min: 0.0
+      input_max: 300.0
+      output_min: 0.0
+      output_max: 1.0
+    adjust: ["input_min", "input_max", "excluded_value"]
+
+dataframe_strategy:
+  name: from_hdf_folder_1_hour  # Process latest hour of data
+  args:
+    data_folder: "/davinci-1/work/protezionecivile/data1/SRI_adj"
+    datetime_format: "%d-%m-%Y-%H-%M"
+
+windows_extraction_args:
+  hdf_key: /dataset1/data1/data
+  lead_time: 12
+  wlen: 12
+  stride: 1
+  parallel: False
+
+save_path: /davinci-1/work/protezionecivile/nwc_webapp/real_time_results/YourNewModel
+save_npz: False
+save_npy: True
+```
+
+#### 3. Create Date-Range Prediction Config
+
+Create `src/nwc_webapp/resources/cfg/start_end_prediction_cfg/{YourNewModel}.yaml`:
+
+```yaml
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job:
+    chdir: false
+
+trainings_artifacts:
+  training_cfg_path: /path/to/your/model/config_used.yaml
+  checkpoint_path: /path/to/your/model/best_checkpoint.ckpt
+
+transforms:
+  0:
+    name: LogarithmicTransform
+    args:
+      threshold: 0.2
+    adjust: [threshold]
+  1:
+    name: MinMaxNormalize
+    args:
+      excluded_value: -9999
+      input_min: 0.0
+      input_max: 300.0
+      output_min: 0.0
+      output_max: 1.0
+    adjust: [input_min, input_max, excluded_value]
+
+dataframe_strategy:
+  name: from_hdf_folder_start_end  # Process date range
+  args:
+    data_folder: /davinci-1/work/protezionecivile/data
+    fallback_folder: /davinci-1/work/protezionecivile/data1/SRI_adj
+    datetime_format: '%d-%m-%Y-%H-%M'
+    start_date: 2025-11-22 20:00  # Placeholder - replaced at runtime
+    end_date: 2025-11-22 20:50    # Placeholder - replaced at runtime
+
+windows_extraction_args:
+  hdf_key: /dataset1/data1/data
+  lead_time: 12
+  wlen: 12
+  stride: 1
+  parallel: false
+
+save_path: /davinci-1/work/protezionecivile/nwc_webapp/real_time_results/YourNewModel
+save_npz: false
+save_npy: true
+```
+
+**Key Differences:**
+- Real-time uses `from_hdf_folder_1_hour` (processes latest data)
+- Start-end uses `from_hdf_folder_start_end` (processes date range with `start_date`/`end_date`)
+
+#### 4. (Optional) Configure Conda Environment
+
+If your model requires a specific conda environment (different from the default `nowcasting3.12`), add it to `cfg.yaml`:
+
+```yaml
+pbs:
+  queue: "fast"
+  walltime: "12:00:00"
+
+  environments:
+    ED_ConvLSTM: "protezionecivile"
+    YourNewModel: "your_custom_env"  # ← Add here if needed
+    default: "nowcasting3.12"
+```
+
+If not specified, the model will use the `default` environment.
+
+#### 5. Ensure Inference Script Compatibility
+
+Your inference script (in the `spatiotemporal-nowcast` repository) must be compatible with the webapp interface:
+
+**Required:**
+- ✅ Accept `--cfg_path` command-line argument
+- ✅ Read configuration from the provided YAML file
+- ✅ Output predictions as `.npy` files
+- ✅ Prediction shape: `(12, 1400, 1200)` — 12 timesteps at 5-minute intervals
+- ✅ File naming format: `DD-MM-YYYY-HH-MM.npy` (e.g., `22-11-2025-20-00.npy`)
+- ✅ Save to the directory specified in config's `save_path`
+
+#### 6. Verify and Test
+
+Once configured, the model will automatically appear in:
+- Real-time Prediction tab (dropdown menu)
+- Nowcasting tab (date range predictions)
+- Metrics Analysis tab (for evaluation)
+
+**No code changes needed in the webapp!** The UI automatically updates based on `cfg.yaml`.
+
+#### Summary Checklist
+
+- [ ] Add model name to `cfg.yaml` → `models:` list
+- [ ] Create `real_time_prediction_cfg/{model}.yaml`
+- [ ] Create `start_end_prediction_cfg/{model}.yaml`
+- [ ] (Optional) Add custom conda environment to `cfg.yaml` → `pbs.environments:`
+- [ ] Verify inference script accepts `--cfg_path` and outputs correct format
+- [ ] Test on both real-time and date-range prediction workflows
 
 ### Mock Data for Testing
 
