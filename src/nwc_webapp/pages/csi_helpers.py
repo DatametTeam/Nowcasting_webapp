@@ -1,3 +1,6 @@
+from nwc_webapp.evaluation.metrics import CSI, POD, FAR, FSS
+import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 """
 Utility functions for CSI analysis.
 """
@@ -13,7 +16,8 @@ from nwc_webapp.config.config import get_config
 from nwc_webapp.config.environment import is_hpc
 from nwc_webapp.evaluation.metrics import compute_CSI
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.pages.nowcasting_utils import generate_timestamp_range, load_prediction_array
+from nwc_webapp.data.checking import generate_timestamp_range
+from nwc_webapp.data.predictions import load_prediction_array
 
 # Set up logger
 logger = setup_logger(__name__)
@@ -232,7 +236,6 @@ def compute_csi_for_single_model(
                                 pred_data = np.clip(pred_data, 0, 200)
 
                                 # Compute CSI, POD, FAR, FSS for each threshold
-                                from nwc_webapp.evaluation.metrics import CSI, POD, FAR, FSS
                                 for th in thresholds:
                                     csi_value = CSI(target_data, pred_data, threshold=th)
                                     pod_value = POD(target_data, pred_data, threshold=th)
@@ -325,7 +328,6 @@ def compute_csi_for_single_model(
 
     except Exception as e:
         logger.error(f"❌ [{model}] Error computing CSI/POD/FAR/FSS: {e}")
-        import traceback
         logger.error(traceback.format_exc())
         return None, None, None, None
 
@@ -372,7 +374,6 @@ def compute_csi_for_models(
     model_fss_dicts = {}  # Dict[model, Dict[threshold, Series]]
 
     # Use ThreadPoolExecutor for parallel processing
-    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     with ThreadPoolExecutor(max_workers=min(len(models), 4)) as executor:
         # Submit all tasks

@@ -1,3 +1,5 @@
+from nwc_webapp.hpc.pbs import get_model_job_status, is_pbs_available
+from datetime import datetime
 """
 Real-time prediction page with live updates.
 """
@@ -71,7 +73,6 @@ def _get_model_status(model, latest_file, config):
     # Try to get PBS job status (quick check, non-blocking with try/except)
     job_status = None
     try:
-        from nwc_webapp.hpc.pbs import get_model_job_status, is_pbs_available
 
         if is_pbs_available():
             job_status = get_model_job_status(model)
@@ -331,12 +332,17 @@ def show_real_time_prediction(model_list, sri_folder_dir, COUNT=None):
 
         # Display date for the data that's ACTUALLY shown on the map (not latest available)
         # Use displayed_file to track what's currently visible, not latest_file
-        displayed_file = st.session_state.get("displayed_file", st.session_state.latest_file)
+        # If new prediction is available, update displayed_file immediately
+        if st.session_state.get("new_prediction", False):
+            displayed_file = st.session_state.latest_file
+            st.session_state["displayed_file"] = displayed_file
+        else:
+            displayed_file = st.session_state.get("displayed_file", st.session_state.latest_file)
+
         latest_file_display = displayed_file
 
         if latest_file_display and latest_file_display != "N/A":
             try:
-                from datetime import datetime
 
                 # Remove .hdf extension and parse
                 filename_clean = Path(latest_file_display).stem

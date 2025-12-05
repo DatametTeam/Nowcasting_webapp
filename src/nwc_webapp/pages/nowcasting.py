@@ -2,22 +2,26 @@
 Nowcasting page - main prediction interface with date range support.
 """
 
+import os
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import streamlit as st
 
+from nwc_webapp.config.config import get_config
+from nwc_webapp.config.environment import is_hpc
+from nwc_webapp.data.checking import check_missing_predictions, check_target_data_for_range, get_missing_range
+from nwc_webapp.data.gifs import load_gif_as_bytesio
+from nwc_webapp.data.predictions import delete_predictions_in_range
+from nwc_webapp.hpc.jobs import submit_date_range_prediction_job
+from nwc_webapp.hpc.pbs import get_model_job_status, is_pbs_available
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.pages.nowcasting_utils import (
+from nwc_webapp.pages.common import show_training_date_warning, is_training_date
+from nwc_webapp.pages.nowcasting.gif_creation import (
     check_gifs_exist,
-    check_missing_predictions,
-    check_target_data_for_range,
     create_gifs_from_prediction_range,
-    delete_predictions_in_range,
     get_gif_paths,
-    get_missing_range,
-    is_training_date,
-    submit_date_range_prediction_job,
 )
 from nwc_webapp.rendering.visualization import (
     compute_prediction_results,
@@ -25,7 +29,6 @@ from nwc_webapp.rendering.visualization import (
     display_results,
     update_prediction_visualization,
 )
-from nwc_webapp.data.gifs import load_gif_as_bytesio
 
 # Set up logger
 logger = setup_logger(__name__)
@@ -56,36 +59,6 @@ def load_and_display_gifs(gif_paths, model_name=None, start_dt=None, end_dt=None
 
     # Trigger rerun to display only GIFs
     st.rerun()
-
-
-def show_training_date_warning() -> bool:
-    """
-    Show warning dialog for dates prior to Jan 1, 2025.
-
-    Returns:
-        True if user wants to proceed, False otherwise
-    """
-    st.warning(
-        "⚠️ **Training Data Warning**\n\n"
-        "Dates prior to **1st January 2025** were used for model training. "
-        "The prediction results will not be accountable and may not reflect real-world performance.\n\n"
-        "**Are you sure you want to proceed?**"
-    )
-
-    col1, col2, _ = st.columns([1, 1, 3])
-
-    with col1:
-        if st.button("✅ YES, Proceed", key="training_yes", width='stretch'):
-            st.session_state.training_warning_accepted = True
-            return True
-
-    with col2:
-        if st.button("❌ NO, Cancel", key="training_no", width='stretch'):
-            st.session_state.training_warning_accepted = False
-            st.info("Operation cancelled. Please select a different date.")
-            return False
-
-    return False
 
 
 def show_missing_target_data_warning(start_dt: datetime, end_dt: datetime, missing_count: int, total_count: int, key_suffix: str = "") -> bool:
@@ -309,15 +282,15 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
     # Step 1: Date validation for training data
     if is_training_date(start_dt) or is_training_date(end_dt):
         # Check if warning was already shown and accepted in this session
-        if "training_warning_accepted" not in st.session_state:
-            st.session_state.training_warning_accepted = None
+        if "training_warning_accepted_nowcasting" not in st.session_state:
+            st.session_state.training_warning_accepted_nowcasting = None
 
         # Show warning and wait for user decision
-        if st.session_state.training_warning_accepted is None:
-            user_decision = show_training_date_warning()
+        if st.session_state.training_warning_accepted_nowcasting is None:
+            user_decision = show_training_date_warning("nowcasting")
             if not user_decision:
                 return  # Stop if user cancels
-        elif not st.session_state.training_warning_accepted:
+        elif not st.session_state.training_warning_accepted_nowcasting:
             # User previously declined
             st.info("Operation cancelled. Please select dates after 1st January 2025.")
             return
@@ -571,8 +544,6 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
         st.markdown("---")
 
         # Check if this is a mock job (local mode)
-        from nwc_webapp.config.environment import is_hpc
-
         if not is_hpc() or job_id.startswith("mock_"):
             # Local mode: predictions already created, skip monitoring and create GIFs immediately
             logger.info("🖥️  Local mode detected - skipping job monitoring")
@@ -625,17 +596,10 @@ def main_page(sidebar_args, sri_folder_dir) -> None:
         details_placeholder = st.empty()
 
         # Get output folder path
-        from nwc_webapp.config.config import get_config
-
         config = get_config()
         out_folder_path = config.real_time_pred / model_name
 
         # Monitor job status and progress
-        import os
-        import time
-
-        from nwc_webapp.hpc.pbs import get_model_job_status, is_pbs_available
-
         max_iterations = 1800  # 1 hour max (1800 * 2 second checks)
         iteration = 0
         last_status = None

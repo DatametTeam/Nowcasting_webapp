@@ -90,9 +90,9 @@ def configure_sidebar(model_list):
 
 def init_prediction_visualization_layout():
     with st.container():
-        row1 = st.columns([3, 0.3, 3, 3, 3, 0.4], vertical_alignment="center")
-        row2 = st.columns([3, 0.3, 3, 3, 3, 0.4], vertical_alignment="center")
-        row3 = st.columns([3, 0.3, 3, 3, 3, 0.4], vertical_alignment="center")
+        row1 = st.columns([3, 0.3, 3, 3, 0.4, 3], vertical_alignment="center")
+        row2 = st.columns([3, 0.3, 3, 3, 0.4, 3], vertical_alignment="center")
+        row3 = st.columns([3, 0.3, 3, 3, 0.4, 3], vertical_alignment="center")
 
         with row1[0]:
             st.markdown("<h3 style='text-align: center;'>Current Time</h3>", unsafe_allow_html=True)
@@ -100,7 +100,7 @@ def init_prediction_visualization_layout():
             st.markdown("<h3 style='text-align: center;'>Groundtruths</h3>", unsafe_allow_html=True)
         with row1[3]:
             st.markdown("<h3 style='text-align: center;'>Predictions</h3>", unsafe_allow_html=True)
-        with row1[4]:
+        with row1[5]:
             st.markdown("<h3 style='text-align: center;'>Differences</h3>", unsafe_allow_html=True)
 
         with row2[0]:
@@ -145,14 +145,14 @@ def init_prediction_visualization_layout():
             pred_plus_60 = st.empty()
 
         with row2[4]:
-            diff_plus_30 = st.empty()  # Added difference container for +30min
+            colorbar30 = st.empty()
         with row3[4]:
-            diff_plus_60 = st.empty()  # Added difference container for +60min
+            colorbar60 = st.empty()
 
         with row2[5]:
-            colorbar30 = st.empty()
+            diff_plus_30 = st.empty()  # Difference container for +30min (with integrated colorbar)
         with row3[5]:
-            colorbar60 = st.empty()
+            diff_plus_60 = st.empty()  # Difference container for +60min (with integrated colorbar)
 
     return (
         gt_current,

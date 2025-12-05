@@ -91,6 +91,11 @@ def create_performance_fit_diagram(pod_values, far_values, csi_values, model_nam
     # Draw grid lines
     ax.grid(True, linestyle='--', linewidth=0.4, alpha=0.3, zorder=3)
 
+    # Add diagonal reference line from bottom-left to top-right
+    # This line represents POD = 1 - FAR (perfect skill line)
+    ax.plot([0, 1], [1, 0], color='black', linestyle='--', linewidth=1.5,
+            alpha=0.7, zorder=4)
+
     # Set axis limits to go from 0 to 1
     ax.set_xlim(0, 1)
     ax.set_ylim(1, 0)  # Inverted Y-axis (FAR: lower is better)

@@ -4,6 +4,7 @@ Prediction by date and time page.
 
 import os
 import time
+import traceback
 from datetime import datetime, timedelta
 from datetime import time as dt_time
 
@@ -11,47 +12,16 @@ import streamlit as st
 
 from nwc_webapp.config.config import get_config
 from nwc_webapp.config.environment import is_hpc
+from nwc_webapp.data.checking import check_single_prediction_exists, check_target_data_exists
+from nwc_webapp.data.predictions import load_single_prediction_data, delete_predictions_in_range
+from nwc_webapp.hpc.jobs import submit_date_range_prediction_job
+from nwc_webapp.hpc.pbs import get_model_job_status, is_pbs_available
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.pages.nowcasting_utils import (
-    check_single_prediction_exists,
-    is_training_date,
-    load_single_prediction_data,
-    submit_date_range_prediction_job,
-)
+from nwc_webapp.pages.common import show_training_date_warning, is_training_date
 from nwc_webapp.ui.components import init_second_tab_layout, precompute_images
 
 # Set up logger
 logger = setup_logger(__name__)
-
-
-def show_training_date_warning() -> bool:
-    """
-    Show warning dialog for dates prior to Jan 1, 2025.
-
-    Returns:
-        True if user wants to proceed, False otherwise
-    """
-    st.warning(
-        "⚠️ **Training Data Warning**\n\n"
-        "Dates prior to **1st January 2025** were used for model training. "
-        "The prediction results will not be accountable and may not reflect real-world performance.\n\n"
-        "**Are you sure you want to proceed?**"
-    )
-
-    col1, col2, _ = st.columns([1, 1, 3])
-
-    with col1:
-        if st.button("✅ YES, Proceed", key="training_yes_third_tab", width='stretch'):
-            st.session_state.training_warning_accepted_third_tab = True
-            return True
-
-    with col2:
-        if st.button("❌ NO, Cancel", key="training_no_third_tab", width='stretch'):
-            st.session_state.training_warning_accepted_third_tab = False
-            st.info("Operation cancelled. Please select a different date.")
-            return False
-
-    return False
 
 
 def show_prediction_page(model_list):
@@ -148,7 +118,7 @@ def show_prediction_page(model_list):
             # Check if user has already accepted the warning in this session
             if not st.session_state.get("training_warning_accepted_third_tab", False):
                 # Show warning and wait for user decision
-                if not show_training_date_warning():
+                if not show_training_date_warning("third_tab"):
                     return  # User cancelled, stop here
 
         # Check if prediction exists
@@ -195,18 +165,13 @@ def show_prediction_page(model_list):
                             st.rerun()
 
                         except Exception as e:
-                            st.error(f"❌ Error loading data: {e}")
                             logger.error(f"Error loading data: {e}")
-                            import traceback
-
                             logger.error(traceback.format_exc())
 
             with col2:
                 if st.button("🔄 Recompute", key="recompute_pred"):
                     # Delete existing prediction and recompute
                     st.info("🗑️ Deleting old prediction...")
-                    from nwc_webapp.pages.nowcasting_utils import delete_predictions_in_range
-
                     deleted = delete_predictions_in_range(selected_model, selected_datetime, selected_datetime)
                     if deleted > 0:
                         logger.info(f"Deleted {deleted} prediction(s) for {selected_model}")
@@ -223,8 +188,6 @@ def show_prediction_page(model_list):
             st.warning(f"⚠️ Prediction not found for {selected_model} at {selected_datetime.strftime('%d/%m/%Y %H:%M')}")
 
             # Check if target data exists (needed for difference images)
-            from nwc_webapp.pages.nowcasting_utils import check_target_data_exists
-
             targets_exist, found_count, total_count = check_target_data_exists(selected_datetime)
 
             if not targets_exist:
@@ -343,8 +306,6 @@ def show_prediction_page(model_list):
             out_folder_path = config.real_time_pred / selected_model
 
             # Monitor job status
-            from nwc_webapp.hpc.pbs import get_model_job_status, is_pbs_available
-
             max_iterations = 1800  # 1 hour max (1800 * 2 second checks)
             iteration = 0
             last_status = None

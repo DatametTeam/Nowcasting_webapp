@@ -1,0 +1,171 @@
+<div id="animationControls">
+    <button id="playBtn">Play</button>
+    <input type="range" id="timeSlider" min="0" max="{{max_index}}" value="0" step="1">
+    <span id="timeLabel">{{first_timestamp}}</span>
+    <div id="speedControl">
+        <label>Speed:</label>
+        <select id="speedSelect">
+            <option value="1000">Slow</option>
+            <option value="500" selected>Normal</option>
+            <option value="250">Fast</option>
+            <option value="100">Very Fast</option>
+        </select>
+    </div>
+</div>
+
+<script>
+    (function() {
+        console.log('Animation script starting...');
+
+        let currentFrame = 0;
+        let isPlaying = false;
+        let animationInterval = null;
+        let animationSpeed = 500;
+        const timestamps = {{timestamps_js}};
+        const layers = {};
+        let mapInstance = null;
+
+        function initAnimation() {
+            console.log('Initializing animation...');
+
+            // Find map - try multiple methods
+            const mapDiv = document.querySelector('.folium-map');
+            if (!mapDiv) {
+                console.error('Map div not found');
+                setTimeout(initAnimation, 100);
+                return;
+            }
+
+            const mapId = mapDiv.id;
+            console.log('Found map div with ID:', mapId);
+
+            // Try to get map instance
+            mapInstance = window[mapId];
+            if (!mapInstance || !mapInstance.eachLayer) {
+                console.log('Map instance not ready, retrying...');
+                setTimeout(initAnimation, 100);
+                return;
+            }
+
+            console.log('Map instance found!');
+
+            // Collect all prediction layers
+            mapInstance.eachLayer(function(layer) {
+                if (layer.options && layer.options.name && layer.options.name.startsWith('pred_')) {
+                    const timestamp = layer.options.name.replace('pred_', '');
+                    layers[timestamp] = layer;
+                }
+            });
+
+            console.log('Found layers:', Object.keys(layers));
+
+            if (Object.keys(layers).length === 0) {
+                console.error('No prediction layers found!');
+                return;
+            }
+
+            // Attach event listeners
+            const playBtn = document.getElementById('playBtn');
+            const slider = document.getElementById('timeSlider');
+            const speedSelect = document.getElementById('speedSelect');
+
+            if (!playBtn || !slider || !speedSelect) {
+                console.error('Control elements not found');
+                return;
+            }
+
+            playBtn.addEventListener('click', function() {
+                console.log('Play button clicked');
+                togglePlay();
+            });
+
+            slider.addEventListener('input', function(e) {
+                console.log('Slider moved to:', e.target.value);
+                currentFrame = parseInt(e.target.value);
+                showFrame(currentFrame);
+                if (isPlaying) {
+                    togglePlay();
+                }
+            });
+
+            speedSelect.addEventListener('change', function(e) {
+                console.log('Speed changed to:', e.target.value);
+                updateSpeed();
+            });
+
+            console.log('Event listeners attached!');
+
+            // Show initial frame
+            showFrame(0);
+        }
+
+        function showFrame(frameIndex) {
+            console.log('Showing frame:', frameIndex, 'timestamp:', timestamps[frameIndex]);
+
+            if (!mapInstance) {
+                console.error('Map instance not available');
+                return;
+            }
+
+            // Hide all layers
+            for (const timestamp in layers) {
+                layers[timestamp].setOpacity(0);
+            }
+
+            // Show current frame
+            const timestamp = timestamps[frameIndex];
+            if (layers[timestamp]) {
+                layers[timestamp].setOpacity(1);
+                console.log('Set opacity for layer:', timestamp);
+            } else {
+                console.error('Layer not found for timestamp:', timestamp);
+            }
+
+            // Update UI
+            document.getElementById('timeSlider').value = frameIndex;
+            document.getElementById('timeLabel').textContent = timestamp;
+        }
+
+        function togglePlay() {
+            isPlaying = !isPlaying;
+            const playBtn = document.getElementById('playBtn');
+
+            if (isPlaying) {
+                console.log('Starting animation');
+                playBtn.textContent = 'Pause';
+                playBtn.classList.add('playing');
+                animationInterval = setInterval(function() {
+                    currentFrame = (currentFrame + 1) % timestamps.length;
+                    showFrame(currentFrame);
+                }, animationSpeed);
+            } else {
+                console.log('Stopping animation');
+                playBtn.textContent = 'Play';
+                playBtn.classList.remove('playing');
+                clearInterval(animationInterval);
+            }
+        }
+
+        function updateSpeed() {
+            const speedSelect = document.getElementById('speedSelect');
+            animationSpeed = parseInt(speedSelect.value);
+            console.log('Animation speed updated to:', animationSpeed);
+
+            // Restart animation if playing
+            if (isPlaying) {
+                clearInterval(animationInterval);
+                animationInterval = setInterval(function() {
+                    currentFrame = (currentFrame + 1) % timestamps.length;
+                    showFrame(currentFrame);
+                }, animationSpeed);
+            }
+        }
+
+        // Start initialization when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initAnimation);
+        } else {
+            initAnimation();
+        }
+    })();
+</script>

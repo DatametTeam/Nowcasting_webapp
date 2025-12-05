@@ -1,0 +1,3 @@
+"""
+Nowcasting page utilities.
+"""

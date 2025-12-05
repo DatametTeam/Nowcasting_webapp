@@ -1,3 +1,5 @@
+import matplotlib.pyplot as plt
+from io import BytesIO
 """
 Model Comparison page - compare multiple models side-by-side at a single timestamp.
 """
@@ -22,82 +24,15 @@ from nwc_webapp.config.environment import is_hpc
 from nwc_webapp.evaluation.metrics import CSI
 from nwc_webapp.logging_config import setup_logger
 from nwc_webapp.rendering.figures import compute_figure_gpd
-from nwc_webapp.pages.nowcasting_utils import (
-    check_single_prediction_exists,
-    is_training_date,
-    load_prediction_array,
-    submit_date_range_prediction_job,
-)
+from nwc_webapp.data.checking import check_single_prediction_exists
+from nwc_webapp.data.predictions import load_prediction_array
+from nwc_webapp.hpc.jobs import submit_date_range_prediction_job
 from nwc_webapp.hpc.pbs import get_model_job_status, is_pbs_available
+from nwc_webapp.pages.common import show_training_date_warning, is_training_date
+from nwc_webapp.data.groundtruth import load_groundtruth_for_timestamp
 
 # Set up logger
 logger = setup_logger(__name__)
-
-
-def load_groundtruth_for_timestamp(timestamp: datetime) -> Optional[np.ndarray]:
-    """
-    Load all 12 ground truth frames for a given timestamp (t+5 to t+60).
-
-    Args:
-        timestamp: Base timestamp
-
-    Returns:
-        np.ndarray of shape (12, H, W) or None if loading fails
-    """
-    config = get_config()
-
-    # Load radar mask
-    mask_path = Path(__file__).resolve().parent.parent / "resources/mask/radar_mask.hdf"
-    with h5py.File(mask_path, "r") as f:
-        radar_mask = f["mask"][()]
-
-    gt_frames = []
-
-    for i in range(12):
-        # Ground truth at timestamp + 5*(i+1) minutes (t+5, t+10, ..., t+60)
-        gt_time = timestamp + timedelta(minutes=5 * (i + 1))
-        gt_filename = gt_time.strftime('%d-%m-%Y-%H-%M') + '.hdf'
-
-        # Determine path based on environment
-        gt_path = None
-
-        if is_hpc():
-            # HPC: Try data1 first, then archived data
-            gt_path_data1 = Path('/davinci-1/work/protezionecivile/data1/SRI_adj') / gt_filename
-            if gt_path_data1.exists():
-                gt_path = gt_path_data1
-            else:
-                # Try archived path
-                year = gt_time.strftime('%Y')
-                month = gt_time.strftime('%m')
-                day = gt_time.strftime('%d')
-                gt_path_archived = Path(f'/davinci-1/work/protezionecivile/data/SRI_adj/{year}/{month}/{day}') / gt_filename
-                if gt_path_archived.exists():
-                    gt_path = gt_path_archived
-        else:
-            # Local: Use mock data
-            gt_path = config.sri_folder / gt_filename
-
-        if gt_path is None or not gt_path.exists():
-            logger.warning(f"Ground truth not found: {gt_filename}")
-            # Return None array for missing data
-            gt_frames.append(np.zeros((1400, 1200)))
-            continue
-
-        try:
-            with h5py.File(gt_path, 'r') as f:
-                gt_data = f['/dataset1/data1/data'][()]
-
-            # Apply mask and clip
-            gt_data = gt_data * radar_mask
-            gt_data = np.clip(gt_data, 0, 200)
-            gt_frames.append(gt_data)
-
-        except Exception as e:
-            logger.error(f"Error loading ground truth {gt_filename}: {e}")
-            gt_frames.append(np.zeros((1400, 1200)))
-
-    return np.array(gt_frames) if gt_frames else None
 
 
 def load_prediction_for_timestamp(model_name: str, timestamp: datetime) -> Optional[np.ndarray]:
@@ -180,31 +115,6 @@ def compute_csi_for_leadtime(
     # Create DataFrame
     df = pd.DataFrame(results)
     return df
-
-
-def show_training_date_warning() -> bool:
-    """Show warning for training dates."""
-    st.warning(
-        "⚠️ **Training Data Warning**\n\n"
-        "Dates prior to **1st January 2025** were used for model training. "
-        "The prediction results will not be accountable and may not reflect real-world performance.\n\n"
-        "**Are you sure you want to proceed?**"
-    )
-
-    col1, col2, _ = st.columns([1, 1, 3])
-
-    with col1:
-        if st.button("✅ YES, Proceed", key="training_yes_comparison", width='stretch'):
-            st.session_state.training_warning_accepted_comparison = True
-            return True
-
-    with col2:
-        if st.button("❌ NO, Cancel", key="training_no_comparison", width='stretch'):
-            st.session_state.training_warning_accepted_comparison = False
-            st.info("Operation cancelled. Please select a different date.")
-            return False
-
-    return False
 
 
 def show_model_comparison_page(model_list: List[str]):
@@ -291,7 +201,7 @@ def show_model_comparison_page(model_list: List[str]):
             if is_training_date(selected_datetime):
                 if not st.session_state.get("training_warning_accepted_comparison", False):
                     # Show warning dialog
-                    if not show_training_date_warning():
+                    if not show_training_date_warning("comparison"):
                         # User hasn't clicked YES or NO yet - keep showing warning
                         return
                     # User clicked NO
@@ -645,8 +555,6 @@ def display_comparison_results(
         model_names: List of model names
         predictions: Dictionary {model_name: prediction_array}
     """
-    import matplotlib.pyplot as plt
-    from io import BytesIO
 
     config = get_config()
 

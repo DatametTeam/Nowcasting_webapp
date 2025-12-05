@@ -15,6 +15,7 @@ from PIL import Image
 from nwc_webapp.logging_config import setup_logger
 from nwc_webapp.rendering.figures import compute_figure_gpd
 
+from nwc_webapp.config.config import get_config
 # Set up logger
 logger = setup_logger(__name__)
 
@@ -216,7 +217,6 @@ def create_single_gif_for_parallel(
     queue.put(("complete", process_idx, buf.getvalue()))
 
     if save_on_disk:
-        from nwc_webapp.config.config import get_config
 
         config = get_config()
 
@@ -364,7 +364,6 @@ def create_single_gif(
     queue.put(("complete", process_idx, buf.getvalue()))
 
     if save_on_disk:
-        from nwc_webapp.config.config import get_config
 
         config = get_config()
 

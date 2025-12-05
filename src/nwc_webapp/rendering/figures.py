@@ -1,3 +1,4 @@
+from nwc_webapp.config.config import get_config
 """
 Figure generation utilities.
 Creates matplotlib figures with radar data and colorbars.
@@ -49,17 +50,21 @@ def compute_figure_gpd(img1, timestamp, name=""):
 
     # Use diverging colormap for differences (red=positive/target higher, blue=negative/pred higher)
     if name == "diff":
-        from nwc_webapp.config.config import get_config
         config = get_config()
 
+        # Create a masked array to make zero/near-zero values transparent
+        # This allows the Italy map to show through where there's no difference
+        img1_masked = np.ma.masked_where(np.abs(img1) < 0.1, img1)
+
         cmap_ = plt.get_cmap(config.diff_colormap)  # RdBu_r from config
+        cmap_.set_bad(alpha=0)  # Make masked values transparent
         diff_vmin = config.diff_vmin  # -20 from config
         diff_vmax = config.diff_vmax  # 20 from config
 
         mesh = ax.pcolormesh(
             x,
             y,
-            img1,
+            img1_masked,
             shading="auto",
             cmap=cmap_,
             vmin=diff_vmin,
@@ -67,6 +72,11 @@ def compute_figure_gpd(img1, timestamp, name=""):
             snap=True,
             linewidths=0,
         )
+
+        # Add integrated colorbar for difference plots
+        cbar = fig.colorbar(mesh, ax=ax, orientation="vertical", pad=0.02, fraction=0.046)
+        cbar.set_label("Difference (mm/h)", rotation=270, labelpad=20, fontsize=12)
+        cbar.ax.tick_params(labelsize=10)
     else:
         mesh = ax.pcolormesh(
             x,

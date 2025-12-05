@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+import matplotlib.pyplot as plt
 """
 Prediction visualization and display functions.
 """
@@ -11,7 +13,7 @@ import streamlit as st
 from PIL import Image
 
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.pages.nowcasting_utils import extract_timestamp_slices
+from nwc_webapp.data.predictions import extract_timestamp_slices
 from nwc_webapp.core.jobs import submit_prediction_job
 from nwc_webapp.models.predictions import get_prediction_results
 from nwc_webapp.rendering.gifs import (
@@ -167,7 +169,6 @@ def create_simple_gif_from_array(data_array: np.ndarray, title_prefix: str, fps:
     Returns:
         BytesIO buffer containing the GIF
     """
-    from datetime import datetime, timedelta
 
     buf = io.BytesIO()
     frames = []
@@ -189,7 +190,6 @@ def create_simple_gif_from_array(data_array: np.ndarray, title_prefix: str, fps:
         frames.append(np.array(img))
 
         # Close the figure to free memory
-        import matplotlib.pyplot as plt
 
         plt.close(fig)
 

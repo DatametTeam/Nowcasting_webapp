@@ -1,3 +1,7 @@
+from nwc_webapp.hpc.pbs import get_model_job_status, is_pbs_available
+from nwc_webapp.hpc.pbs import is_pbs_available
+from nwc_webapp.hpc.pbs import get_model_job_status
+import traceback
 """
 Metrics Analysis page for model evaluation.
 """
@@ -11,11 +15,10 @@ import streamlit as st
 from nwc_webapp.config.config import get_config
 from nwc_webapp.config.environment import is_hpc
 from nwc_webapp.logging_config import setup_logger
-from nwc_webapp.pages.csi_utils import compute_csi_for_models
-from nwc_webapp.pages.nowcasting_utils import (
-    check_missing_predictions,
-    submit_date_range_prediction_job,
-)
+from nwc_webapp.pages.csi_helpers import compute_csi_for_models
+from nwc_webapp.data.checking import check_missing_predictions
+from nwc_webapp.data.predictions import delete_predictions_in_range
+from nwc_webapp.hpc.jobs import submit_date_range_prediction_job
 
 # Set up logger
 logger = setup_logger(__name__)
@@ -187,7 +190,6 @@ def show_csi_analysis_page(model_list):
         if model in st.session_state["csi_computing_models"]:
             # Check PBS job status
             try:
-                from nwc_webapp.hpc.pbs import get_model_job_status, is_pbs_available
 
                 if is_pbs_available():
                     job_status = get_model_job_status(model)
@@ -253,7 +255,6 @@ def show_csi_analysis_page(model_list):
             # Delete existing predictions for models that have them
             if len(models_with_predictions) > 0:
                 st.info(f"🗑️ Deleting existing predictions for {len(models_with_predictions)} model(s)...")
-                from nwc_webapp.pages.nowcasting_utils import delete_predictions_in_range
 
                 for model in models_with_predictions:
                     deleted = delete_predictions_in_range(model, start_datetime, end_datetime)
@@ -282,7 +283,6 @@ def show_csi_analysis_page(model_list):
                 st.success(f"✅ Submitted {len(submission_results)} job(s) successfully!")
 
                 # Check if this is HPC or local mode
-                from nwc_webapp.hpc.pbs import is_pbs_available
 
                 if not is_pbs_available():
                     # Local mode: predictions already created, skip monitoring
@@ -319,7 +319,6 @@ def show_csi_analysis_page(model_list):
                         model_placeholders[model] = st.empty()
 
                     # Monitor all jobs
-                    from nwc_webapp.hpc.pbs import get_model_job_status
 
                     max_iterations = 1800  # 1 hour max
                     iteration = 0
@@ -442,7 +441,6 @@ def show_csi_analysis_page(model_list):
 
                                 except Exception as e:
                                     logger.error(f"Error auto-computing CSI/POD/FAR/FSS: {e}")
-                                    import traceback
                                     logger.error(traceback.format_exc())
 
                     if len(failed_models) > 0:
@@ -492,7 +490,6 @@ def show_csi_analysis_page(model_list):
                 except Exception as e:
                     st.error(f"❌ Error computing CSI/POD/FAR/FSS: {e}")
                     logger.error(f"Error computing CSI/POD/FAR/FSS: {e}")
-                    import traceback
                     logger.error(traceback.format_exc())
 
     # Display metrics results if available
@@ -684,7 +681,6 @@ def show_csi_analysis_page(model_list):
 
                             except Exception as e:
                                 logger.error(f"Error creating fit diagram for threshold {threshold}: {e}")
-                                import traceback
                                 logger.error(traceback.format_exc())
                                 st.warning(f"⚠️ Could not generate fit diagram")
                         else:
@@ -719,7 +715,6 @@ def show_csi_analysis_page(model_list):
 
             except Exception as e:
                 logger.error(f"Error creating plots: {e}")
-                import traceback
                 logger.error(traceback.format_exc())
                 st.warning("⚠️ Could not generate plots")
 

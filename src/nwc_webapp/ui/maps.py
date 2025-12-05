@@ -4,6 +4,7 @@ Map creation and rendering utilities.
 
 import base64
 import io
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import branca.colormap as cm
@@ -20,6 +21,28 @@ from nwc_webapp.rendering.colormaps import cmap, norm
 
 # Set up logger
 logger = setup_logger(__name__)
+
+# Template directory
+TEMPLATE_DIR = Path(__file__).parent / "templates"
+
+
+def load_template(template_name: str) -> str:
+    """
+    Load an HTML/JS template file.
+
+    Args:
+        template_name: Name of the template file (e.g., 'legend_css.html')
+
+    Returns:
+        Template content as string
+    """
+    template_path = TEMPLATE_DIR / template_name
+    if not template_path.exists():
+        logger.error(f"Template not found: {template_path}")
+        return ""
+
+    with open(template_path, 'r') as f:
+        return f.read()
 
 
 def parse_radar_positions():
@@ -227,27 +250,7 @@ def create_only_map(rgba_img, prediction: bool = False):
         colormap.add_to(map)
 
         # Add custom CSS to reposition and resize colorbar to bottom-left
-        style_element = folium.Element(
-            """
-            <style>
-                /* Move legend/colormap to bottom left and make it more compact */
-                .legend {
-                    position: fixed !important;
-                    bottom: 15px !important;
-                    left: 1px !important;
-                    top: auto !important;
-                    right: auto !important;
-                    z-index: 1000 !important;
-                    max-height: 250px !important;
-                    max-width: 200px !important;
-                }
-                /* Make the SVG inside the legend more compact */
-                .legend svg {
-                    max-height: 200px !important;
-                }
-            </style>
-        """
-        )
+        style_element = folium.Element(load_template('legend_css.html'))
         # colormap.width = '50%'
         map.get_root().header.add_child(style_element)
 
@@ -652,9 +655,6 @@ def create_animated_map_html(rgba_images_dict, latest_file=None):
     base_dt = None
     if latest_file:
         try:
-            from datetime import datetime, timedelta
-            from pathlib import Path
-
             filename_clean = Path(latest_file).stem
             base_dt = datetime.strptime(filename_clean, "%d-%m-%Y-%H-%M")
         except:
@@ -731,407 +731,17 @@ def create_animated_map_html(rgba_images_dict, latest_file=None):
         gradient_stops += f"{color} {percent}%, "
     gradient_stops = gradient_stops.rstrip(", ")
 
-    # Create HTML with Leaflet map and animation controls
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-        <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.css" />
-        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-        <script src="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.js"></script>
-        <style>
-            body {{ margin: 0; padding: 0; }}
-            #map {{ width: 100%; height: 700px; }}
+    # Load HTML template
+    html_template = load_template('animated_map_full.html')
 
-            /* Animation controls - fully responsive, scales with zoom */
-            #animationControls {{
-                position: fixed;
-                top: 12px;  /* Moved down 2px */
-                left: 60px;  /* Space for zoom controls */
-                right: 10px;
-                background: rgba(255, 255, 255, 0.95);
-                padding: 1vh 1.2vw;  /* Responsive padding */
-                border-radius: 0.6vh;
-                box-shadow: 0 0.3vh 0.8vh rgba(0,0,0,0.3);
-                z-index: 1000;
-                display: flex;
-                flex-direction: row;
-                align-items: center;
-                gap: 1.2vw;
-                font-family: Arial, sans-serif;
-                height: 8.5vh;  /* Taller */
-                box-sizing: border-box;
-            }}
+    # Replace template variables
+    html_content = html_template.replace('{{max_index}}', str(len(timestamps) - 1))
+    html_content = html_content.replace('{{first_label}}', first_label)
+    html_content = html_content.replace('{{gradient_stops}}', gradient_stops)
+    html_content = html_content.replace('{{radars_js}}', radars_js)
+    html_content = html_content.replace('{{radar_icon_base64}}', radar_icon_base64)
+    html_content = html_content.replace('{{images_js}}', images_js)
 
-            #playBtn {{
-                padding: 0 1.5vw;
-                background: #4CAF50;
-                color: white;
-                border: none;
-                border-radius: 0.4vh;
-                cursor: pointer;
-                font-weight: bold;
-                font-size: 2.6vh;  /* Even bigger text */
-                height: 70%;  /* 70% of bar height */
-                min-width: 7vw;
-                flex-shrink: 0;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }}
-
-            #playBtn:hover {{ background: #45a049; }}
-            #playBtn.playing {{ background: #f44336; }}
-            #playBtn.playing:hover {{ background: #da190b; }}
-
-            #timeSlider {{
-                width: 30vw;  /* Fixed smaller width */
-                cursor: pointer;
-                height: 0.4vh;  /* Even smaller slider */
-                margin: 0 0.8vw;
-                flex-shrink: 0;
-            }}
-
-            #timeLabel {{
-                font-weight: bold;
-                flex: 1;  /* Take remaining space */
-                min-width: 20vw;
-                text-align: center;
-                font-size: 2.8vh;  /* Even bigger text */
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-            }}
-
-            #speedSelect {{
-                padding: 0 1vw;
-                border-radius: 0.4vh;
-                border: 1px solid #ccc;
-                cursor: pointer;
-                font-size: 2.4vh;  /* Even bigger text */
-                font-weight: 500;
-                height: 70%;  /* 70% of bar height, matching button */
-                min-width: 7vw;
-                background: white;
-                flex-shrink: 0;
-                box-sizing: border-box;
-            }}
-
-            /* Colorbar legend - horizontal, bottom left, compact */
-            .colorbar-legend {{
-                position: absolute;
-                bottom: 30px;
-                left: 10px;
-                background: rgba(255, 255, 255, 0.9);
-                padding: 4px 6px;
-                border-radius: 3px;
-                box-shadow: 0 1px 4px rgba(0,0,0,0.3);
-                z-index: 1000;
-                font-family: Arial, sans-serif;
-            }}
-
-            .colorbar-legend .title {{
-                font-weight: bold;
-                margin-bottom: 2px;
-                text-align: center;
-                font-size: 8px;
-            }}
-
-            .colorbar-legend .gradient-container {{
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-            }}
-
-            .colorbar-legend .gradient {{
-                width: 200px;
-                height: 6px;
-                background: linear-gradient(to right, {gradient_stops});
-                border: 1px solid #999;
-            }}
-
-            .colorbar-legend .labels {{
-                margin-top: 2px;
-                width: 200px;
-                display: flex;
-                flex-direction: row;
-                justify-content: space-between;
-                font-size: 7px;
-                line-height: 1;
-            }}
-
-            /* Geocoder positioning - top right below control bar */
-            .leaflet-control-geocoder {{
-                position: fixed !important;
-                top: 75px !important;  /* Closer to control bar */
-                right: 10px !important;
-                bottom: auto !important;
-                left: auto !important;
-                margin: 0 !important;
-                max-width: 300px !important;
-                z-index: 2000 !important;  /* Higher than control bar */
-                display: flex !important;
-                flex-direction: row !important;  /* Single row */
-                align-items: center !important;
-                visibility: visible !important;
-                opacity: 1 !important;
-                background: white !important;
-                border-radius: 4px !important;
-                box-shadow: 0 2px 6px rgba(0,0,0,0.3) !important;
-                padding: 2px 4px !important;
-            }}
-
-            .leaflet-control-geocoder-form {{
-                margin: 0 !important;
-                display: flex !important;
-                flex-direction: row !important;  /* Single row */
-                align-items: center !important;
-                flex: 1 !important;
-            }}
-
-            .leaflet-control-geocoder-form input {{
-                font-size: 13px !important;
-                padding: 6px 10px !important;
-                width: 220px !important;
-                border: 1px solid #ccc !important;
-                border-radius: 4px !important;
-                margin-left: 4px !important;
-            }}
-
-            .leaflet-control-geocoder-icon {{
-                display: inline-block !important;
-                flex-shrink: 0 !important;
-            }}
-
-            /* Search results dropdown - position under search box */
-            .leaflet-control-geocoder-alternatives {{
-                position: absolute !important;
-                top: 100% !important;  /* Position directly below search box */
-                left: 0 !important;
-                right: 0 !important;
-                max-height: 300px !important;
-                overflow-y: auto !important;
-                background: white !important;
-                border: 1px solid #ccc !important;
-                border-top: none !important;
-                border-radius: 0 0 4px 4px !important;
-                box-shadow: 0 2px 6px rgba(0,0,0,0.3) !important;
-                margin: 0 !important;
-                z-index: 2001 !important;  /* Above geocoder control */
-                width: 100% !important;
-            }}
-
-            .leaflet-control-geocoder-alternatives ul {{
-                list-style: none !important;
-                margin: 0 !important;
-                padding: 0 !important;
-            }}
-
-            .leaflet-control-geocoder-alternatives li {{
-                padding: 8px 12px !important;
-                cursor: pointer !important;
-                border-bottom: 1px solid #eee !important;
-                font-size: 13px !important;
-            }}
-
-            .leaflet-control-geocoder-alternatives li:hover {{
-                background-color: #f0f0f0 !important;
-            }}
-
-            .leaflet-control-geocoder-alternatives li:last-child {{
-                border-bottom: none !important;
-            }}
-        </style>
-    </head>
-    <body>
-        <div id="map"></div>
-
-        <!-- Animation Controls -->
-        <div id="animationControls">
-            <button id="playBtn">Play</button>
-            <input type="range" id="timeSlider" min="0" max="{len(timestamps) - 1}" value="0" step="1">
-            <span id="timeLabel">{first_label}</span>
-            <select id="speedSelect">
-                <option value="1000">Slow</option>
-                <option value="500" selected>Normal</option>
-                <option value="250">Fast</option>
-                <option value="100">Very Fast</option>
-            </select>
-        </div>
-
-        <!-- Colorbar Legend -->
-        <div class="colorbar-legend">
-            <div class="title">Precip. (mm/h)</div>
-            <div class="gradient-container">
-                <div class="gradient"></div>
-                <div class="labels">
-                    <div>0</div>
-                    <div>5</div>
-                    <div>10</div>
-                    <div>20</div>
-                    <div>30</div>
-                    <div>50</div>
-                    <div>75</div>
-                    <div>100</div>
-                </div>
-            </div>
-        </div>
-
-        <script>
-            console.log('Initializing animated map...');
-
-            // Initialize map
-            const map = L.map('map').setView([42.0, 12.5], 6);
-
-            // Add OpenStreetMap tiles
-            L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-                attribution: '© OpenStreetMap contributors'
-            }}).addTo(map);
-
-            // Add geocoder control (search only, no permanent markers)
-            const geocoder = L.Control.geocoder({{
-                collapsed: false,
-                position: 'topright',
-                placeholder: 'Search for a location...',
-                errorMessage: 'Location not found',
-                geocoder: L.Control.Geocoder.nominatim(),
-                defaultMarkGeocode: false
-            }}).addTo(map);
-
-            // Pan to location without adding permanent marker
-            geocoder.on('markgeocode', function(e) {{
-                const latlng = e.geocode.center;
-                map.setView(latlng, 10);
-            }});
-
-            // Add radar markers with custom icons
-            const radars = {radars_js};
-            const radarIconBase64 = '{radar_icon_base64}';
-
-            // Create custom icon for radars
-            const radarIcon = L.icon({{
-                iconUrl: 'data:image/png;base64,' + radarIconBase64,
-                iconSize: [24, 24],  // Size of the icon (not too big, not too small)
-                iconAnchor: [12, 12],  // Point of the icon which corresponds to marker's location
-                tooltipAnchor: [0, -12]  // Point from which the tooltip should open relative to the iconAnchor
-            }});
-
-            // Add markers for each radar
-            radars.forEach(radar => {{
-                const marker = L.marker([radar.lat, radar.lon], {{
-                    icon: radarIcon
-                }}).addTo(map);
-
-                // Add tooltip that shows on hover
-                marker.bindTooltip(radar.name, {{
-                    permanent: false,
-                    direction: 'top',
-                    className: 'radar-tooltip'
-                }});
-            }});
-
-            console.log('Added', radars.length, 'radar markers');
-
-            // Image data
-            const images = {images_js};
-            // Bounds: [[south, west], [north, east]] - same as Folium
-            // With origin="lower" in Folium, Y-axis starts from bottom
-            // In Leaflet, we need to swap lat bounds to match
-            const bounds = [[35.0623, 4.51987], [47.5730, 20.4801]];
-
-            // Create image overlays
-            const layers = [];
-            images.forEach((img, idx) => {{
-                const layer = L.imageOverlay(img.url, bounds, {{
-                    opacity: idx === 0 ? 1 : 0
-                }});
-                layer.addTo(map);
-                layers.push({{
-                    layer: layer,
-                    timestamp: img.timestamp,
-                    label: img.label  // Store display label
-                }});
-            }});
-
-            console.log('Loaded', layers.length, 'image layers');
-
-            // Animation controls
-            let currentFrame = 0;
-            let isPlaying = false;
-            let animationInterval = null;
-            let animationSpeed = 500;
-
-            const playBtn = document.getElementById('playBtn');
-            const slider = document.getElementById('timeSlider');
-            const timeLabel = document.getElementById('timeLabel');
-            const speedSelect = document.getElementById('speedSelect');
-
-            function showFrame(frameIndex) {{
-                // Hide all layers
-                layers.forEach(l => l.layer.setOpacity(0));
-
-                // Show current frame
-                if (frameIndex >= 0 && frameIndex < layers.length) {{
-                    layers[frameIndex].layer.setOpacity(1);
-                    slider.value = frameIndex;
-                    timeLabel.textContent = layers[frameIndex].label;  // Use display label
-                    console.log('Showing frame:', frameIndex, layers[frameIndex].label);
-                }}
-            }}
-
-            function togglePlay() {{
-                isPlaying = !isPlaying;
-
-                if (isPlaying) {{
-                    playBtn.textContent = 'Pause';
-                    playBtn.classList.add('playing');
-                    animationInterval = setInterval(() => {{
-                        currentFrame = (currentFrame + 1) % layers.length;
-                        showFrame(currentFrame);
-                    }}, animationSpeed);
-                    console.log('Animation started');
-                }} else {{
-                    playBtn.textContent = 'Play';
-                    playBtn.classList.remove('playing');
-                    clearInterval(animationInterval);
-                    console.log('Animation stopped');
-                }}
-            }}
-
-            function updateSpeed() {{
-                animationSpeed = parseInt(speedSelect.value);
-                console.log('Speed updated to:', animationSpeed);
-
-                if (isPlaying) {{
-                    clearInterval(animationInterval);
-                    animationInterval = setInterval(() => {{
-                        currentFrame = (currentFrame + 1) % layers.length;
-                        showFrame(currentFrame);
-                    }}, animationSpeed);
-                }}
-            }}
-
-            // Event listeners
-            playBtn.addEventListener('click', togglePlay);
-            slider.addEventListener('input', (e) => {{
-                currentFrame = parseInt(e.target.value);
-                showFrame(currentFrame);
-                if (isPlaying) togglePlay();
-            }});
-            speedSelect.addEventListener('change', updateSpeed);
-
-            // Show initial frame
-            showFrame(0);
-            console.log('Animation controls ready!');
-
-            // Auto-start animation
-            togglePlay();
-            console.log('Animation auto-started!');
-        </script>
-    </body>
-    </html>
-    """
 
     # Render using Streamlit components
     components.html(html_content, height=720, scrolling=False)

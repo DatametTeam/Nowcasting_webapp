@@ -159,3 +159,8 @@ def configure_colorbar(parameter_name, min_val, max_val):
         discrete = 0
         ticks = []
     return cmap, norm, vmin, vmax, null_color, void_color, discrete, ticks
+
+
+# Create default colormap and normalization for rainfall ('R') parameter
+# These are used by ui/maps.py for the default precipitation colormap
+cmap, norm, _, _, _, _, _, _ = configure_colorbar('R', min_val=0, max_val=100)

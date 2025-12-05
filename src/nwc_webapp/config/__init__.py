@@ -31,7 +31,7 @@ from nwc_webapp.config.environment import (
 )
 
 # Logging setup
-from nwc_webapp.logging_config import setup_logger, setup_logging
+from nwc_webapp.logging_config import setup_logger
 
 __all__ = [
     # Config classes and functions
@@ -56,6 +56,5 @@ __all__ = [
     "OUTPUT_DATA_DIR",
     "TARGET_GPU",
     # Logging
-    "setup_logging",
-    "get_logger",
+    "setup_logger",
 ]
