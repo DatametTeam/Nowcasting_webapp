@@ -64,17 +64,33 @@ transforms:
 #  num_samples: 100
 #  seed: 42
 
-dataframe_strategy:
-  name: from_hdf_folder_1_hour
-  args:
-    data_folder: "/davinci-1/work/protezionecivile/data1/SRI_adj"
-    datetime_format: "%d-%m-%Y-%H-%M"
 windows_extraction_args:
   hdf_key: /dataset1/data1/data
   lead_time: 12
   wlen: 12
   stride: 1
-  parallel: False
+  interval_minutes: 5
+
+dataframe_strategy:
+  input:
+    name: from_hdf_folder
+    args:
+      data_folder: /davinci-1/work/protezionecivile/data
+      datetime_format: '%d-%m-%Y-%H-%M'
+      fallback_folder: /davinci-1/work/protezionecivile/data1/SRI_adj
+      use_only_fallback: true
+
+  slicers:
+    - name: last_n_timestamps
+      args:
+        n_timestamps: 12
+        interval_minutes: 5
+
+    - name: continuity
+      args:
+        freq: 5min
+        fill: true
+        max_gap_frames: 3
 
 
 save_path: /davinci-1/work/protezionecivile/nwc_webapp/real_time_results/PredFormer

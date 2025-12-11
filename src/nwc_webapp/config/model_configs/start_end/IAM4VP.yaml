@@ -64,21 +64,32 @@ transforms:
 #  num_samples: 100
 #  seed: 42
 
-dataframe_strategy:
-  name: from_hdf_folder_start_end
-  args:
-    data_folder: "/davinci-1/work/protezionecivile/data"
-    fallback_folder: "/davinci-1/work/protezionecivile/data1/SRI_adj"
-    datetime_format: "%d-%m-%Y-%H-%M"
-    start_date: "2025-11-12 12:00"
-    end_date: "2025-11-14 12:00"
-
 windows_extraction_args:
   hdf_key: /dataset1/data1/data
   lead_time: 12
   wlen: 12
   stride: 1
-  parallel: False
+  interval_minutes: 5
+
+dataframe_strategy:
+  input:
+    name: from_hdf_folder
+    args:
+      data_folder: /davinci-1/work/protezionecivile/data
+      datetime_format: '%d-%m-%Y-%H-%M'
+      fallback_folder: /davinci-1/work/protezionecivile/data1/SRI_adj
+
+  slicers:
+    - name: start_end
+      args:
+        start_dt: "2025-11-12 12:00:00"
+        end_dt: "2025-11-14 12:00:00"
+
+    - name: continuity
+      args:
+        freq: 5min
+        fill: true
+        max_gap_frames: 3
 
 
 save_path: /davinci-1/work/protezionecivile/nwc_webapp/real_time_results/IAM4VP

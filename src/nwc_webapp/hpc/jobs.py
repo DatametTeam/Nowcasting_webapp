@@ -23,7 +23,7 @@ def modify_yaml_config_for_date_range(model_name: str, start_dt: datetime, end_d
     Modify YAML config with start/end dates for date-range predictions.
 
     Reads the config from config/model_configs/start_end/{model_name}.yaml,
-    modifies the start_date and end_date fields, and overwrites the file.
+    modifies the start_dt and end_dt fields in the start_end slicer, and overwrites the file.
 
     Args:
         model_name: Model name (e.g., 'ConvLSTM', 'IAM4VP', 'PredFormer', 'SPROG')
@@ -44,17 +44,26 @@ def modify_yaml_config_for_date_range(model_name: str, start_dt: datetime, end_d
     with open(config_path, "r") as f:
         config_data = yaml.safe_load(f)
 
-    # Format dates as "YYYY-MM-DD HH:MM"
-    start_str = start_dt.strftime("%Y-%m-%d %H:%M")
-    end_str = end_dt.strftime("%Y-%m-%d %H:%M")
+    # Format dates as "YYYY-MM-DD HH:MM:SS" (new format includes seconds)
+    start_str = start_dt.strftime("%Y-%m-%d %H:%M:%S")
+    end_str = end_dt.strftime("%Y-%m-%d %H:%M:%S")
 
-    # Modify the start_date and end_date fields
-    if "dataframe_strategy" in config_data and "args" in config_data["dataframe_strategy"]:
-        config_data["dataframe_strategy"]["args"]["start_date"] = start_str
-        config_data["dataframe_strategy"]["args"]["end_date"] = end_str
-        logger.info(f"Modified {model_name} config: start={start_str}, end={end_str}")
+    # Modify the start_dt and end_dt fields in the start_end slicer
+    if "dataframe_strategy" in config_data and "slicers" in config_data["dataframe_strategy"]:
+        # Find the start_end slicer and update its args
+        start_end_slicer_found = False
+        for slicer in config_data["dataframe_strategy"]["slicers"]:
+            if slicer.get("name") == "start_end":
+                slicer["args"]["start_dt"] = start_str
+                slicer["args"]["end_dt"] = end_str
+                start_end_slicer_found = True
+                logger.info(f"Modified {model_name} config: start_dt={start_str}, end_dt={end_str}")
+                break
+
+        if not start_end_slicer_found:
+            logger.warning(f"Could not find start_end slicer in {model_name} config")
     else:
-        logger.warning(f"Could not find dataframe_strategy.args in {model_name} config")
+        logger.warning(f"Could not find dataframe_strategy.slicers in {model_name} config")
 
     # Overwrite the original file
     with open(config_path, "w") as f:

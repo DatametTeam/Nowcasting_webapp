@@ -188,18 +188,33 @@ transforms:
       output_max: 1.0
     adjust: ["input_min", "input_max", "excluded_value"]
 
-dataframe_strategy:
-  name: from_hdf_folder_1_hour  # Process latest hour of data
-  args:
-    data_folder: "/davinci-1/work/protezionecivile/data1/SRI_adj"
-    datetime_format: "%d-%m-%Y-%H-%M"
-
 windows_extraction_args:
   hdf_key: /dataset1/data1/data
   lead_time: 12
   wlen: 12
   stride: 1
-  parallel: False
+  interval_minutes: 5
+
+dataframe_strategy:
+  input:
+    name: from_hdf_folder
+    args:
+      data_folder: /davinci-1/work/protezionecivile/data
+      datetime_format: '%d-%m-%Y-%H-%M'
+      fallback_folder: /davinci-1/work/protezionecivile/data1/SRI_adj
+      use_only_fallback: true  # Use only fallback folder for real-time (faster)
+
+  slicers:
+    - name: last_n_timestamps  # Get most recent data
+      args:
+        n_timestamps: 12
+        interval_minutes: 5
+
+    - name: continuity  # Handle gaps in data
+      args:
+        freq: 5min
+        fill: true
+        max_gap_frames: 3
 
 save_path: /davinci-1/work/protezionecivile/nwc_webapp/real_time_results/YourNewModel
 save_npz: False
@@ -238,21 +253,32 @@ transforms:
       output_max: 1.0
     adjust: [input_min, input_max, excluded_value]
 
-dataframe_strategy:
-  name: from_hdf_folder_start_end  # Process date range
-  args:
-    data_folder: /davinci-1/work/protezionecivile/data
-    fallback_folder: /davinci-1/work/protezionecivile/data1/SRI_adj
-    datetime_format: '%d-%m-%Y-%H-%M'
-    start_date: 2025-11-22 20:00  # Placeholder - replaced at runtime
-    end_date: 2025-11-22 20:50    # Placeholder - replaced at runtime
-
 windows_extraction_args:
   hdf_key: /dataset1/data1/data
   lead_time: 12
   wlen: 12
   stride: 1
-  parallel: false
+  interval_minutes: 5
+
+dataframe_strategy:
+  input:
+    name: from_hdf_folder
+    args:
+      data_folder: /davinci-1/work/protezionecivile/data
+      datetime_format: '%d-%m-%Y-%H-%M'
+      fallback_folder: /davinci-1/work/protezionecivile/data1/SRI_adj
+
+  slicers:
+    - name: start_end  # Process specific date range
+      args:
+        start_dt: "2025-11-22 20:00:00"  # Placeholder - replaced at runtime
+        end_dt: "2025-11-22 20:50:00"    # Placeholder - replaced at runtime
+
+    - name: continuity  # Handle gaps in data
+      args:
+        freq: 5min
+        fill: true
+        max_gap_frames: 3
 
 save_path: /davinci-1/work/protezionecivile/nwc_webapp/real_time_results/YourNewModel
 save_npz: false
@@ -260,8 +286,9 @@ save_npy: true
 ```
 
 **Key Differences:**
-- Real-time uses `from_hdf_folder_1_hour` (processes latest data)
-- Start-end uses `from_hdf_folder_start_end` (processes date range with `start_date`/`end_date`)
+- Real-time uses `last_n_timestamps` slicer (gets most recent N frames) with `use_only_fallback: true` for faster loading
+- Start-end uses `start_end` slicer (processes specific date range with `start_dt`/`end_dt`)
+- Both use `continuity` slicer to handle gaps in radar data (allows up to 15 minutes of missing data)
 
 #### 4. (Optional) Configure Conda Environment
 
