@@ -210,16 +210,18 @@ def start_prediction_job(model, latest_data):
     latest_data = latest_data.split(".")[0]
 
     if model == "ED_ConvLSTM":
-
+        # ED_ConvLSTM uses legacy inference script
+        ed_convlstm_script = config.pbs.ed_convlstm_script_path
         cmd_string = f"""
-    python "/davinci-1/work/protezionecivile/backup_old_stuff/nowcasting_OLD_TEO_CODE/nwc_test_webapp.py" \
+    python "{ed_convlstm_script}" \
         start_date={str(latest_data)}
         """
     else:
         # Construct path to model config in repository
         config_path = Path(__file__).resolve().parent.parent / "resources/cfg/real_time_prediction_cfg" / f"{model}.yaml"
+        inference_script = config.pbs.inference_script_path
         cmd_string = f"""
-    python "/davinci-1/home/guidim/spatiotemporal-nowcast_webapp/spatiotemporal_nowcast/spatiotemporal_forecast/scripts/webapp_predictions.py" \
+    python "{inference_script}" \
         --cfg_path "{config_path}"
         """
 
