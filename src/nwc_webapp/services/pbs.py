@@ -219,7 +219,7 @@ def start_prediction_job(model, latest_data):
         # Construct path to model config in repository
         config_path = Path(__file__).resolve().parent.parent / "resources/cfg/real_time_prediction_cfg" / f"{model}.yaml"
         cmd_string = f"""
-    python "/davinci-1/home/guidim/spatiotemporal-nowcast/spatiotemporal_forecast/scripts/webapp_predictions.py" \
+    python "/davinci-1/home/guidim/spatiotemporal-nowcast_webapp/spatiotemporal_nowcast/spatiotemporal_forecast/scripts/webapp_predictions.py" \
         --cfg_path "{config_path}"
         """
 

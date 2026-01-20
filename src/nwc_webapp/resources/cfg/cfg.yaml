@@ -136,7 +136,7 @@ pbs:
   # Conda environments for each model
   environments:
     ED_ConvLSTM: "protezionecivile"
-    default: "nowcasting3.12"
+    default: "nowcasting3.12_webapp"
 
 # Auto-refresh settings
 auto_refresh:
