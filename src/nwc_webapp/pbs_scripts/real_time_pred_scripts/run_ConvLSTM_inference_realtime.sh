@@ -9,6 +9,7 @@
             module load proxy
             module load anaconda3
             source activate nowcasting3.12
+            
 
-
-    python "/davinci-1/home/guidim/spatiotemporal-nowcast/spatiotemporal_forecast/scripts/webapp_predictions.py"         --cfg_path "/davinci-1/work/protezionecivile/nwc_webapp/configs/ConvLSTM.yaml"
+    python "/davinci-1/home/guidim/spatiotemporal-nowcast/spatiotemporal_forecast/scripts/webapp_predictions.py"         --cfg_path "/davinci-1/home/guidim/Nowcasting_webapp/src/nwc_webapp/resources/cfg/real_time_prediction_cfg/ConvLSTM.yaml"
+        
