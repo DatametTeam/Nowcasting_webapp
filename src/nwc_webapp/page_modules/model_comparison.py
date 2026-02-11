@@ -71,7 +71,7 @@ def load_groundtruth_for_timestamp(timestamp: datetime) -> Optional[np.ndarray]:
                 year = gt_time.strftime('%Y')
                 month = gt_time.strftime('%m')
                 day = gt_time.strftime('%d')
-                gt_path_archived = Path(f'/davinci-1/work/protezionecivile/data/SRI_adj/{year}/{month}/{day}') / gt_filename
+                gt_path_archived = Path(f'/davinci-1/work/protezionecivile/data/{year}/{month}/{day}/SRI_adj') / gt_filename
                 if gt_path_archived.exists():
                     gt_path = gt_path_archived
         else:
@@ -79,7 +79,7 @@ def load_groundtruth_for_timestamp(timestamp: datetime) -> Optional[np.ndarray]:
             gt_path = config.sri_folder / gt_filename
 
         if gt_path is None or not gt_path.exists():
-            logger.warning(f"Ground truth not found: {gt_filename}")
+            logger.warning(f"Ground truth not found: {gt_filename} @ {gt_path}")
             # Return None array for missing data
             gt_frames.append(np.zeros((1400, 1200)))
             continue
