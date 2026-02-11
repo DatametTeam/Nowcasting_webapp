@@ -78,6 +78,8 @@ class PBSConfig:
 
     queue: str
     walltime: str
+    inference_script_path: str
+    ed_convlstm_script_path: str
     environments: Dict[str, str]
 
 

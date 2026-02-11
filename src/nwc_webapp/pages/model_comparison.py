@@ -108,7 +108,8 @@ def compute_csi_for_leadtime(
 
         # Add average CSI
         csi_values = [row[f"{t} mm/h"] for t in thresholds]
-        row["Average"] = np.mean(csi_values)
+        valid_csi = [v for v in csi_values if v is not None]
+        row["Average"] = np.mean(valid_csi) if valid_csi else None
 
         results.append(row)
 

@@ -133,10 +133,16 @@ pbs:
   queue: "fast"
   walltime: "12:00:00"
 
+  # Path to the inference script in the spatiotemporal-nowcast repository
+  inference_script_path: "/davinci-1/home/guidim/spatiotemporal-nowcast_webapp/spatiotemporal-nowcast/spatiotemporal_forecast/scripts/webapp_predictions.py"
+
+  # Legacy ED_ConvLSTM script (uses old inference code)
+  ed_convlstm_script_path: "/davinci-1/work/protezionecivile/backup_old_stuff/nowcasting_OLD_TEO_CODE/nwc_test_webapp.py"
+
   # Conda environments for each model
   environments:
     ED_ConvLSTM: "protezionecivile"
-    default: "nowcasting3.12"
+    default: "nowcasting3.12_webapp"
 
 # Auto-refresh settings
 auto_refresh:
