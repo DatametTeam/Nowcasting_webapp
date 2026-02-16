@@ -22,7 +22,7 @@
   <div class="min-h-screen bg-gray-50">
     <!-- Top Navigation Bar — Leonardo red (#E4002B) -->
     <nav class="bg-[#C8102E] text-white shadow-lg">
-      <div class="max-w-screen-2xl mx-auto px-4">
+      <div class="px-4">
         <div class="flex items-center h-14">
           <!-- App Title -->
           <div class="flex items-center gap-3 mr-8">
@@ -78,7 +78,7 @@
       position are preserved when you switch tabs — just like real desktop apps.
       Without this, navigating to another tab would lose all your selections.
     -->
-    <main class="max-w-screen-2xl mx-auto">
+    <main>
       <router-view v-slot="{ Component }">
         <keep-alive>
           <component :is="Component" />
