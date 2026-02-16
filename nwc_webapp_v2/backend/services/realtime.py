@@ -96,9 +96,10 @@ class RealtimeService:
         target = self._hpc_loop if is_hpc() else self._local_loop
         self._thread = threading.Thread(target=target, daemon=True, name="realtime-loop")
         self._thread.start()
-        logger.info("RealtimeService started (%s mode)", "HPC" if is_hpc() else "Local")
+        mode = "hpc" if is_hpc() else "local"
+        logger.info("RealtimeService started (%s mode)", mode)
 
-        return {"ok": True}
+        return {"ok": True, "mode": mode}
 
     def stop(self):
         """
@@ -135,6 +136,7 @@ class RealtimeService:
         with self._lock:
             return copy.deepcopy({
                 "active": self._active,
+                "mode": "hpc" if is_hpc() else "local",
                 "latest_sri": self._latest_sri,
                 "latest_sri_timestamp": self._latest_sri_timestamp,
                 "notification": self._notification,
