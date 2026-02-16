@@ -23,6 +23,7 @@ FastAPI also auto-generates API docs at http://localhost:8000/docs (very useful!
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
@@ -95,9 +96,22 @@ async def health_check():
 # files in backend/static/. FastAPI serves these directly, so we only need
 # ONE server running (no separate frontend server needed in production).
 
+# SPA fallback: serve index.html for any non-API route so that Vue Router
+# handles client-side paths like /realtime, /nowcasting, etc.
+# Without this, refreshing the page on /realtime returns 404 because FastAPI
+# looks for a literal file instead of letting the SPA router take over.
 static_dir = Path(__file__).parent / "static"
 if static_dir.exists():
-    app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="frontend")
+    # Serve actual static assets (JS, CSS, images)
+    app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """Catch-all: serve the file if it exists, otherwise index.html."""
+        file_path = static_dir / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(static_dir / "index.html")
 
 
 # ============================================================================
