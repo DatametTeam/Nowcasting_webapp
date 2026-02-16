@@ -11,5 +11,5 @@
             source activate protezionecivile
             
 
-    python "/davinci-1/work/protezionecivile/backup_old_stuff/nowcasting_OLD_TEO_CODE/nwc_test_webapp.py"         start_date=19-01-2026-09-50
+    python "/davinci-1/work/protezionecivile/backup_old_stuff/nowcasting_OLD_TEO_CODE/nwc_test_webapp.py"         start_date=13-02-2026-11-35
         

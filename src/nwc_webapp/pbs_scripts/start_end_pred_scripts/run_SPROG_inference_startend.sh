@@ -11,4 +11,4 @@ module load anaconda3
 source activate nowcasting3.12_webapp
 
 # Config path will be replaced with absolute path at runtime
-python "/davinci-1/home/guidim/spatiotemporal-nowcast_webapp/spatiotemporal_nowcast/spatiotemporal_forecast/scripts/webapp_predictions.py" --cfg_path "$CFG_PATH"
+python "/davinci-1/home/guidim/spatiotemporal-nowcast_webapp/spatiotemporal-nowcast/spatiotemporal_forecast/scripts/webapp_predictions.py" --cfg_path "$CFG_PATH"
