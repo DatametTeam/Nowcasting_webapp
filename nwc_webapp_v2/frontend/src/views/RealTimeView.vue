@@ -613,6 +613,9 @@ function showNotification(message) {
  * Reads from backendState when real-time is active.
  */
 function statusText(model) {
+  // Test model is always "Ready" — it uses static pre-existing data
+  if (model.toUpperCase() === 'TEST') return 'Ready'
+
   if (!realTimeActive.value || !backendState.value) return 'Idle'
 
   const modelInfo = backendState.value.models[model]
@@ -628,6 +631,8 @@ function statusText(model) {
 }
 
 function statusClass(model) {
+  if (model.toUpperCase() === 'TEST') return 'bg-emerald-100 text-emerald-700'
+
   if (!realTimeActive.value || !backendState.value) return 'bg-gray-100 text-gray-500'
 
   const modelInfo = backendState.value.models[model]
@@ -643,6 +648,8 @@ function statusClass(model) {
 }
 
 function statusDotClass(model) {
+  if (model.toUpperCase() === 'TEST') return 'bg-emerald-500'
+
   if (!realTimeActive.value || !backendState.value) return 'bg-gray-400'
 
   const modelInfo = backendState.value.models[model]

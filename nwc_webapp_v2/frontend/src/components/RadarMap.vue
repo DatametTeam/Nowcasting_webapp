@@ -130,7 +130,7 @@ onUnmounted(() => {
  */
 function clearFrames() {
   for (const layer of frameLayers) {
-    if (map) map.removeLayer(layer)
+    if (map && layer) map.removeLayer(layer)
   }
   frameLayers = []
   activeFrameIndex = -1

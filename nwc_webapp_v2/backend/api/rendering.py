@@ -151,6 +151,10 @@ async def get_radar_overlay(
     Generate a radar prediction overlay image (RGBA PNG) for the map.
 
     Here: server returns a PNG, the browser uses it directly as a Leaflet image overlay.
+
+    TEST MODEL: Uses a single static 'predictions.npy' file (shape 24, H, W)
+    instead of per-timestamp files. Indices 0-11 are groundtruth, 12-23 are
+    predictions. So lead_time N maps to array index 12 + N.
     """
     try:
         dt = datetime.fromisoformat(timestamp)
@@ -161,20 +165,43 @@ async def get_radar_overlay(
 
     from nwc_webapp.data.predictions import load_prediction_array
 
-    pred_filename = dt.strftime("%d-%m-%Y-%H-%M") + ".npy"
-    pred_path = config.real_time_pred / model / pred_filename
+    # Test model: load from static predictions.npy (24 frames: 0-11 GT, 12-23 predictions)
+    if model.upper() == "TEST":
+        static_path = config.real_time_pred / "Test" / "predictions.npy"
+        if static_path.exists():
+            full_array = np.load(static_path, mmap_mode="r")
+            # Handle both (24, H, W) and (24, 1, H, W) shapes
+            if full_array.ndim == 4:
+                full_array = full_array[:, 0]  # (24, H, W)
+            pred_index = 12 + lead_time
+            if pred_index >= full_array.shape[0]:
+                raise HTTPException(status_code=400, detail=f"lead_time {lead_time} out of range")
+            frame = np.array(full_array[pred_index])
+        else:
+            # Fallback to per-timestamp file (mock/local mode)
+            pred_filename = dt.strftime("%d-%m-%Y-%H-%M") + ".npy"
+            pred_path = config.real_time_pred / model / pred_filename
+            if not pred_path.exists():
+                raise HTTPException(status_code=404, detail=f"Test predictions not found")
+            pred_array = load_prediction_array(pred_path, model)
+            if pred_array is None:
+                raise HTTPException(status_code=500, detail="Failed to load prediction array")
+            frame = pred_array[lead_time]
+    else:
+        pred_filename = dt.strftime("%d-%m-%Y-%H-%M") + ".npy"
+        pred_path = config.real_time_pred / model / pred_filename
 
-    if not pred_path.exists():
-        raise HTTPException(status_code=404, detail=f"Prediction not found: {pred_filename}")
+        if not pred_path.exists():
+            raise HTTPException(status_code=404, detail=f"Prediction not found: {pred_filename}")
 
-    pred_array = load_prediction_array(pred_path, model)
-    if pred_array is None:
-        raise HTTPException(status_code=500, detail="Failed to load prediction array")
+        pred_array = load_prediction_array(pred_path, model)
+        if pred_array is None:
+            raise HTTPException(status_code=500, detail="Failed to load prediction array")
 
-    if lead_time < 0 or lead_time >= pred_array.shape[0]:
-        raise HTTPException(status_code=400, detail=f"lead_time must be 0-{pred_array.shape[0]-1}")
+        if lead_time < 0 or lead_time >= pred_array.shape[0]:
+            raise HTTPException(status_code=400, detail=f"lead_time must be 0-{pred_array.shape[0]-1}")
 
-    frame = pred_array[lead_time]
+        frame = pred_array[lead_time]
 
     # Apply radar mask (cached in memory)
     mask = _get_radar_mask()

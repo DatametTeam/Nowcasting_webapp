@@ -86,7 +86,11 @@ class RealtimeService:
 
             config = get_config()
             for model in config.models:
-                self._models[model] = {"status": "idle", "job_id": None}
+                # Test model is always ready (uses static pre-existing data)
+                if model.upper() == "TEST":
+                    self._models[model] = {"status": "ready", "job_id": None}
+                else:
+                    self._models[model] = {"status": "idle", "job_id": None}
 
             self._active = True
             self._stop_event.clear()
@@ -214,14 +218,10 @@ class RealtimeService:
                 # --- Submit PBS jobs for models that need predictions ---
                 sri_stem = latest.replace(".hdf", "")
                 for model in config.models:
-                    # Skip Test model — it uses pre-existing data, no PBS job
+                    # Skip Test model — it uses pre-existing static data, always ready
                     if model.upper() == "TEST":
-                        pred_file = config.real_time_pred / model / f"{sri_stem}.npy"
                         with self._lock:
-                            self._models[model] = {
-                                "status": "ready" if pred_file.exists() else "idle",
-                                "job_id": None,
-                            }
+                            self._models[model] = {"status": "ready", "job_id": None}
                         continue
 
                     pred_file = config.real_time_pred / model / f"{sri_stem}.npy"
@@ -395,6 +395,19 @@ class RealtimeService:
                 pred_folder = config.real_time_pred / model_name
                 pred_folder.mkdir(parents=True, exist_ok=True)
 
+                # Test model uses a static predictions.npy (24 frames: 0-11 GT, 12-23 preds)
+                if model_name.upper() == "TEST":
+                    static_path = pred_folder / "predictions.npy"
+                    if not static_path.exists():
+                        test_data = generate_temporal_sequence(
+                            num_timesteps=24,
+                            shape=(1400, 1200),
+                            base_seed=42,
+                        )
+                        np.save(static_path, test_data)
+                        logger.info("Created static predictions.npy for Test model")
+                    continue
+
                 pred_filename = next_dt.strftime("%d-%m-%Y-%H-%M") + ".npy"
                 pred_path = pred_folder / pred_filename
 
@@ -409,26 +422,34 @@ class RealtimeService:
                     np.save(pred_path, prediction)
 
             # Update state: new data found
+            # Test model is always "ready" (static data), others start "queued"
             with self._lock:
                 self._latest_sri = sri_filename
                 self._latest_sri_timestamp = next_dt.isoformat()
                 self._notification = f"New data found! {next_dt.strftime('%d/%m/%Y %H:%M')}"
                 for model in config.models:
-                    self._models[model] = {"status": "queued", "job_id": None}
+                    if model.upper() == "TEST":
+                        self._models[model] = {"status": "ready", "job_id": None}
+                    else:
+                        self._models[model] = {"status": "queued", "job_id": None}
 
-            # --- 5s: all models → "computing" ---
+            # --- 5s: all models → "computing" (skip Test) ---
             if self._stop_event.wait(timeout=5):
                 break
             with self._lock:
                 for model in config.models:
+                    if model.upper() == "TEST":
+                        continue
                     if self._models[model]["status"] == "queued":
                         self._models[model]["status"] = "computing"
 
-            # --- 10s later (15s total): each model → "ready" or "failed" ---
+            # --- 10s later (15s total): each model → "ready" or "failed" (skip Test) ---
             if self._stop_event.wait(timeout=10):
                 break
             with self._lock:
                 for model in config.models:
+                    if model.upper() == "TEST":
+                        continue
                     if self._models[model]["status"] == "computing":
                         self._models[model]["status"] = (
                             "ready" if random.random() < 0.8 else "failed"
