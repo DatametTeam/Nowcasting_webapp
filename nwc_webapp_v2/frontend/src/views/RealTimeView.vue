@@ -418,6 +418,8 @@ async function preloadAllFrames() {
   })
 
   await radarMap.value.preloadFrames(urls)
+  // Show the frame matching the current slider position (not always frame 0)
+  radarMap.value.showFrame(frameIndex.value)
 }
 
 /**
@@ -568,11 +570,16 @@ async function pollRealtimeStatus() {
       showNotification(state.notification)
     }
 
-    // Detect when selected model transitions to "ready" → preload frames
+    // Preload frames when:
+    // 1. Selected model transitions to "ready" (job just finished)
+    // 2. OR latest_sri changes while selected model is already "ready"
+    //    (predictions existed, so model stayed "ready" but data is new)
     if (selectedModel.value && state.models[selectedModel.value]) {
       const prevModelStatus = prevState?.models?.[selectedModel.value]?.status
       const newModelStatus = state.models[selectedModel.value].status
-      if (newModelStatus === 'ready' && prevModelStatus !== 'ready') {
+      const sriChanged = state.latest_sri !== prevState?.latest_sri
+
+      if (newModelStatus === 'ready' && (prevModelStatus !== 'ready' || sriChanged)) {
         await preloadAllFrames()
       }
     }
@@ -683,6 +690,9 @@ onMounted(async () => {
         latestSRI.value = { latest_file: state.latest_sri }
       }
       startStatusPolling()
+      // Preload frames for the current data (on page refresh, watchers
+      // skip because realTimeActive is already true by this point)
+      await preloadAllFrames()
     }
   } catch (e) {
     console.error('Failed to check real-time status on mount:', e)

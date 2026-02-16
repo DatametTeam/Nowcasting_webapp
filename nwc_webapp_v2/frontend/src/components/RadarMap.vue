@@ -259,14 +259,7 @@ defineExpose({ preloadFrames, showFrame, setOverlayOpacity, invalidateSize })
 */
 .leaflet-image-layer {
   image-rendering: pixelated;
-  /*
-    Cross-fade transition between frames. When showFrame() sets opacity
-    from 0 → 0.7 (new frame) and 0.7 → 0 (old frame), the browser
-    animates both simultaneously — creating a smooth blend effect like Windy.
-    200ms is fast enough for slider dragging but smooth enough for animation.
-    GPU-accelerated (opacity is a compositing property), so zero CPU cost.
-  */
-  transition: opacity 200ms ease;
+  /* No transition — instant frame switching for snappy slider/animation */
 }
 
 /* Style the geosearch bar to match the dark map theme */
