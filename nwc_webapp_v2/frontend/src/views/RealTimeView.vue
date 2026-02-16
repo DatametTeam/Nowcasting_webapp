@@ -571,15 +571,19 @@ async function pollRealtimeStatus() {
     }
 
     // Preload frames when:
-    // 1. Selected model transitions to "ready" (job just finished)
-    // 2. OR latest_sri changes while selected model is already "ready"
-    //    (predictions existed, so model stayed "ready" but data is new)
-    if (selectedModel.value && state.models[selectedModel.value]) {
+    // 1. New SRI data arrives — always preload so groundtruth (frames 0-12)
+    //    updates immediately, even if no model predictions are ready yet.
+    //    Prediction frames (13-24) will show blank until a model is ready.
+    // 2. Selected model transitions to "ready" — preload again so the
+    //    prediction frames (13-24) now have data to show.
+    const sriChanged = state.latest_sri && state.latest_sri !== prevState?.latest_sri
+
+    if (sriChanged) {
+      await preloadAllFrames()
+    } else if (selectedModel.value && state.models[selectedModel.value]) {
       const prevModelStatus = prevState?.models?.[selectedModel.value]?.status
       const newModelStatus = state.models[selectedModel.value].status
-      const sriChanged = state.latest_sri !== prevState?.latest_sri
-
-      if (newModelStatus === 'ready' && (prevModelStatus !== 'ready' || sriChanged)) {
+      if (newModelStatus === 'ready' && prevModelStatus !== 'ready') {
         await preloadAllFrames()
       }
     }
