@@ -179,7 +179,16 @@ class RealtimeService:
                     self._notification = f"New data found! {self._format_display(latest)}"
 
                 # Step 2: Submit PBS jobs for all models
+                sri_stem = latest.replace(".hdf", "")  # e.g. "16-02-2026-15-00"
                 for model in config.models:
+                    # Check if prediction already exists → skip submission
+                    pred_file = config.real_time_pred / model / f"{sri_stem}.npy"
+                    if pred_file.exists():
+                        logger.info("Prediction already exists for %s/%s, skipping", model, sri_stem)
+                        with self._lock:
+                            self._models[model] = {"status": "ready", "job_id": None}
+                        continue
+
                     with self._lock:
                         self._models[model] = {"status": "queued", "job_id": None}
                     try:
