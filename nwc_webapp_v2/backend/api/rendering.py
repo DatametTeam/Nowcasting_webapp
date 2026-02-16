@@ -146,15 +146,17 @@ async def get_radar_overlay(
     model: str,
     timestamp: str,
     lead_time: int = Query(0, description="Lead time index (0-11, where 0=+5min, 5=+30min, 11=+60min)"),
+    frame_type: str = Query("prediction", description="'prediction' (default) or 'groundtruth' (Test model only)"),
 ):
     """
     Generate a radar prediction overlay image (RGBA PNG) for the map.
 
     Here: server returns a PNG, the browser uses it directly as a Leaflet image overlay.
 
-    TEST MODEL: Uses a single static 'predictions.npy' file (shape 24, H, W)
-    instead of per-timestamp files. Indices 0-11 are groundtruth, 12-23 are
-    predictions. So lead_time N maps to array index 12 + N.
+    TEST MODEL: Uses a single static 'predictions.npy' file (shape 24, H, W).
+    Indices 0-11 are groundtruth, 12-23 are predictions.
+      frame_type='groundtruth' → predictions.npy[lead_time]      (0-11)
+      frame_type='prediction'  → predictions.npy[12 + lead_time]  (12-23)
     """
     try:
         dt = datetime.fromisoformat(timestamp)
@@ -173,10 +175,17 @@ async def get_radar_overlay(
             # Handle both (24, H, W) and (24, 1, H, W) shapes
             if full_array.ndim == 4:
                 full_array = full_array[:, 0]  # (24, H, W)
-            pred_index = 12 + lead_time
-            if pred_index >= full_array.shape[0]:
-                raise HTTPException(status_code=400, detail=f"lead_time {lead_time} out of range")
-            frame = np.array(full_array[pred_index])
+
+            if frame_type == "groundtruth":
+                # Groundtruth: indices 0-11
+                arr_index = lead_time
+            else:
+                # Prediction: indices 12-23
+                arr_index = 12 + lead_time
+
+            if arr_index < 0 or arr_index >= full_array.shape[0]:
+                raise HTTPException(status_code=400, detail=f"lead_time {lead_time} out of range for frame_type={frame_type}")
+            frame = np.array(full_array[arr_index])
         else:
             # Fallback to per-timestamp file (mock/local mode)
             pred_filename = dt.strftime("%d-%m-%Y-%H-%M") + ".npy"

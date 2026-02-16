@@ -397,16 +397,35 @@ const latestTimestampDisplay = computed(() => {
 // ---- Preload all 25 frames when model or timestamp changes ----
 
 async function preloadAllFrames() {
-  if (!selectedModel.value || !latestTimestamp.value || !radarMap.value) return
+  if (!selectedModel.value || !radarMap.value) return
+  // Test model uses static data — doesn't need a timestamp.
+  // Other models need latestTimestamp to build per-timestamp URLs.
+  const isTestModel = selectedModel.value.toUpperCase() === 'TEST'
+  if (!isTestModel && !latestTimestamp.value) return
 
-  const baseDt = new Date(latestTimestamp.value)
+  const baseDt = latestTimestamp.value ? new Date(latestTimestamp.value) : new Date()
 
   // Build 25 URLs: 13 past/current (groundtruth) + 12 future (predictions)
+  //
+  // TEST MODEL: All 25 frames come from the static predictions.npy file.
+  //   Frames 0-11  → predictions.npy[0-11]  (groundtruth, frame_type='groundtruth')
+  //   Frame  12    → predictions.npy[11]     (last GT frame = current time)
+  //   Frames 13-24 → predictions.npy[12-23]  (predictions, frame_type='prediction')
+  //
+  // OTHER MODELS: Past frames from SRI files, future from per-timestamp .npy files.
+  const isTest = selectedModel.value.toUpperCase() === 'TEST'
+
   const urls = Array.from({ length: TOTAL_FRAMES }, (_, i) => {
     const minuteOffset = frameToMinutes(i)
 
     if (minuteOffset <= 0) {
-      // Past or current: use groundtruth (SRI) overlay
+      if (isTest) {
+        // Test: groundtruth from predictions.npy[0-11]
+        // Frame 0 (-60min) → index 0, Frame 11 (-5min) → index 11, Frame 12 (0min) → index 11
+        const gtIndex = Math.min(i, 11)
+        return api.overlayUrl('Test', latestTimestamp.value, gtIndex, 'groundtruth')
+      }
+      // Other models: groundtruth from SRI files
       const pastDt = new Date(baseDt.getTime() + minuteOffset * 60000)
       const ts = formatIsoTimestamp(pastDt)
       return api.groundtruthOverlayUrl(ts)
