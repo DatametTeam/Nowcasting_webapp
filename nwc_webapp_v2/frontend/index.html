@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
+    <title>LEOWeather</title>
+  </head>
+  <body>
+    <!--
+      This is the ENTIRE HTML page. Yes, just one div.
+
+      Vue.js "mounts" into this div and controls everything inside it.
+      Unlike Streamlit where the server generates HTML, here the browser
+      runs JavaScript that builds the entire UI dynamically.
+
+      This is why it's so fast - no server round-trips for UI updates!
+    -->
+    <div id="app"></div>
+
+    <!-- Load the Vue application -->
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
