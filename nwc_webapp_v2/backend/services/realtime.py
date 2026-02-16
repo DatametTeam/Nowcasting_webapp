@@ -25,6 +25,7 @@ import random
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 
@@ -32,6 +33,9 @@ from nwc_webapp.config.config import get_config
 from nwc_webapp.config.environment import is_hpc
 
 logger = logging.getLogger(__name__)
+
+ROME_TZ = ZoneInfo("Europe/Rome")
+UTC_TZ = ZoneInfo("UTC")
 
 
 class RealtimeService:
@@ -426,7 +430,8 @@ class RealtimeService:
             with self._lock:
                 self._latest_sri = sri_filename
                 self._latest_sri_timestamp = next_dt.isoformat()
-                self._notification = f"New data found! {next_dt.strftime('%d/%m/%Y %H:%M')}"
+                rome_dt = next_dt.replace(tzinfo=UTC_TZ).astimezone(ROME_TZ)
+                self._notification = f"New data found! {rome_dt.strftime('%d/%m/%Y %H:%M')}"
                 for model in config.models:
                     if model.upper() == "TEST":
                         self._models[model] = {"status": "ready", "job_id": None}
@@ -490,12 +495,14 @@ class RealtimeService:
 
     @staticmethod
     def _format_display(filename: str) -> str:
-        """Format SRI filename for display: '12-02-2026-15-00.hdf' → '12/02/2026 15:00'."""
+        """Format SRI filename for display, converting UTC → Europe/Rome."""
         name = filename.replace(".hdf", "")
-        parts = name.split("-")
-        if len(parts) != 5:
+        try:
+            utc_dt = datetime.strptime(name, "%d-%m-%Y-%H-%M").replace(tzinfo=UTC_TZ)
+            rome_dt = utc_dt.astimezone(ROME_TZ)
+            return rome_dt.strftime("%d/%m/%Y %H:%M")
+        except ValueError:
             return filename
-        return f"{parts[0]}/{parts[1]}/{parts[2]} {parts[3]}:{parts[4]}"
 
     @staticmethod
     def _compute_next_mock_timestamp(sri_folder: Path) -> datetime:

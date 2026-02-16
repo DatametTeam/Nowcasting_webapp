@@ -294,6 +294,22 @@ import ColorBar from '../components/ColorBar.vue'
 const configStore = useConfigStore()
 const models = computed(() => configStore.models)
 
+// ---- Timezone helpers (display only — all data stays UTC) ----
+const TIMEZONE = 'Europe/Rome'
+
+function formatTimeInRome(date) {
+  return date.toLocaleTimeString('it-IT', {
+    timeZone: TIMEZONE, hour: '2-digit', minute: '2-digit', hour12: false
+  })
+}
+
+function formatDateTimeInRome(date) {
+  return date.toLocaleString('it-IT', {
+    timeZone: TIMEZONE, day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  })
+}
+
 // ---- State ----
 const radarMap = ref(null)
 const selectedModel = ref('')
@@ -355,10 +371,8 @@ const frameMinutesDisplay = computed(() => {
   // Compute the actual time for this frame
   const baseDt = new Date(latestTimestamp.value)
   const frameDt = new Date(baseDt.getTime() + mins * 60000)
-  const hh = String(frameDt.getHours()).padStart(2, '0')
-  const mm = String(frameDt.getMinutes()).padStart(2, '0')
 
-  return `${hh}:${mm} (${offsetStr})`
+  return `${formatTimeInRome(frameDt)} (${offsetStr})`
 })
 
 /**
@@ -386,7 +400,7 @@ const latestTimestamp = computed(() => {
   const parts = filename.split('-')
   if (parts.length !== 5) return null
   const [day, month, year, hour, minute] = parts
-  return `${year}-${month}-${day}T${hour}:${minute}`
+  return `${year}-${month}-${day}T${hour}:${minute}:00Z`
 })
 
 const latestTimestampDisplay = computed(() => {
@@ -442,14 +456,15 @@ async function preloadAllFrames() {
 }
 
 /**
- * Format a Date object as ISO timestamp string (YYYY-MM-DDTHH:MM).
+ * Format a Date object as ISO timestamp string (YYYY-MM-DDTHH:MM) in UTC.
+ * Used for building API URLs that match UTC filenames on disk.
  */
 function formatIsoTimestamp(dt) {
-  const year = dt.getFullYear()
-  const month = String(dt.getMonth() + 1).padStart(2, '0')
-  const day = String(dt.getDate()).padStart(2, '0')
-  const hours = String(dt.getHours()).padStart(2, '0')
-  const minutes = String(dt.getMinutes()).padStart(2, '0')
+  const year = dt.getUTCFullYear()
+  const month = String(dt.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(dt.getUTCDate()).padStart(2, '0')
+  const hours = String(dt.getUTCHours()).padStart(2, '0')
+  const minutes = String(dt.getUTCMinutes()).padStart(2, '0')
   return `${year}-${month}-${day}T${hours}:${minutes}`
 }
 
@@ -684,11 +699,13 @@ function statusDotClass(model) {
 }
 
 function formatSriFilename(filename) {
-  // "22-11-2025-20-00.hdf" → "22/11/2025 20:00"
+  // "22-11-2025-20-00.hdf" → "22/11/2025 21:00" (UTC → Europe/Rome)
   const name = filename.replace('.hdf', '')
   const parts = name.split('-')
   if (parts.length !== 5) return filename
-  return `${parts[0]}/${parts[1]}/${parts[2]} ${parts[3]}:${parts[4]}`
+  const [day, month, year, hour, minute] = parts
+  const utcDate = new Date(`${year}-${month}-${day}T${hour}:${minute}:00Z`)
+  return formatDateTimeInRome(utcDate)
 }
 
 // ---- Data fetching (initial load) ----
