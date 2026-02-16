@@ -149,11 +149,23 @@ class RealtimeService:
 
     def _hpc_loop(self):
         """
-        Real HPC loop:
-        1. Poll SRI folder every 30s for a new .hdf file
-        2. On new file → submit PBS jobs for all models
-        3. Poll job statuses every 5s until all resolve
-        4. Loop back to step 1
+        Real HPC loop with smart two-speed polling.
+
+        SRI data arrives every 5 minutes (at :00, :05, :10, :15, ...).
+        Instead of polling at a fixed rate, we use two speeds:
+
+          SLOW (every 30s): when we're far from a 5-min boundary
+          FAST (every 1s):  as soon as a 5-min boundary passes, until
+                            new data arrives or 2 minutes elapse
+
+        If no data arrives within 2 minutes of the expected time,
+        a warning notification is shown and we go back to slow polling.
+
+        On new data:
+          1. Check each model — skip if prediction .npy already exists
+          2. Submit PBS jobs for remaining models
+          3. Monitor job statuses until all resolve
+          4. Resume polling for the next 5-min boundary
         """
         from nwc_webapp.hpc.pbs import start_prediction_job
 
@@ -161,27 +173,47 @@ class RealtimeService:
         sri_folder = Path(str(config.sri_folder))
         last_seen_file = self._find_latest_sri(sri_folder)
 
+        # Show the current latest SRI on startup
+        if last_seen_file:
+            sri_dt = self._parse_sri_datetime(last_seen_file)
+            with self._lock:
+                self._latest_sri = last_seen_file
+                self._latest_sri_timestamp = sri_dt.isoformat() if sri_dt else None
+
         logger.info("HPC loop started. Last known SRI: %s", last_seen_file)
 
+        SLOW_POLL = 30   # seconds between checks in slow mode
+        FAST_POLL = 1    # seconds between checks in fast mode
+        DATA_TIMEOUT = 120  # seconds to wait past 5-min boundary before warning
+
         while not self._stop_event.is_set():
-            # Step 1: Poll for new SRI file
+            # --- Determine polling speed based on time ---
+            now = datetime.now()
+            seconds_past_boundary = (now.minute % 5) * 60 + now.second
+
+            if seconds_past_boundary < DATA_TIMEOUT:
+                # We're within 2 minutes after a 5-min boundary → fast poll
+                poll_interval = FAST_POLL
+            else:
+                # We're far from the boundary → slow poll
+                poll_interval = SLOW_POLL
+
+            # --- Check for new SRI file ---
             latest = self._find_latest_sri(sri_folder)
 
             if latest and latest != last_seen_file:
                 last_seen_file = latest
                 logger.info("New SRI detected: %s", latest)
 
-                # Update state
                 sri_dt = self._parse_sri_datetime(latest)
                 with self._lock:
                     self._latest_sri = latest
                     self._latest_sri_timestamp = sri_dt.isoformat() if sri_dt else None
                     self._notification = f"New data found! {self._format_display(latest)}"
 
-                # Step 2: Submit PBS jobs for all models
-                sri_stem = latest.replace(".hdf", "")  # e.g. "16-02-2026-15-00"
+                # --- Submit PBS jobs for models that need predictions ---
+                sri_stem = latest.replace(".hdf", "")
                 for model in config.models:
-                    # Check if prediction already exists → skip submission
                     pred_file = config.real_time_pred / model / f"{sri_stem}.npy"
                     if pred_file.exists():
                         logger.info("Prediction already exists for %s/%s, skipping", model, sri_stem)
@@ -204,11 +236,25 @@ class RealtimeService:
                             self._models[model]["status"] = "failed"
                         logger.error("Exception submitting job for %s: %s", model, e)
 
-                # Step 3: Monitor all jobs until resolved
+                # Monitor all jobs until resolved
                 self._monitor_hpc_jobs(config.models)
 
-            # Wait 30s before checking for next new file (or exit instantly on stop)
-            if self._stop_event.wait(timeout=30):
+            elif seconds_past_boundary >= DATA_TIMEOUT and poll_interval == SLOW_POLL:
+                # We just crossed the 2-min threshold without new data → warn once
+                # (only when transitioning to slow poll to avoid spamming)
+                expected_min = (now.minute // 5) * 5
+                expected_time = now.replace(minute=expected_min, second=0, microsecond=0)
+                with self._lock:
+                    if self._notification == "":
+                        self._notification = (
+                            f"Warning: no new data since {expected_time.strftime('%H:%M')} "
+                            f"({seconds_past_boundary}s overdue)"
+                        )
+                        logger.warning("No new SRI data %ds past %s boundary",
+                                       seconds_past_boundary, expected_time.strftime("%H:%M"))
+
+            # Wait before next check
+            if self._stop_event.wait(timeout=poll_interval):
                 break
 
     def _monitor_hpc_jobs(self, models):
