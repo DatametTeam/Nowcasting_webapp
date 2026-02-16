@@ -5,9 +5,9 @@
   - An interactive Leaflet map with radar overlay (past + future)
   - Animation controls: play/pause + timeline slider (-60 to +60 min)
   - Model selector to switch predictions
-  - Start/Pause Real Time button for HPC simulation
+  - Start/Pause Real Time button for backend-driven prediction cycle
   - Precipitation colorbar legend
-  - Auto-refreshing model status
+  - Status polling from the backend every 3s
 
   TIMELINE STRUCTURE (25 frames total):
   - Frames 0-12:  Past groundtruth (SRI data) — -60 to 0 minutes
@@ -19,13 +19,12 @@
     index 13 →  +5 min (prediction lead_time=0)
     index 24 → +60 min (prediction lead_time=11)
 
-  SIMULATION CYCLE (repeats every ~45 seconds when real-time is active):
-    0s   → New SRI data generated → "New data found!" notification
-    0s   → All models → "In Queue" (yellow)
-    5s   → All models → "Computing" (blue, spinning)
-    15s  → Each model randomly → "Ready" (80%) or "Failed" (20%)
-    15s  → If selected model is ready → preload new frames on map
-    45s  → Next cycle starts
+  BACKEND-DRIVEN CYCLE:
+  The backend runs the prediction loop (HPC or mock). The frontend simply
+  polls GET /api/realtime/status every 3s to stay in sync. This means:
+  - The cycle survives browser close (backend keeps running)
+  - Multiple browser tabs see the same state
+  - Any tab can start or stop the service
 -->
 <template>
   <div class="h-[calc(100vh-3.5rem)] flex">
@@ -203,7 +202,7 @@
           {{ realTimeActive ? 'Pause Real Time' : 'Start Real Time' }}
         </button>
         <p v-if="realTimeActive" class="text-[10px] text-center text-gray-400 mt-1.5">
-          Simulation cycle: 45s
+          Polling every 3s
         </p>
       </div>
 
@@ -303,21 +302,22 @@ const playing = ref(false)
 const speed = ref(1)
 const latestSRI = ref(null)
 const overlayOpacity = ref(0.7)
-const modelStatuses = ref({})
 const lastRefresh = ref('')
 
-// Real-time simulation state
+// Real-time state (driven by backend)
 const realTimeActive = ref(false)
-const simulationStatuses = ref({})   // { model: 'paused'|'queued'|'computing'|'ready'|'failed' }
-const notification = ref('')         // Toast message string (empty = hidden)
-const simulationTimers = []          // Pending setTimeout IDs for cleanup
+const backendState = ref(null)   // Full state from GET /api/realtime/status
+const notification = ref('')     // Toast message string (empty = hidden)
 
 let playInterval = null
-let statusRefreshInterval = null
+let statusPollInterval = null
+let notificationTimer = null
+let lastShownNotification = ''  // Track which notification we already displayed
 
 // ---- Constants ----
 const TOTAL_FRAMES = 25        // 13 past (including current) + 12 future
 const CURRENT_INDEX = 12       // Index of "0 min" in the frame array
+const POLL_INTERVAL_MS = 3000  // How often we poll the backend
 
 // ---- Speed control ----
 const speeds = [0.5, 1, 2]
@@ -436,8 +436,8 @@ function formatIsoTimestamp(dt) {
 watch(selectedModel, () => { preloadAllFrames() })
 
 // When latest timestamp changes (new SRI data) → preload new frames.
-// Skip during simulation: the simulation cycle manages preloading explicitly
-// (at the 15s mark when the selected model is "ready").
+// During real-time mode, preloading is triggered when the selected model
+// transitions to "ready" (in pollRealtimeStatus), so we skip here.
 watch(latestTimestamp, () => {
   if (!realTimeActive.value) preloadAllFrames()
 })
@@ -474,40 +474,112 @@ function stopPlay() {
   }
 }
 
-// ---- Real-Time Simulation ----
+// ---- Real-Time: Backend-driven ----
 
 /**
- * Toggle real-time simulation on/off.
- * Start: initialize simulation, kick off first cycle.
- * Stop: clear all timers, reset statuses to "paused".
+ * Toggle real-time prediction on/off.
+ * Start: POST to backend, then start polling.
+ * Stop: POST to backend, then stop polling and reset UI.
  */
-function toggleRealTime() {
-  realTimeActive.value = !realTimeActive.value
-
+async function toggleRealTime() {
   if (realTimeActive.value) {
-    // Initialize all models to "paused" then start cycle
-    for (const model of models.value) {
-      simulationStatuses.value[model] = 'paused'
+    // --- Stop ---
+    try {
+      await api.stopRealTime()
+    } catch (e) {
+      console.error('Failed to stop real-time:', e)
     }
-    runSimulationCycle()
-  } else {
-    // Stop: clear all pending timers
-    clearSimulationTimers()
-    // Reset all statuses to paused
-    for (const model of models.value) {
-      simulationStatuses.value[model] = 'paused'
-    }
-    // Dismiss notification
+    stopStatusPolling()
+    realTimeActive.value = false
+    backendState.value = null
     notification.value = ''
+    lastShownNotification = ''
+  } else {
+    // --- Start ---
+    try {
+      const result = await api.startRealTime()
+
+      if (!result.ok && result.reason === 'already_running') {
+        // Service was already running (e.g. started from another tab).
+        // That's fine — just start polling.
+        console.log('Real-time already running, joining existing session')
+      }
+    } catch (e) {
+      console.error('Failed to start real-time:', e)
+      return
+    }
+
+    realTimeActive.value = true
+    startStatusPolling()
   }
 }
 
 /**
- * Clear all pending simulation timers (setTimeout IDs).
+ * Start polling the backend status every 3 seconds.
  */
-function clearSimulationTimers() {
-  while (simulationTimers.length > 0) {
-    clearTimeout(simulationTimers.pop())
+function startStatusPolling() {
+  stopStatusPolling()
+  // Do an immediate poll, then schedule regular ones
+  pollRealtimeStatus()
+  statusPollInterval = setInterval(pollRealtimeStatus, POLL_INTERVAL_MS)
+}
+
+/**
+ * Stop polling.
+ */
+function stopStatusPolling() {
+  if (statusPollInterval) {
+    clearInterval(statusPollInterval)
+    statusPollInterval = null
+  }
+}
+
+/**
+ * Fetch the latest state from the backend and sync local UI.
+ *
+ * This is the core of the backend-driven approach: every 3 seconds we
+ * ask "what's happening?" and update our refs accordingly. If the backend
+ * reports active: false (e.g. it crashed or was stopped from another tab),
+ * we stop polling and reset the UI.
+ */
+async function pollRealtimeStatus() {
+  try {
+    const state = await api.getRealTimeStatus()
+    const prevState = backendState.value
+    backendState.value = state
+
+    // If the backend is no longer active, stop everything
+    if (!state.active) {
+      realTimeActive.value = false
+      stopStatusPolling()
+      notification.value = ''
+      return
+    }
+
+    // Sync latest SRI info from backend state
+    if (state.latest_sri) {
+      latestSRI.value = { latest_file: state.latest_sri }
+    }
+
+    // Show notification toast when the backend sends a NEW one
+    // (compare against lastShownNotification, not the display ref which auto-clears)
+    if (state.notification && state.notification !== lastShownNotification) {
+      lastShownNotification = state.notification
+      showNotification(state.notification)
+    }
+
+    // Detect when selected model transitions to "ready" → preload frames
+    if (selectedModel.value && state.models[selectedModel.value]) {
+      const prevModelStatus = prevState?.models?.[selectedModel.value]?.status
+      const newModelStatus = state.models[selectedModel.value].status
+      if (newModelStatus === 'ready' && prevModelStatus !== 'ready') {
+        await preloadAllFrames()
+      }
+    }
+
+    lastRefresh.value = new Date().toLocaleTimeString()
+  } catch (e) {
+    console.error('Failed to poll real-time status:', e)
   }
 }
 
@@ -516,161 +588,60 @@ function clearSimulationTimers() {
  */
 function showNotification(message) {
   notification.value = message
-  const id = setTimeout(() => {
+  if (notificationTimer) clearTimeout(notificationTimer)
+  notificationTimer = setTimeout(() => {
     notification.value = ''
+    notificationTimer = null
   }, 4000)
-  simulationTimers.push(id)
-}
-
-/**
- * Run one full simulation cycle (45 seconds):
- *   0s  → generate new data, show notification, set all models to "queued"
- *   5s  → set all models to "computing"
- *  15s  → randomly set each model to "ready" (80%) or "failed" (20%)
- *  45s  → start next cycle
- */
-async function runSimulationCycle() {
-  // Guard: bail if simulation was stopped while awaiting
-  if (!realTimeActive.value) return
-
-  // --- 0s: Generate new mock data ---
-  try {
-    const result = await api.generateNextMockData()
-    console.log('Mock data generated:', result.filename)
-  } catch (e) {
-    console.error('Failed to generate mock data:', e)
-  }
-
-  // Guard again after async call
-  if (!realTimeActive.value) return
-
-  // Refresh SRI info so the map knows about the new file
-  await fetchLatestSRI()
-  lastRefresh.value = new Date().toLocaleTimeString()
-
-  if (!realTimeActive.value) return
-
-  // Show notification with the time of the new data
-  const timeStr = latestTimestampDisplay.value || 'unknown'
-  showNotification(`New data found!  ${timeStr}`)
-
-  // Set all models → "queued"
-  for (const model of models.value) {
-    simulationStatuses.value[model] = 'queued'
-  }
-
-  // --- 5s: All models → "computing" ---
-  const computingTimer = setTimeout(() => {
-    if (!realTimeActive.value) return
-    for (const model of models.value) {
-      simulationStatuses.value[model] = 'computing'
-    }
-  }, 5000)
-  simulationTimers.push(computingTimer)
-
-  // --- 15s: Each model randomly → "ready" (80%) or "failed" (20%) ---
-  const resultsTimer = setTimeout(async () => {
-    if (!realTimeActive.value) return
-
-    for (const model of models.value) {
-      simulationStatuses.value[model] = Math.random() < 0.8 ? 'ready' : 'failed'
-    }
-
-    // If the selected model is "ready", preload its new frames
-    if (selectedModel.value && simulationStatuses.value[selectedModel.value] === 'ready') {
-      await preloadAllFrames()
-    }
-
-    lastRefresh.value = new Date().toLocaleTimeString()
-  }, 15000)
-  simulationTimers.push(resultsTimer)
-
-  // --- 45s: Next cycle ---
-  const nextCycleTimer = setTimeout(() => {
-    if (!realTimeActive.value) return
-    runSimulationCycle()
-  }, 45000)
-  simulationTimers.push(nextCycleTimer)
-}
-
-// ---- Data fetching ----
-async function fetchLatestSRI() {
-  try {
-    latestSRI.value = await api.getLatestSRI()
-  } catch (e) {
-    console.error('Failed to fetch SRI:', e)
-  }
-}
-
-async function fetchModelStatuses() {
-  const promises = models.value.map(async (model) => {
-    try {
-      const result = await api.getJobStatus(model)
-      modelStatuses.value[model] = result
-    } catch (e) {
-      console.error(`Failed to fetch status for ${model}:`, e)
-    }
-  })
-  await Promise.all(promises)
-}
-
-async function refreshAll() {
-  await Promise.all([fetchLatestSRI(), fetchModelStatuses()])
-  lastRefresh.value = new Date().toLocaleTimeString()
-}
-
-// ---- Auto-refresh model statuses (always on, every 30s) ----
-function startStatusAutoRefresh() {
-  stopStatusAutoRefresh()
-  statusRefreshInterval = setInterval(fetchModelStatuses, 30000)
-}
-
-function stopStatusAutoRefresh() {
-  if (statusRefreshInterval) {
-    clearInterval(statusRefreshInterval)
-    statusRefreshInterval = null
-  }
 }
 
 // ---- Status display helpers ----
 
 /**
- * When real-time simulation is active, use simulationStatuses.
- * Otherwise fall back to the original modelStatuses from the backend.
+ * Get the display text for a model's status.
+ * Reads from backendState when real-time is active.
  */
 function statusText(model) {
-  if (!realTimeActive.value) return 'Paused'
+  if (!realTimeActive.value || !backendState.value) return 'Idle'
 
-  const simStatus = simulationStatuses.value[model]
-  if (simStatus === 'queued') return 'In Queue'
-  if (simStatus === 'computing') return 'Computing'
-  if (simStatus === 'ready') return 'Ready'
-  if (simStatus === 'failed') return 'Failed'
+  const modelInfo = backendState.value.models[model]
+  if (!modelInfo) return 'Idle'
 
-  // Fallback for brief moments before simulation sets a status
-  return 'Paused'
+  const s = modelInfo.status
+  if (s === 'queued') return 'In Queue'
+  if (s === 'computing') return 'Computing'
+  if (s === 'ready') return 'Ready'
+  if (s === 'failed') return 'Failed'
+
+  return 'Idle'
 }
 
 function statusClass(model) {
-  if (!realTimeActive.value) return 'bg-gray-100 text-gray-500'
+  if (!realTimeActive.value || !backendState.value) return 'bg-gray-100 text-gray-500'
 
-  const simStatus = simulationStatuses.value[model]
-  if (simStatus === 'queued') return 'bg-yellow-100 text-yellow-700'
-  if (simStatus === 'computing') return 'bg-blue-100 text-blue-700'
-  if (simStatus === 'ready') return 'bg-emerald-100 text-emerald-700'
-  if (simStatus === 'failed') return 'bg-red-100 text-red-700'
+  const modelInfo = backendState.value.models[model]
+  if (!modelInfo) return 'bg-gray-100 text-gray-500'
+
+  const s = modelInfo.status
+  if (s === 'queued') return 'bg-yellow-100 text-yellow-700'
+  if (s === 'computing') return 'bg-blue-100 text-blue-700'
+  if (s === 'ready') return 'bg-emerald-100 text-emerald-700'
+  if (s === 'failed') return 'bg-red-100 text-red-700'
 
   return 'bg-gray-100 text-gray-500'
 }
 
 function statusDotClass(model) {
-  if (!realTimeActive.value) return 'bg-gray-400'
+  if (!realTimeActive.value || !backendState.value) return 'bg-gray-400'
 
-  const simStatus = simulationStatuses.value[model]
-  if (simStatus === 'queued') return 'bg-yellow-500 animate-pulse'
-  if (simStatus === 'computing') return 'bg-blue-500 animate-spin-slow'
-  if (simStatus === 'ready') return 'bg-emerald-500'
-  if (simStatus === 'failed') return 'bg-red-500'
+  const modelInfo = backendState.value.models[model]
+  if (!modelInfo) return 'bg-gray-400'
+
+  const s = modelInfo.status
+  if (s === 'queued') return 'bg-yellow-500 animate-pulse'
+  if (s === 'computing') return 'bg-blue-500 animate-spin-slow'
+  if (s === 'ready') return 'bg-emerald-500'
+  if (s === 'failed') return 'bg-red-500'
 
   return 'bg-gray-400'
 }
@@ -683,21 +654,48 @@ function formatSriFilename(filename) {
   return `${parts[0]}/${parts[1]}/${parts[2]} ${parts[3]}:${parts[4]}`
 }
 
+// ---- Data fetching (initial load) ----
+async function fetchLatestSRI() {
+  try {
+    latestSRI.value = await api.getLatestSRI()
+  } catch (e) {
+    console.error('Failed to fetch SRI:', e)
+  }
+}
+
 // ---- Lifecycle ----
 onMounted(async () => {
-  await refreshAll()
-  // Start auto-refresh for model statuses (always on)
-  startStatusAutoRefresh()
+  await fetchLatestSRI()
+
   // Auto-select first model if available
   if (models.value.length > 0 && !selectedModel.value) {
     selectedModel.value = models.value[0]
+  }
+
+  // Check if the backend service is already running (e.g. page refresh, second tab)
+  try {
+    const state = await api.getRealTimeStatus()
+    if (state.active) {
+      realTimeActive.value = true
+      backendState.value = state
+      // Sync SRI from backend state
+      if (state.latest_sri) {
+        latestSRI.value = { latest_file: state.latest_sri }
+      }
+      startStatusPolling()
+    }
+  } catch (e) {
+    console.error('Failed to check real-time status on mount:', e)
   }
 })
 
 onUnmounted(() => {
   stopPlay()
-  clearSimulationTimers()
-  stopStatusAutoRefresh()
+  stopStatusPolling()
+  if (notificationTimer) {
+    clearTimeout(notificationTimer)
+    notificationTimer = null
+  }
 })
 </script>
 

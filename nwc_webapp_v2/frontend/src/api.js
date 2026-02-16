@@ -112,6 +112,11 @@ export default {
   gifFileUrl: (path) =>
     `${API_BASE}/render/gifs/file?path=${encodeURIComponent(path)}`,
 
+  // --- Real-time ---
+  startRealTime: () => post('/realtime/start'),
+  stopRealTime: () => post('/realtime/stop'),
+  getRealTimeStatus: () => get('/realtime/status'),
+
   // --- Metrics ---
   computeMetrics: (models, start, end) =>
     post('/metrics/compute', { models, start, end }),
