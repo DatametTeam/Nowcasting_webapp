@@ -214,6 +214,16 @@ class RealtimeService:
                 # --- Submit PBS jobs for models that need predictions ---
                 sri_stem = latest.replace(".hdf", "")
                 for model in config.models:
+                    # Skip Test model — it uses pre-existing data, no PBS job
+                    if model.upper() == "TEST":
+                        pred_file = config.real_time_pred / model / f"{sri_stem}.npy"
+                        with self._lock:
+                            self._models[model] = {
+                                "status": "ready" if pred_file.exists() else "idle",
+                                "job_id": None,
+                            }
+                        continue
+
                     pred_file = config.real_time_pred / model / f"{sri_stem}.npy"
                     if pred_file.exists():
                         logger.info("Prediction already exists for %s/%s, skipping", model, sri_stem)
