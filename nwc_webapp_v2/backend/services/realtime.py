@@ -283,6 +283,9 @@ class RealtimeService:
           5s  → all models "computing"
          15s  → each model → "ready" (80%) or "failed" (20%)
          45s  → next cycle
+
+        SAFETY: This loop writes mock data to disk. It must NEVER run
+        if the SRI folder points to real HPC data.
         """
         from nwc_webapp.mock.generator import (
             create_mock_hdf_file,
@@ -291,9 +294,19 @@ class RealtimeService:
 
         config = get_config()
 
+        # SAFETY CHECK: refuse to write mock data to HPC production paths
+        sri_folder = Path(str(config.sri_folder))
+        if str(sri_folder).startswith("/davinci"):
+            logger.error(
+                "SAFETY: _local_loop refused to run — SRI folder points to "
+                "HPC production path: %s", sri_folder
+            )
+            with self._lock:
+                self._active = False
+            return
+
         while not self._stop_event.is_set():
             # --- Generate mock data ---
-            sri_folder = Path(str(config.sri_folder))
             sri_folder.mkdir(parents=True, exist_ok=True)
 
             next_dt = self._compute_next_mock_timestamp(sri_folder)
