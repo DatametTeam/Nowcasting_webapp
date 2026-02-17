@@ -225,6 +225,17 @@
           >
             {{ tab.label }}
           </button>
+          <button
+            @click="exportAll"
+            class="ml-auto px-4 py-2 text-sm font-medium text-gray-600 hover:text-blue-600
+                   border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50
+                   transition-colors flex items-center gap-1.5 mb-1"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+            </svg>
+            Export All
+          </button>
         </div>
 
         <!-- ============================================================ -->
@@ -250,7 +261,16 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
                   </svg>
                   <span class="text-sm font-bold text-gray-800">{{ model }}</span>
-                  <span class="text-xs text-gray-400 ml-auto">CSI / POD / FAR</span>
+                  <span class="text-xs text-gray-400 ml-auto mr-2">CSI / POD / FAR</span>
+                  <span
+                    @click.stop="downloadModelCSI(model)"
+                    class="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                    title="Download as CSV"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                    </svg>
+                  </span>
                 </button>
                 <div v-if="!collapsed['csi-' + model]" class="p-4 space-y-4">
                   <div>
@@ -272,7 +292,18 @@
 
           <!-- Overall Performance (ranked table) -->
           <div v-if="overallCsi" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-8">
-            <h3 class="text-sm font-bold text-gray-800 mb-3">Overall Performance (Mean CSI by Threshold)</h3>
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="text-sm font-bold text-gray-800">Overall Performance (Mean CSI by Threshold)</h3>
+              <button
+                @click="downloadOverallCSI"
+                class="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                title="Download as CSV"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                </svg>
+              </button>
+            </div>
             <div class="overflow-x-auto">
               <table class="min-w-full text-sm border-collapse">
                 <thead>
@@ -314,9 +345,20 @@
           <!-- CSI vs Lead Time charts (one per threshold) -->
           <div v-if="csiChartDatasets" class="space-y-6">
             <div v-for="th in csiThresholds" :key="th" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-              <h3 class="text-sm font-bold text-gray-800 mb-3">CSI vs Lead Time — Threshold {{ th }} mm/h</h3>
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-bold text-gray-800">CSI vs Lead Time — Threshold {{ th }} mm/h</h3>
+                <button
+                  @click="downloadCSIChart(th)"
+                  class="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                  title="Download as PNG"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                  </svg>
+                </button>
+              </div>
               <div class="h-[300px]">
-                <Line :data="csiChartData(th)" :options="csiChartOptions" />
+                <Line :ref="el => { if (el) csiChartRefs[th] = el }" :data="csiChartData(th)" :options="csiChartOptions" />
               </div>
             </div>
           </div>
@@ -328,7 +370,18 @@
         <div v-if="activeTab === 'fss'">
           <div v-if="results.fss && Object.keys(results.fss).length > 0" class="space-y-6">
             <div v-for="(data, threshold) in results.fss" :key="threshold" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-              <h3 class="text-sm font-bold text-gray-800 mb-3">Threshold: {{ threshold }} mm/h</h3>
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-bold text-gray-800">Threshold: {{ threshold }} mm/h</h3>
+                <button
+                  @click="downloadFSSTable(threshold)"
+                  class="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                  title="Download as CSV"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                  </svg>
+                </button>
+              </div>
               <div class="overflow-x-auto">
                 <table class="min-w-full text-sm border-collapse">
                   <thead>
@@ -383,7 +436,18 @@
 
             <!-- NMSE Table -->
             <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-6">
-              <h3 class="text-sm font-bold text-gray-800 mb-3">NMSE (Normalized Mean Square Error)</h3>
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-bold text-gray-800">NMSE (Normalized Mean Square Error)</h3>
+                <button
+                  @click="downloadNMSETable"
+                  class="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                  title="Download as CSV"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                  </svg>
+                </button>
+              </div>
               <p class="text-xs text-gray-500 mb-3">Lower is better. Values closer to 0 indicate better prediction accuracy.</p>
               <div class="overflow-x-auto">
                 <table class="min-w-full text-sm border-collapse">
@@ -418,7 +482,18 @@
 
             <!-- Beta Table -->
             <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-6">
-              <h3 class="text-sm font-bold text-gray-800 mb-3">Beta Coefficient (Regression Slope)</h3>
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-bold text-gray-800">Beta Coefficient (Regression Slope)</h3>
+                <button
+                  @click="downloadBetaTable"
+                  class="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                  title="Download as CSV"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                  </svg>
+                </button>
+              </div>
               <p class="text-xs text-gray-500 mb-3">Ideal value is 1.0. Values closer to 1.0 indicate better calibration.</p>
               <div class="overflow-x-auto">
                 <table class="min-w-full text-sm border-collapse">
@@ -453,17 +528,39 @@
 
             <!-- NMSE vs Lead Time chart -->
             <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-6">
-              <h3 class="text-sm font-bold text-gray-800 mb-3">NMSE vs Lead Time</h3>
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-bold text-gray-800">NMSE vs Lead Time</h3>
+                <button
+                  @click="downloadNMSEChart"
+                  class="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                  title="Download as PNG"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                  </svg>
+                </button>
+              </div>
               <div class="h-[300px]">
-                <Line :data="nmseChartData" :options="nmseChartOptions" />
+                <Line ref="nmseChartRef" :data="nmseChartData" :options="nmseChartOptions" />
               </div>
             </div>
 
             <!-- Beta vs Lead Time chart -->
             <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-              <h3 class="text-sm font-bold text-gray-800 mb-3">Beta Coefficient vs Lead Time</h3>
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-bold text-gray-800">Beta Coefficient vs Lead Time</h3>
+                <button
+                  @click="downloadBetaChart"
+                  class="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                  title="Download as PNG"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                  </svg>
+                </button>
+              </div>
               <div class="h-[300px]">
-                <Line :data="betaChartData" :options="betaChartOptions" />
+                <Line ref="betaChartRef" :data="betaChartData" :options="betaChartOptions" />
               </div>
             </div>
           </div>
@@ -505,6 +602,13 @@ import DataTable from '../components/DataTable.vue'
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend)
 
 const configStore = useConfigStore()
+
+// ---------------------------------------------------------------------------
+// Chart refs (for PNG export)
+// ---------------------------------------------------------------------------
+const csiChartRefs = reactive({})
+const nmseChartRef = ref(null)
+const betaChartRef = ref(null)
 
 // ---------------------------------------------------------------------------
 // Date/time state
@@ -1089,6 +1193,258 @@ const betaChartOptions = {
   plugins: {
     legend: { position: 'top' },
   },
+}
+
+// ---------------------------------------------------------------------------
+// Export / Download helpers
+// ---------------------------------------------------------------------------
+function filenameDateRange() {
+  const fmt = (dt) => dt.replace('T', '_').replace(':', '')
+  return `${fmt(startDateTime.value)}_${fmt(endDateTime.value)}`
+}
+
+function downloadFile(content, filename, mimeType = 'text/csv') {
+  const blob = new Blob([content], { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+function downloadChartPNG(chartComp, filename) {
+  if (!chartComp?.chart) return
+  const url = chartComp.chart.toBase64Image()
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
+
+// Per-model CSI/POD/FAR CSV
+function downloadModelCSI(model) {
+  if (!results.value?.csi?.[model]) return
+  const range = filenameDateRange()
+  let csv = ''
+  for (const metric of ['csi', 'pod', 'far']) {
+    const data = results.value[metric]?.[model]
+    if (!data) continue
+    csv += `${metric.toUpperCase()} - ${model}\n`
+    const thresholds = Object.keys(Object.values(data)[0] || {})
+    csv += `Lead Time,${thresholds.map(t => t + ' mm/h').join(',')}\n`
+    for (const lt of leadTimeLabels) {
+      const row = [lt + ' min']
+      for (const th of thresholds) {
+        row.push(formatVal(data[lt]?.[th]))
+      }
+      csv += row.join(',') + '\n'
+    }
+    csv += '\n'
+  }
+  downloadFile(csv, `CSI_POD_FAR_${model}_${range}.csv`)
+}
+
+// Overall CSI CSV
+function downloadOverallCSI() {
+  if (!overallCsi.value) return
+  const range = filenameDateRange()
+  let csv = 'Model,' + csiThresholds.value.map(t => t + ' mm/h').join(',') + ',Mean CSI\n'
+  for (const row of overallCsi.value) {
+    const vals = [row.model]
+    for (const th of csiThresholds.value) {
+      vals.push(formatVal(row.thresholds[th]))
+    }
+    vals.push(formatVal(row.mean))
+    csv += vals.join(',') + '\n'
+  }
+  downloadFile(csv, `CSI_overall_${range}.csv`)
+}
+
+// CSI chart PNG
+function downloadCSIChart(threshold) {
+  const chartComp = csiChartRefs[threshold]
+  if (!chartComp) return
+  const range = filenameDateRange()
+  downloadChartPNG(chartComp, `CSI_chart_${threshold}mmh_${range}.png`)
+}
+
+// FSS table CSV
+function downloadFSSTable(threshold) {
+  const data = results.value?.fss?.[threshold]
+  if (!data) return
+  const range = filenameDateRange()
+  const models = fssModels(data)
+  const windowSizes = fssWindowSizes(data)
+  let csv = `FSS - Threshold ${threshold} mm/h\n`
+  csv += 'Window Size,' + models.join(',') + '\n'
+  for (const ws of windowSizes) {
+    const row = [ws + ' px']
+    for (const model of models) {
+      row.push(formatVal(data[model]?.[ws]))
+    }
+    csv += row.join(',') + '\n'
+  }
+  const avgRow = ['Average']
+  for (const model of models) {
+    avgRow.push(formatVal(fssAverage(data, model)))
+  }
+  csv += avgRow.join(',') + '\n'
+  downloadFile(csv, `FSS_${threshold}mmh_${range}.csv`)
+}
+
+// NMSE table CSV
+function downloadNMSETable() {
+  if (!results.value?.regression) return
+  const range = filenameDateRange()
+  let csv = 'Model,' + leadTimeLabels.map(lt => lt + ' min').join(',') + '\n'
+  for (const model of regressionModels.value) {
+    const row = [model]
+    for (const lt of leadTimeLabels) {
+      row.push(formatVal(results.value.regression[model]?.nmse?.[lt]))
+    }
+    csv += row.join(',') + '\n'
+  }
+  downloadFile(csv, `NMSE_${range}.csv`)
+}
+
+// Beta table CSV
+function downloadBetaTable() {
+  if (!results.value?.regression) return
+  const range = filenameDateRange()
+  let csv = 'Model,' + leadTimeLabels.map(lt => lt + ' min').join(',') + '\n'
+  for (const model of regressionModels.value) {
+    const row = [model]
+    for (const lt of leadTimeLabels) {
+      row.push(formatVal(results.value.regression[model]?.beta?.[lt]))
+    }
+    csv += row.join(',') + '\n'
+  }
+  downloadFile(csv, `Beta_${range}.csv`)
+}
+
+// NMSE chart PNG
+function downloadNMSEChart() {
+  const range = filenameDateRange()
+  downloadChartPNG(nmseChartRef.value, `NMSE_chart_${range}.png`)
+}
+
+// Beta chart PNG
+function downloadBetaChart() {
+  const range = filenameDateRange()
+  downloadChartPNG(betaChartRef.value, `Beta_chart_${range}.png`)
+}
+
+// Export All: combined CSV + all chart PNGs
+async function exportAll() {
+  if (!results.value) return
+  const range = filenameDateRange()
+  let csv = ''
+
+  // CSI/POD/FAR per model
+  if (results.value.csi) {
+    for (const model of results.value.models) {
+      for (const metric of ['csi', 'pod', 'far']) {
+        const data = results.value[metric]?.[model]
+        if (!data) continue
+        csv += `${metric.toUpperCase()} - ${model}\n`
+        const thresholds = Object.keys(Object.values(data)[0] || {})
+        csv += `Lead Time,${thresholds.map(t => t + ' mm/h').join(',')}\n`
+        for (const lt of leadTimeLabels) {
+          const row = [lt + ' min']
+          for (const th of thresholds) {
+            row.push(formatVal(data[lt]?.[th]))
+          }
+          csv += row.join(',') + '\n'
+        }
+        csv += '\n'
+      }
+    }
+  }
+
+  // Overall CSI
+  if (overallCsi.value) {
+    csv += 'Overall CSI\n'
+    csv += 'Model,' + csiThresholds.value.map(t => t + ' mm/h').join(',') + ',Mean CSI\n'
+    for (const row of overallCsi.value) {
+      const vals = [row.model]
+      for (const th of csiThresholds.value) {
+        vals.push(formatVal(row.thresholds[th]))
+      }
+      vals.push(formatVal(row.mean))
+      csv += vals.join(',') + '\n'
+    }
+    csv += '\n'
+  }
+
+  // FSS
+  if (results.value.fss) {
+    for (const [threshold, data] of Object.entries(results.value.fss)) {
+      const models = fssModels(data)
+      const windowSizes = fssWindowSizes(data)
+      csv += `FSS - Threshold ${threshold} mm/h\n`
+      csv += 'Window Size,' + models.join(',') + '\n'
+      for (const ws of windowSizes) {
+        const row = [ws + ' px']
+        for (const model of models) {
+          row.push(formatVal(data[model]?.[ws]))
+        }
+        csv += row.join(',') + '\n'
+      }
+      const avgRow = ['Average']
+      for (const model of models) {
+        avgRow.push(formatVal(fssAverage(data, model)))
+      }
+      csv += avgRow.join(',') + '\n\n'
+    }
+  }
+
+  // NMSE + Beta
+  if (results.value.regression) {
+    csv += 'NMSE\n'
+    csv += 'Model,' + leadTimeLabels.map(lt => lt + ' min').join(',') + '\n'
+    for (const model of regressionModels.value) {
+      const row = [model]
+      for (const lt of leadTimeLabels) {
+        row.push(formatVal(results.value.regression[model]?.nmse?.[lt]))
+      }
+      csv += row.join(',') + '\n'
+    }
+    csv += '\n'
+
+    csv += 'Beta\n'
+    csv += 'Model,' + leadTimeLabels.map(lt => lt + ' min').join(',') + '\n'
+    for (const model of regressionModels.value) {
+      const row = [model]
+      for (const lt of leadTimeLabels) {
+        row.push(formatVal(results.value.regression[model]?.beta?.[lt]))
+      }
+      csv += row.join(',') + '\n'
+    }
+    csv += '\n'
+  }
+
+  downloadFile(csv, `Metrics_all_${range}.csv`)
+
+  // Download chart PNGs with small delays to avoid browser blocking
+  const chartDownloads = []
+  if (csiChartDatasets.value) {
+    for (const th of csiThresholds.value) {
+      chartDownloads.push(() => downloadCSIChart(th))
+    }
+  }
+  if (results.value.regression) {
+    chartDownloads.push(() => downloadNMSEChart())
+    chartDownloads.push(() => downloadBetaChart())
+  }
+  for (const fn of chartDownloads) {
+    await new Promise(r => setTimeout(r, 150))
+    fn()
+  }
 }
 </script>
 
