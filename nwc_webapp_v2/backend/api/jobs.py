@@ -81,7 +81,7 @@ async def submit_job(request: JobSubmitRequest):
     # Submit the job (uses PBS on HPC, mock locally - same as Streamlit)
     job_id = submit_date_range_prediction_job(request.model, start_dt, end_dt)
 
-    is_mock = not is_hpc() or (job_id and job_id.startswith("mock_"))
+    is_mock = not is_hpc() or bool(job_id and job_id.startswith("mock_"))
 
     return JobSubmitResponse(
         job_id=job_id,

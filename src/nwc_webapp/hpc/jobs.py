@@ -147,8 +147,8 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
 
         # Step 1: Get the PBS script path
         pbs_script_path = (
-            Path(__file__).parent.parent
-            / "pbs_scripts"
+            Path(__file__).parent
+            / "scripts"
             / "start_end_pred_scripts"
             / f"run_{model_name}_inference_startend.sh"
         )
@@ -198,8 +198,8 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
 
         # Step 2: Get the PBS script path
         pbs_script_path = (
-            Path(__file__).parent.parent
-            / "pbs_scripts"
+            Path(__file__).parent
+            / "scripts"
             / "start_end_pred_scripts"
             / f"run_{model_name}_inference_startend.sh"
         )

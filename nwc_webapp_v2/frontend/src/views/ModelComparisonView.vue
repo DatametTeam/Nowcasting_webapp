@@ -14,7 +14,7 @@
     <!-- TOP BAR: Config panel (dark gradient, like real-time bottom bar)  -->
     <!-- ================================================================ -->
     <div class="bg-gradient-to-b from-gray-900 to-gray-800 px-6 py-5 shadow-lg">
-      <div class="max-w-[1600px] mx-auto">
+      <div class="w-full max-w-full mx-auto">
 
         <!-- Title row -->
         <div class="flex items-center justify-between mb-4">
@@ -129,7 +129,7 @@
     <!-- ================================================================ -->
     <!-- MAIN CONTENT: 12 lead-time sections                              -->
     <!-- ================================================================ -->
-    <div class="max-w-[1600px] mx-auto px-6 py-6">
+    <div class="w-full max-w-full mx-auto px-6 py-6">
 
       <!-- Zoom info bar -->
       <div v-if="showComparison" class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6">
