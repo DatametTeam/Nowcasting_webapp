@@ -266,6 +266,11 @@ async def get_prediction_figure(
             raise HTTPException(status_code=404, detail="Prediction not found")
         pred_array = load_prediction_array(pred_path, model)
         frame = pred_array[lead_time]
+        # Apply radar mask (same as groundtruth and overlay endpoints)
+        mask = _get_radar_mask()
+        if mask is not None:
+            frame = frame * mask
+        frame = np.clip(frame, 0, 200)
         title = f"{model} +{(lead_time+1)*5}min - {(dt + timedelta(minutes=(lead_time+1)*5)).strftime('%d/%m/%Y %H:%M')}"
         fig = compute_figure_gpd(frame, title, name="")
     else:

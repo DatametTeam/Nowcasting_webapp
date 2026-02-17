@@ -120,4 +120,7 @@ export default {
   // --- Metrics ---
   computeMetrics: (models, start, end) =>
     post('/metrics/compute', { models, start, end }),
+
+  computeComparison: (models, timestamp) =>
+    post('/metrics/comparison', { models, timestamp }),
 }

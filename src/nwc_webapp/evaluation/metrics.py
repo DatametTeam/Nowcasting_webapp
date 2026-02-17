@@ -150,6 +150,24 @@ def FSS(obs, pred, threshold=0.1, window_size=5):
     return np.clip(fss_value, 0.0, 1.0)
 
 
+def NMSE(obs, pred):
+    """Normalized Mean Square Error = MSE / Var(obs). Returns None if Var(obs)=0."""
+    mse = np.mean((obs - pred) ** 2)
+    var_obs = np.var(obs)
+    if var_obs == 0:
+        return None
+    return float(mse / var_obs)
+
+
+def beta_coefficient(obs, pred):
+    """Regression slope beta = Cov(obs, pred) / Var(obs). Ideal: beta=1."""
+    var_obs = np.var(obs)
+    if var_obs == 0:
+        return None
+    cov = np.mean((obs - np.mean(obs)) * (pred - np.mean(pred)))
+    return float(cov / var_obs)
+
+
 def compute_CSI(targets, outputs, thresholds=None):
     if thresholds is None:
         thresholds = [1, 5, 10, 20, 50]

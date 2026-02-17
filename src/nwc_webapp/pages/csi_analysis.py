@@ -421,7 +421,7 @@ def show_csi_analysis_page(model_list):
                             with st.spinner(f"Computing CSI/POD/FAR/FSS for {len(models_for_csi)} model(s)..."):
                                 try:
                                     # Compute CSI, POD, FAR, FSS for all models with predictions
-                                    csi_results, pod_results, far_results, fss_results = compute_csi_for_models(
+                                    csi_results, pod_results, far_results, fss_results, *_ = compute_csi_for_models(
                                         models=models_for_csi,
                                         start_dt=start_datetime,
                                         end_dt=end_datetime
@@ -467,7 +467,7 @@ def show_csi_analysis_page(model_list):
             with st.spinner(f"Computing CSI/POD/FAR/FSS for {len(models_with_predictions)} model(s)..."):
                 try:
                     # Compute CSI, POD, FAR, FSS
-                    csi_results, pod_results, far_results, fss_results = compute_csi_for_models(
+                    csi_results, pod_results, far_results, fss_results, *_ = compute_csi_for_models(
                         models=models_with_predictions,
                         start_dt=start_datetime,
                         end_dt=end_datetime

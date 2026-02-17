@@ -1,4 +1,4 @@
-from nwc_webapp.evaluation.metrics import CSI, POD, FAR, FSS
+from nwc_webapp.evaluation.metrics import CSI, POD, FAR, FSS, NMSE, beta_coefficient
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 """
@@ -183,6 +183,10 @@ def compute_csi_for_single_model(
         # Initialize storage for FSS: {threshold: {window_size: [values]}}
         fss_storage = {th: {ws: [] for ws in window_sizes} for th in thresholds}
 
+        # Initialize storage for NMSE and beta by lead time
+        nmse_by_leadtime = {lt: [] for lt in range(12)}
+        beta_by_leadtime = {lt: [] for lt in range(12)}
+
         logger.info(f"📊 [{model}] Loading predictions for {len(all_timestamps)} timestamps...")
 
         for timestamp in all_timestamps:
@@ -254,6 +258,14 @@ def compute_csi_for_single_model(
                                         if fss_value is not None:
                                             fss_storage[th][ws].append(fss_value)
 
+                                # Compute NMSE and beta (once per lead time, outside threshold loop)
+                                nmse_val = NMSE(target_data, pred_data)
+                                if nmse_val is not None:
+                                    nmse_by_leadtime[lead_time_idx].append(nmse_val)
+                                beta_val = beta_coefficient(target_data, pred_data)
+                                if beta_val is not None:
+                                    beta_by_leadtime[lead_time_idx].append(beta_val)
+
                         except Exception as e:
                             logger.warning(f"[{model}] Error loading target at {target_path}: {e}")
 
@@ -323,13 +335,25 @@ def compute_csi_for_single_model(
 
             fss_results[th] = pd.Series(fss_row, index=window_sizes, name=model)
 
-        logger.info(f"✅ [{model}] CSI/POD/FAR/FSS computation completed!")
-        return csi_df, pod_df, far_df, fss_results
+        # Average NMSE and beta across all timestamps for each lead time
+        nmse_values = []
+        beta_values = []
+        for lead_time_idx in range(12):
+            nmse_vals = nmse_by_leadtime[lead_time_idx]
+            nmse_values.append(np.mean(nmse_vals) if nmse_vals else 0.0)
+            beta_vals = beta_by_leadtime[lead_time_idx]
+            beta_values.append(np.mean(beta_vals) if beta_vals else 0.0)
+
+        nmse_series = pd.Series(nmse_values, index=lead_time_labels, name=model)
+        beta_series = pd.Series(beta_values, index=lead_time_labels, name=model)
+
+        logger.info(f"✅ [{model}] CSI/POD/FAR/FSS/NMSE/beta computation completed!")
+        return csi_df, pod_df, far_df, fss_results, nmse_series, beta_series
 
     except Exception as e:
         logger.error(f"❌ [{model}] Error computing CSI/POD/FAR/FSS: {e}")
         logger.error(traceback.format_exc())
-        return None, None, None, None
+        return None, None, None, None, None, None
 
 
 def compute_csi_for_models(
@@ -372,6 +396,8 @@ def compute_csi_for_models(
     model_pod_dfs = {}
     model_far_dfs = {}
     model_fss_dicts = {}  # Dict[model, Dict[threshold, Series]]
+    model_nmse = {}  # Dict[model, Series]
+    model_beta = {}  # Dict[model, Series]
 
     # Use ThreadPoolExecutor for parallel processing
 
@@ -386,18 +412,22 @@ def compute_csi_for_models(
         for future in as_completed(future_to_model):
             model = future_to_model[future]
             try:
-                csi_df, pod_df, far_df, fss_dict = future.result()
+                csi_df, pod_df, far_df, fss_dict, nmse_series, beta_series = future.result()
                 if csi_df is not None and pod_df is not None and far_df is not None and fss_dict is not None:
                     model_csi_dfs[model] = csi_df
                     model_pod_dfs[model] = pod_df
                     model_far_dfs[model] = far_df
                     model_fss_dicts[model] = fss_dict
+                if nmse_series is not None:
+                    model_nmse[model] = nmse_series
+                if beta_series is not None:
+                    model_beta[model] = beta_series
             except Exception as e:
                 logger.error(f"❌ [{model}] Exception during CSI/POD/FAR/FSS computation: {e}")
 
     if not model_csi_dfs:
         logger.error("No CSI data computed for any model")
-        return None, None, None, None
+        return None, None, None, None, None, None
 
     # Reorganize FSS results: from Dict[model, Dict[threshold, Series]]
     # to Dict[threshold, DataFrame(window_sizes × models)]
@@ -417,6 +447,6 @@ def compute_csi_for_models(
             fss_df.index.name = "Window Size (px)"
             fss_by_threshold[th] = fss_df
 
-    logger.info(f"CSI/POD/FAR/FSS computation completed for {len(model_csi_dfs)} models")
+    logger.info(f"CSI/POD/FAR/FSS/NMSE/beta computation completed for {len(model_csi_dfs)} models")
 
-    return model_csi_dfs, model_pod_dfs, model_far_dfs, fss_by_threshold
+    return model_csi_dfs, model_pod_dfs, model_far_dfs, fss_by_threshold, model_nmse, model_beta
