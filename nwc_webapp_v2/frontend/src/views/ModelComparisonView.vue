@@ -1,186 +1,890 @@
 <!--
-  ModelComparisonView.vue — Side-by-side model comparison.
+  ModelComparisonView.vue — Side-by-side model comparison with all 12 lead times.
 
-  This replaces model_comparison.py in Streamlit. The workflow is:
-  1. Select 2+ models + single datetime
-  2. Check which predictions exist
-  3. Display predictions side by side with a shared lead time slider
-
-  In Streamlit, this page had a complex JavaScript hack for synchronized
-  zoom/pan between maps. Here, we'll start with simple side-by-side images
-  and can later add Leaflet-based synchronized maps.
+  Recreates the old Streamlit model_comparison.py layout:
+  - 12 rows (one per lead time: +5 to +60 min)
+  - Each row: GT + model prediction images (4/5 width) + CSI table (1/5 width)
+  - Synchronized zoom/pan within each row (scroll to zoom, drag to pan)
+  - CSI computed once via POST /api/metrics/comparison, displayed per row
 -->
 <template>
-  <div class="p-6 max-w-7xl mx-auto">
-    <h1 class="text-2xl font-bold text-gray-800 mb-6">Model Comparison</h1>
+  <div class="min-h-[calc(100vh-3.5rem)] bg-gray-50">
 
-    <!-- Configuration -->
-    <div class="bg-white rounded-lg shadow p-6 mb-6">
-      <h2 class="text-lg font-semibold text-gray-700 mb-4">Configuration</h2>
+    <!-- ================================================================ -->
+    <!-- TOP BAR: Config panel (dark gradient, like real-time bottom bar)  -->
+    <!-- ================================================================ -->
+    <div class="bg-gradient-to-b from-gray-900 to-gray-800 px-6 py-5 shadow-lg">
+      <div class="max-w-[1600px] mx-auto">
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <!-- Multi-model selector (checkboxes) -->
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-2">
-            Models to Compare (select 2+)
-          </label>
-          <div class="space-y-2">
-            <label
-              v-for="model in configStore.models"
-              :key="model"
-              class="flex items-center gap-2 text-sm"
-            >
-              <input
-                type="checkbox"
-                :value="model"
-                v-model="selectedModels"
-                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+        <!-- Title row -->
+        <div class="flex items-center justify-between mb-4">
+          <h1 class="text-xl font-bold text-white tracking-wide">Model Comparison</h1>
+          <span
+            v-if="selectedDateTime"
+            class="text-xs font-medium px-3 py-1 rounded-full bg-white/10 text-gray-300"
+          >
+            {{ formatDateDisplay(selectedDateTime) }}
+          </span>
+        </div>
+
+        <!-- Controls row -->
+        <div class="flex items-end gap-4">
+
+          <!-- Date/time group -->
+          <div class="flex items-end gap-2">
+            <!-- Date picker (VueDatePicker — large, dark-themed calendar) -->
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Date</label>
+              <VueDatePicker
+                :model-value="pickerDate"
+                @update:model-value="onPickerChange"
+                :time-config="{ enableTimePicker: false }"
+                auto-apply
+                :dark="true"
+                format="dd/MM/yyyy"
+                model-type="yyyy-MM-dd"
+                no-today
+                input-class-name="dp-dark-input"
               />
-              {{ model }}
+            </div>
+
+            <!-- Small divider between date and time -->
+            <div class="w-px h-[42px] bg-white/10 mx-1" />
+
+            <!-- Time picker (single VueDatePicker with hour + minute) -->
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Time</label>
+              <VueDatePicker
+                :model-value="timePickerValue"
+                @update:model-value="onTimePickerChange"
+                time-picker
+                :dark="true"
+                :is-24="true"
+                :time-config="{ minutesIncrement: 5, minutesGridIncrement: 5 }"
+                input-class-name="dp-dark-input dp-time-input"
+              />
+            </div>
+          </div>
+
+          <!-- Vertical divider -->
+          <div class="h-[42px] w-px bg-white/10" />
+
+          <!-- Model selector (chip-style checkboxes) + availability text -->
+          <div class="flex-1">
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+              Models
             </label>
+            <div class="flex flex-wrap gap-2">
+              <label
+                v-for="model in configStore.models"
+                :key="model"
+                class="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium
+                       cursor-pointer transition-all select-none"
+                :class="selectedModels.includes(model)
+                  ? 'bg-blue-500/30 text-blue-300 ring-1 ring-blue-400/50'
+                  : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-300'"
+              >
+                <input
+                  type="checkbox"
+                  :value="model"
+                  v-model="selectedModels"
+                  class="sr-only"
+                />
+                {{ model }}
+              </label>
+            </div>
+            <!-- Availability text (shown after auto-check) -->
+            <p v-if="availabilitySummary" class="text-[11px] mt-1.5" :class="allSelectedAvailable ? 'text-emerald-400' : 'text-amber-400'">
+              {{ availabilitySummary }}
+            </p>
+          </div>
+
+          <!-- Load / Compute button -->
+          <button
+            @click="loadComparison"
+            :disabled="!canLoad"
+            class="flex-shrink-0 h-[42px] px-5 rounded-lg font-semibold text-sm transition-all
+                   flex items-center gap-2 self-end"
+            :class="canLoad
+              ? (allSelectedAvailable
+                ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-sm shadow-blue-500/30'
+                : 'bg-amber-600 text-white hover:bg-amber-500 shadow-sm shadow-amber-500/30')
+              : 'bg-white/10 text-gray-500 cursor-not-allowed'"
+          >
+            <svg v-if="loading" class="animate-spin w-4 h-4" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" />
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            {{ buttonLabel }}
+          </button>
+        </div>
+
+        <!-- Error (inside dark bar) -->
+        <div v-if="error" class="mt-3 px-4 py-2 rounded-lg bg-red-500/20 border border-red-500/30">
+          <p class="text-sm text-red-300">{{ error }}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================================================================ -->
+    <!-- MAIN CONTENT: 12 lead-time sections                              -->
+    <!-- ================================================================ -->
+    <div class="max-w-[1600px] mx-auto px-6 py-6">
+
+      <!-- Zoom info bar -->
+      <div v-if="showComparison" class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6">
+        <p class="text-sm text-blue-700">
+          <strong>Synchronized Zoom:</strong> scroll to zoom, drag to pan, double-click to reset.
+          All images in the same row zoom and pan together.
+        </p>
+      </div>
+
+      <!-- 12 lead-time sections -->
+      <div v-if="showComparison" class="space-y-6">
+        <div
+          v-for="ltIdx in 12"
+          :key="ltIdx - 1"
+          class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"
+        >
+          <!-- Section header -->
+          <div class="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-3">
+            <span class="text-sm font-bold text-gray-800">
+              {{ formatLeadTimeLabel(ltIdx - 1) }}
+            </span>
+            <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+              +{{ ltIdx * 5 }} min
+            </span>
+            <span class="text-xs text-gray-400 ml-auto">Lead time {{ ltIdx }}/12</span>
+          </div>
+
+          <!-- Content: images (left) + CSI table (right) -->
+          <div class="flex gap-4 p-4">
+            <!-- Images container (~4/5 width) -->
+            <div class="flex-1 min-w-0">
+              <div class="flex gap-2">
+                <!-- Groundtruth -->
+                <div class="flex-1 min-w-0">
+                  <p class="text-xs font-semibold text-emerald-600 mb-1 text-center">Groundtruth</p>
+                  <div
+                    class="zoom-wrapper"
+                    @wheel.prevent="onWheel($event, ltIdx - 1)"
+                    @mousedown="onMouseDown($event, ltIdx - 1)"
+                    @dblclick="resetZoom(ltIdx - 1)"
+                    :style="{ cursor: dragging === ltIdx - 1 ? 'grabbing' : 'grab' }"
+                  >
+                    <img
+                      :src="api.figureUrl(availableModels[0], selectedDateTime, ltIdx - 1, 'groundtruth')"
+                      :style="zoomStyle(ltIdx - 1)"
+                      class="w-full block pointer-events-none select-none"
+                      alt="Groundtruth"
+                      draggable="false"
+                    />
+                  </div>
+                </div>
+
+                <!-- One column per available model -->
+                <div
+                  v-for="model in availableModels"
+                  :key="model"
+                  class="flex-1 min-w-0"
+                >
+                  <p class="text-xs font-semibold text-blue-600 mb-1 text-center">{{ model }}</p>
+                  <div
+                    class="zoom-wrapper"
+                    @wheel.prevent="onWheel($event, ltIdx - 1)"
+                    @mousedown="onMouseDown($event, ltIdx - 1)"
+                    @dblclick="resetZoom(ltIdx - 1)"
+                    :style="{ cursor: dragging === ltIdx - 1 ? 'grabbing' : 'grab' }"
+                  >
+                    <img
+                      :src="api.figureUrl(model, selectedDateTime, ltIdx - 1, 'prediction')"
+                      :style="zoomStyle(ltIdx - 1)"
+                      class="w-full block pointer-events-none select-none"
+                      :alt="`${model} prediction`"
+                      draggable="false"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- CSI table (compact, rotated headers) -->
+            <div class="flex-shrink-0">
+              <p class="text-xs font-semibold text-gray-500 mb-1">CSI Scores</p>
+              <div
+                v-if="csiData && csiData.lead_times"
+                class="csi-table-wrap"
+              >
+                <table class="csi-table">
+                  <thead>
+                    <tr>
+                      <th class="corner-cell"><span class="text-[9px] text-gray-400 font-normal">mm/h</span></th>
+                      <th
+                        v-for="model in csiData.models"
+                        :key="model"
+                        class="rotated-header"
+                        :title="model"
+                      >
+                        <div class="rotated-label">{{ model }}</div>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="th in csiData.thresholds"
+                      :key="th"
+                    >
+                      <td class="row-label">{{ th }}</td>
+                      <td
+                        v-for="model in csiData.models"
+                        :key="model"
+                        class="csi-cell"
+                        :class="csiCellClass(getCsiValue(ltIdx - 1, model, th))"
+                      >
+                        {{ formatCsi(getCsiValue(ltIdx - 1, model, th)) }}
+                      </td>
+                    </tr>
+                    <tr class="avg-row">
+                      <td class="row-label font-semibold">Avg</td>
+                      <td
+                        v-for="model in csiData.models"
+                        :key="model"
+                        class="csi-cell font-semibold"
+                        :class="csiCellClass(getCsiAvg(ltIdx - 1, model))"
+                      >
+                        {{ formatCsi(getCsiAvg(ltIdx - 1, model)) }}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div v-else-if="csiLoading" class="flex items-center gap-2 text-xs text-gray-400 italic py-4">
+                <svg class="animate-spin w-3 h-3" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" />
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Computing CSI...
+              </div>
+              <p v-else class="text-xs text-gray-400 italic">No CSI data</p>
+            </div>
           </div>
         </div>
-
-        <DateTimeInput v-model="selectedDateTime" label="Date/Time" />
       </div>
 
-      <div class="flex gap-3 mt-5">
-        <button
-          @click="checkAndLoad"
-          :disabled="!canCheck"
-          class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md
-                 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed
-                 transition-colors"
-        >
-          {{ checking ? 'Checking...' : 'Load Comparison' }}
-        </button>
-      </div>
-    </div>
-
-    <!-- Prediction availability -->
-    <div v-if="checkResults.length > 0" class="bg-white rounded-lg shadow p-6 mb-6">
-      <h2 class="text-lg font-semibold text-gray-700 mb-3">Data Availability</h2>
-      <div class="flex flex-wrap gap-3">
-        <StatusBadge
-          v-for="result in checkResults"
-          :key="result.model"
-          :status="result.exists ? 'success' : 'error'"
-          :text="`${result.model}: ${result.exists ? 'Available' : 'Not found'}`"
-        />
-      </div>
-    </div>
-
-    <!-- Lead time slider (shared across all models) -->
-    <div v-if="showComparison" class="bg-white rounded-lg shadow p-6 mb-6">
-      <div class="mb-4">
-        <label class="block text-sm font-medium text-gray-700 mb-2">
-          Lead Time: <span class="text-blue-600 font-bold">+{{ (leadTime + 1) * 5 }} min</span>
-        </label>
-        <input
-          type="range"
-          v-model.number="leadTime"
-          min="0"
-          max="11"
-          step="1"
-          class="w-full accent-blue-600"
-        />
-        <div class="flex justify-between text-xs text-gray-400 mt-1">
-          <span>+5 min</span>
-          <span>+30 min</span>
-          <span>+60 min</span>
+      <!-- Computing progress card -->
+      <div v-if="computing" class="flex items-center justify-center py-20">
+        <div class="bg-white rounded-xl shadow-lg border border-gray-100 p-6 w-full max-w-md">
+          <h2 class="text-lg font-bold text-gray-800 mb-4">Computing Predictions</h2>
+          <div class="space-y-3 mb-5">
+            <div
+              v-for="model in Object.keys(computeStatus)"
+              :key="model"
+              class="flex items-center gap-3"
+            >
+              <!-- Done -->
+              <svg v-if="computeStatus[model].state === 'done'" class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              <!-- Error -->
+              <svg v-else-if="computeStatus[model].state === 'error'" class="w-5 h-5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              <!-- Queued -->
+              <svg v-else-if="computeStatus[model].state === 'queued'" class="w-5 h-5 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" />
+                <path stroke-linecap="round" d="M12 6v6l4 2" />
+              </svg>
+              <!-- Submitting / Running (spinner) -->
+              <svg v-else class="animate-spin w-5 h-5 text-blue-500 flex-shrink-0" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" />
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              <!-- Model name + status -->
+              <span class="text-sm font-medium text-gray-800">{{ model }}</span>
+              <span
+                class="text-xs ml-auto"
+                :class="{
+                  'text-emerald-600': computeStatus[model].state === 'done',
+                  'text-red-500': computeStatus[model].state === 'error',
+                  'text-amber-600': computeStatus[model].state === 'queued',
+                  'text-blue-500': !['done', 'error', 'queued'].includes(computeStatus[model].state),
+                }"
+              >
+                {{ computeStatusLabel(computeStatus[model].state) }}
+              </span>
+            </div>
+          </div>
+          <p class="text-xs text-gray-500 mb-4">
+            {{ computeProgress.done }}/{{ computeProgress.total }} models ready
+          </p>
+          <button
+            @click="cancelCompute"
+            class="w-full px-4 py-2 rounded-lg text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+          >
+            Cancel
+          </button>
         </div>
       </div>
 
-      <!-- Side-by-side grid: one column per model -->
-      <div
-        class="grid gap-4"
-        :style="{ gridTemplateColumns: `repeat(${availableModels.length}, 1fr)` }"
-      >
-        <div v-for="model in availableModels" :key="model" class="text-center">
-          <h3 class="text-sm font-semibold text-gray-600 mb-2">{{ model }}</h3>
-          <img
-            :src="api.figureUrl(model, selectedDateTime, leadTime, 'prediction')"
-            :key="`${model}-${leadTime}`"
-            class="rounded-lg shadow border border-gray-200 w-full"
-            :alt="`${model} prediction`"
-          />
-        </div>
+      <!-- Empty state (nothing loaded yet) -->
+      <div v-if="!showComparison && !loading && !computing && !error" class="text-center py-20">
+        <svg class="mx-auto w-16 h-16 text-gray-300 mb-4" fill="none" stroke="currentColor" stroke-width="1" viewBox="0 0 24 24">
+          <path d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        <p class="text-gray-400 text-sm">Select 2+ models and a date/time, then click <strong>Load Comparison</strong></p>
       </div>
-
-      <!-- Groundtruth row -->
-      <div class="mt-6 max-w-md mx-auto text-center">
-        <h3 class="text-sm font-semibold text-gray-600 mb-2">Groundtruth</h3>
-        <img
-          :src="api.figureUrl(availableModels[0], selectedDateTime, leadTime, 'groundtruth')"
-          :key="`gt-${leadTime}`"
-          class="rounded-lg shadow border border-gray-200 w-full"
-          alt="Groundtruth"
-        />
-      </div>
-    </div>
-
-    <!-- Error -->
-    <div v-if="error" class="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-      <p class="text-sm text-red-700">{{ error }}</p>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, reactive, watch, onBeforeUnmount } from 'vue'
+import { VueDatePicker } from '@vuepic/vue-datepicker'
+import '@vuepic/vue-datepicker/dist/main.css'
 import api from '../api.js'
 import { useConfigStore } from '../stores/config.js'
-import DateTimeInput from '../components/DateTimeInput.vue'
-import StatusBadge from '../components/StatusBadge.vue'
 
 const configStore = useConfigStore()
 
-// Form state
-const selectedModels = ref([])
+// ---------------------------------------------------------------------------
+// Date/time state — native date input + hour/minute dropdowns
+// ---------------------------------------------------------------------------
 const selectedDateTime = ref('')
 
-// Check state
-const checking = ref(false)
+// Parse date part as a Date object for the picker
+const pickerDate = computed(() => {
+  if (!selectedDateTime.value) return null
+  // With model-type="yyyy-MM-dd", the picker expects a string like "2026-02-16"
+  return selectedDateTime.value.split('T')[0] || null
+})
+
+// Format a Date back to "YYYY-MM-DD"
+function dateToStr(d) {
+  if (!d) return ''
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${dd}`
+}
+
+const datePart = computed(() => {
+  if (!selectedDateTime.value) return ''
+  return selectedDateTime.value.split('T')[0] || ''
+})
+const hourValue = computed(() => {
+  if (!selectedDateTime.value?.includes('T')) return ''
+  return selectedDateTime.value.split('T')[1]?.split(':')[0] || ''
+})
+const minuteValue = computed(() => {
+  if (!selectedDateTime.value?.includes('T')) return ''
+  return selectedDateTime.value.split('T')[1]?.split(':')[1] || ''
+})
+
+function buildDateTime(date, hour, minute) {
+  if (!date) return ''
+  return `${date}T${hour || '00'}:${minute || '00'}`
+}
+function onPickerChange(val) {
+  // With model-type="yyyy-MM-dd", val is a string like "2026-02-16"
+  const ds = typeof val === 'string' ? val : dateToStr(val)
+  if (ds) {
+    selectedDateTime.value = buildDateTime(ds, hourValue.value, minuteValue.value)
+  }
+}
+// VueDatePicker combined time picker value (object: { hours, minutes, seconds })
+const timePickerValue = computed(() => ({
+  hours: hourValue.value ? parseInt(hourValue.value) : 0,
+  minutes: minuteValue.value ? parseInt(minuteValue.value) : 0,
+  seconds: 0,
+}))
+
+function onTimePickerChange(val) {
+  if (val && val.hours !== undefined && val.minutes !== undefined) {
+    const h = String(val.hours).padStart(2, '0')
+    const m = String(val.minutes).padStart(2, '0')
+    selectedDateTime.value = buildDateTime(datePart.value, h, m)
+  }
+}
+
+function formatDateDisplay(val) {
+  if (!val?.includes('T')) return ''
+  const [date, time] = val.split('T')
+  const [y, m, d] = date.split('-')
+  return `${d}/${m}/${y} ${time}`
+}
+
+// ---------------------------------------------------------------------------
+// Model selection + availability
+// ---------------------------------------------------------------------------
+const selectedModels = ref([])
+const availabilityMap = ref({})  // { model: true/false }
+let checkAbort = null
+
+// Auto-check availability whenever datetime changes
+watch(selectedDateTime, async (newVal) => {
+  if (!newVal || !newVal.includes('T') || newVal.length < 16) return
+
+  if (checkAbort) checkAbort.cancelled = true
+  const thisCheck = { cancelled: false }
+  checkAbort = thisCheck
+
+  const models = configStore.models
+  const results = await Promise.allSettled(
+    models.map(model => api.checkSinglePrediction(model, newVal))
+  )
+
+  if (thisCheck.cancelled) return
+
+  const map = {}
+  results.forEach((r, i) => {
+    map[models[i]] = r.status === 'fulfilled' && r.value.exists
+  })
+  availabilityMap.value = map
+})
+
+// Availability summary text (shown below model chips)
+const availabilitySummary = computed(() => {
+  if (selectedModels.value.length === 0 || Object.keys(availabilityMap.value).length === 0) return ''
+  const available = selectedModels.value.filter(m => availabilityMap.value[m])
+  const missing = selectedModels.value.filter(m => availabilityMap.value[m] === false)
+  if (missing.length === 0) return `All ${available.length} selected models have predictions`
+  if (available.length === 0) return `No predictions found for selected models`
+  return `${available.length} available, ${missing.length} missing: ${missing.join(', ')}`
+})
+
+// Are all selected models available?
+const allSelectedAvailable = computed(() => {
+  if (selectedModels.value.length === 0) return true
+  return selectedModels.value.every(m => availabilityMap.value[m])
+})
+
+// ---------------------------------------------------------------------------
+// Loading / results state
+// ---------------------------------------------------------------------------
+const loading = ref(false)
+const computing = ref(false)
+const showComparison = ref(false)
+const error = ref(null)
 const checkResults = ref([])
 
-// Comparison display
-const showComparison = ref(false)
-const leadTime = ref(5)
+const csiData = ref(null)
+const csiLoading = ref(false)
 
-const error = ref(null)
+const canLoad = computed(() =>
+  selectedModels.value.length >= 2 && selectedDateTime.value && selectedDateTime.value.length >= 16 && !loading.value && !computing.value
+)
 
-const canCheck = computed(() => {
-  return selectedModels.value.length >= 2 && selectedDateTime.value && !checking.value
+const availableModels = computed(() =>
+  checkResults.value.filter(r => r.exists).map(r => r.model)
+)
+
+// Dynamic button label
+const buttonLabel = computed(() => {
+  if (loading.value) return 'Loading...'
+  if (computing.value) return 'Computing...'
+  if (!allSelectedAvailable.value && selectedModels.value.length >= 2) return 'Compute Predictions'
+  return 'Load Comparison'
 })
 
-// Models that have available predictions
-const availableModels = computed(() => {
-  return checkResults.value.filter(r => r.exists).map(r => r.model)
+// ---------------------------------------------------------------------------
+// Computing state (job submission + polling for missing predictions)
+// ---------------------------------------------------------------------------
+const computeStatus = reactive({})  // { model: { state, jobId } }
+let pollAbort = null
+
+const computeProgress = computed(() => {
+  const models = Object.keys(computeStatus)
+  const done = models.filter(m => computeStatus[m].state === 'done').length
+  return { done, total: models.length }
 })
 
-async function checkAndLoad() {
+function computeStatusLabel(state) {
+  switch (state) {
+    case 'submitting': return 'Submitting...'
+    case 'queued': return 'Queued'
+    case 'running': return 'Running...'
+    case 'done': return 'Done'
+    case 'error': return 'Failed'
+    default: return state
+  }
+}
+
+/**
+ * Submit jobs for missing models, poll HPC jobs until complete.
+ * Resolves when all jobs are done (or cancelled/timed out).
+ */
+async function computeMissing(missingModels) {
+  computing.value = true
+  for (const k of Object.keys(computeStatus)) delete computeStatus[k]
+  const abort = { cancelled: false }
+  pollAbort = abort
+
+  // Init per-model status
+  for (const model of missingModels) {
+    computeStatus[model] = { state: 'submitting', jobId: null }
+  }
+
+  // Submit all jobs in parallel
+  const results = await Promise.allSettled(
+    missingModels.map(m =>
+      api.submitJob(m, selectedDateTime.value, selectedDateTime.value)
+    )
+  )
+
+  if (abort.cancelled) return
+
+  const hpcModels = []
+  results.forEach((r, i) => {
+    const model = missingModels[i]
+    if (r.status === 'fulfilled' && r.value.success) {
+      if (r.value.is_mock) {
+        computeStatus[model] = { state: 'done', jobId: r.value.job_id }
+      } else {
+        computeStatus[model] = { state: 'queued', jobId: r.value.job_id }
+        hpcModels.push(model)
+      }
+    } else {
+      computeStatus[model] = { state: 'error', jobId: null }
+    }
+  })
+
+  // Poll HPC jobs until complete
+  if (hpcModels.length > 0 && !abort.cancelled) {
+    await pollUntilComplete(hpcModels, abort)
+  }
+
+  if (!abort.cancelled) {
+    computing.value = false
+  }
+}
+
+/**
+ * Poll job status + prediction existence every 3s until all done.
+ * Stops after 200 iterations (~10 min) or on abort.
+ */
+async function pollUntilComplete(hpcModels, abort) {
+  const pending = new Set(hpcModels)
+  let iterations = 0
+  const maxIterations = 200
+
+  while (pending.size > 0 && iterations < maxIterations && !abort.cancelled) {
+    await new Promise(r => setTimeout(r, 3000))
+    if (abort.cancelled) break
+
+    for (const model of [...pending]) {
+      try {
+        const jobStatus = await api.getJobStatus(model)
+        if (jobStatus.status === 'R') {
+          computeStatus[model] = { ...computeStatus[model], state: 'running' }
+        } else if (!jobStatus.status) {
+          // Job left queue — check if prediction file appeared
+          const pred = await api.checkSinglePrediction(model, selectedDateTime.value)
+          if (pred.exists) {
+            computeStatus[model] = { ...computeStatus[model], state: 'done' }
+            pending.delete(model)
+          }
+        }
+      } catch {
+        computeStatus[model] = { ...computeStatus[model], state: 'error' }
+        pending.delete(model)
+      }
+    }
+    iterations++
+  }
+
+  // Mark remaining as error on timeout
+  if (iterations >= maxIterations) {
+    for (const model of pending) {
+      computeStatus[model] = { ...computeStatus[model], state: 'error' }
+    }
+  }
+}
+
+function cancelCompute() {
+  if (pollAbort) pollAbort.cancelled = true
+  computing.value = false
+  loading.value = false
+  for (const k of Object.keys(computeStatus)) delete computeStatus[k]
+}
+
+// ---------------------------------------------------------------------------
+// Lead time label: shows target time with offset, e.g. "11:25 (+5 min)"
+// ---------------------------------------------------------------------------
+function formatLeadTimeLabel(ltIdx) {
+  if (!selectedDateTime.value?.includes('T')) return ''
+  try {
+    const base = new Date(selectedDateTime.value)
+    const offsetMin = (ltIdx + 1) * 5
+    const target = new Date(base.getTime() + offsetMin * 60000)
+    const hh = String(target.getHours()).padStart(2, '0')
+    const mm = String(target.getMinutes()).padStart(2, '0')
+    return `${hh}:${mm}`
+  } catch { return '' }
+}
+
+// ---------------------------------------------------------------------------
+// Zoom state — one entry per lead-time row (0-11)
+// ---------------------------------------------------------------------------
+const zoom = reactive(
+  Array.from({ length: 12 }, () => ({ scale: 1, tx: 0, ty: 0 }))
+)
+const dragging = ref(null)
+let dragStart = { x: 0, y: 0, tx: 0, ty: 0 }
+
+function zoomStyle(rowIdx) {
+  const z = zoom[rowIdx]
+  return {
+    transform: `translate(${z.tx}px, ${z.ty}px) scale(${z.scale})`,
+    transformOrigin: 'center center',
+    transition: dragging.value === rowIdx ? 'none' : 'transform 0.15s ease-out',
+  }
+}
+
+function onWheel(event, rowIdx) {
+  const delta = event.deltaY > 0 ? -0.15 : 0.15
+  const z = zoom[rowIdx]
+  z.scale = Math.min(Math.max(z.scale + delta, 1), 6)
+  if (z.scale <= 1) { z.tx = 0; z.ty = 0 }
+}
+
+function onMouseDown(event, rowIdx) {
+  dragging.value = rowIdx
+  const z = zoom[rowIdx]
+  dragStart = { x: event.clientX, y: event.clientY, tx: z.tx, ty: z.ty }
+  window.addEventListener('mousemove', onMouseMove)
+  window.addEventListener('mouseup', onMouseUp)
+}
+
+function onMouseMove(event) {
+  if (dragging.value === null) return
+  const z = zoom[dragging.value]
+  z.tx = dragStart.tx + (event.clientX - dragStart.x)
+  z.ty = dragStart.ty + (event.clientY - dragStart.y)
+}
+
+function onMouseUp() {
+  dragging.value = null
+  window.removeEventListener('mousemove', onMouseMove)
+  window.removeEventListener('mouseup', onMouseUp)
+}
+
+function resetZoom(rowIdx) {
+  zoom[rowIdx].scale = 1
+  zoom[rowIdx].tx = 0
+  zoom[rowIdx].ty = 0
+}
+
+onBeforeUnmount(() => {
+  window.removeEventListener('mousemove', onMouseMove)
+  window.removeEventListener('mouseup', onMouseUp)
+  if (pollAbort) pollAbort.cancelled = true
+})
+
+// ---------------------------------------------------------------------------
+// CSI helpers
+// ---------------------------------------------------------------------------
+function getCsiValue(ltIdx, model, threshold) {
+  if (!csiData.value?.lead_times?.[ltIdx]?.csi?.[model]) return null
+  return csiData.value.lead_times[ltIdx].csi[model][String(threshold)]
+}
+
+function getCsiAvg(ltIdx, model) {
+  if (!csiData.value?.lead_times?.[ltIdx]?.csi?.[model]) return null
+  return csiData.value.lead_times[ltIdx].csi[model].avg
+}
+
+function formatCsi(val) {
+  if (val === null || val === undefined) return '-'
+  return val.toFixed(3)
+}
+
+function csiCellClass(val) {
+  if (val === null || val === undefined) return 'text-gray-300'
+  if (val >= 0.6) return 'text-green-700 bg-green-50'
+  if (val >= 0.3) return 'text-yellow-700 bg-yellow-50'
+  return 'text-red-700 bg-red-50'
+}
+
+// ---------------------------------------------------------------------------
+// Load comparison data
+// ---------------------------------------------------------------------------
+async function loadComparison() {
   error.value = null
-  checking.value = true
+  loading.value = true
   checkResults.value = []
   showComparison.value = false
+  csiData.value = null
+
+  for (let i = 0; i < 12; i++) {
+    zoom[i].scale = 1; zoom[i].tx = 0; zoom[i].ty = 0
+  }
 
   try {
-    // Check all selected models in parallel
+    // Step 1: Check which models have predictions
     const promises = selectedModels.value.map(model =>
       api.checkSinglePrediction(model, selectedDateTime.value)
     )
     checkResults.value = await Promise.all(promises)
 
-    // Show comparison if at least 2 models have data
-    if (availableModels.value.length >= 2) {
-      showComparison.value = true
-    } else if (availableModels.value.length < 2) {
-      error.value = 'Need at least 2 models with available predictions for comparison.'
+    const missing = selectedModels.value.filter(
+      m => !checkResults.value.find(r => r.model === m)?.exists
+    )
+
+    // Step 2: If some models are missing, submit jobs and wait
+    if (missing.length > 0) {
+      loading.value = false
+      await computeMissing(missing)
+
+      // If cancelled, abort the whole flow
+      if (pollAbort?.cancelled) return
+
+      // Re-check all models after compute
+      loading.value = true
+      const recheck = selectedModels.value.map(model =>
+        api.checkSinglePrediction(model, selectedDateTime.value)
+      )
+      checkResults.value = await Promise.all(recheck)
+
+      // Update availability map so chips reflect new state
+      const map = {}
+      checkResults.value.forEach(r => { map[r.model] = r.exists })
+      availabilityMap.value = map
     }
+
+    if (availableModels.value.length < 2) {
+      error.value = 'Need at least 2 models with available predictions for comparison.'
+      return
+    }
+
+    showComparison.value = true
+    fetchCsiData()
   } catch (e) {
-    error.value = `Check failed: ${e.message}`
+    error.value = `Failed to load comparison: ${e.message}`
   } finally {
-    checking.value = false
+    loading.value = false
+  }
+}
+
+async function fetchCsiData() {
+  csiLoading.value = true
+  try {
+    csiData.value = await api.computeComparison(
+      availableModels.value,
+      selectedDateTime.value
+    )
+  } catch (e) {
+    console.error('CSI computation failed:', e)
+  } finally {
+    csiLoading.value = false
   }
 }
 </script>
+
+<style scoped>
+.zoom-wrapper {
+  overflow: hidden;
+  border-radius: 0.375rem;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  position: relative;
+}
+
+/* ---- VueDatePicker dark input override ---- */
+:deep(.dp-dark-input) {
+  height: 42px !important;
+  border-radius: 0.5rem !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: white !important;
+  font-size: 0.875rem !important;
+  padding: 0 0.75rem !important;
+  width: 160px;
+}
+:deep(.dp-dark-input:focus) {
+  border-color: #60a5fa !important;
+  box-shadow: 0 0 0 1px #60a5fa !important;
+}
+:deep(.dp__input_wrap) {
+  width: 160px;
+}
+
+/* ---- Time picker input width ---- */
+:deep(.dp-time-input) {
+  width: 120px;
+}
+
+/* ---- Make VueDatePicker select/action buttons bigger ---- */
+:deep(.dp__action_row) {
+  padding: 8px 12px;
+}
+:deep(.dp__action_button) {
+  height: 36px;
+  padding: 0 16px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+/* ---- Compact CSI table with rotated headers ---- */
+.csi-table-wrap {
+  padding-top: 70px;  /* room for angled labels */
+}
+
+.csi-table {
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.csi-table .corner-cell {
+  width: 34px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  text-align: center;
+  vertical-align: bottom;
+  padding: 2px 4px;
+}
+
+.csi-table .rotated-header {
+  position: relative;
+  height: 0;
+  padding: 0;
+  vertical-align: bottom;
+  width: 48px;
+  min-width: 48px;
+}
+
+.csi-table .rotated-label {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  /* Text starts at column center, rotates upward-left */
+  transform-origin: bottom left;
+  transform: rotate(-50deg);
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 10px;
+  color: #374151;
+}
+
+.csi-table .row-label {
+  border: 1px solid #e5e7eb;
+  padding: 2px 6px;
+  font-weight: 500;
+  background: #f9fafb;
+  color: #6b7280;
+  text-align: right;
+  font-size: 10px;
+}
+
+.csi-table .csi-cell {
+  border: 1px solid #e5e7eb;
+  padding: 2px 4px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+}
+
+.csi-table .avg-row .row-label {
+  background: #f3f4f6;
+  color: #374151;
+}
+</style>
