@@ -32,7 +32,6 @@ windows_extraction_args:
   wlen: 12
   stride: 1
   interval_minutes: 5
-
 dataframe_strategy:
   input:
     name: from_hdf_folder
@@ -40,18 +39,16 @@ dataframe_strategy:
       data_folder: /davinci-1/work/protezionecivile/data
       datetime_format: '%d-%m-%Y-%H-%M'
       fallback_folder: /davinci-1/work/protezionecivile/data1/SRI_adj
-
   slicers:
-    - name: start_end
-      args:
-        start_dt: "2025-11-22 20:00:00"
-        end_dt: "2025-11-22 20:50:00"
-
-    - name: continuity
-      args:
-        freq: 5min
-        fill: true
-        max_gap_frames: 3
+  - name: start_end
+    args:
+      start_dt: '2026-02-14 10:00:00'
+      end_dt: '2026-02-14 10:00:00'
+  - name: continuity
+    args:
+      freq: 5min
+      fill: true
+      max_gap_frames: 3
 save_path: /davinci-1/work/protezionecivile/nwc_webapp/real_time_results/ConvLSTM
 save_npz: false
 save_npy: true

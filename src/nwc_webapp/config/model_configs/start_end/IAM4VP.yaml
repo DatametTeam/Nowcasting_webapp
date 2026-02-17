@@ -4,73 +4,34 @@ hydra:
   output_subdir: null
   job:
     chdir: false
-
 trainings_artifacts:
-   training_cfg_path: '/davinci-1/work/protezionecivile/RADMET_MODELS/IAM4VP/config_used.yaml'
-   checkpoint_path: '/davinci-1/work/protezionecivile/RADMET_MODELS/IAM4VP/epoch=11-CriticalSuccessIndex_10=0.28.ckpt'
-
-
-# model:
-#   name: steps
-#   is_ensemble: true
-#   seed: 42
-#   args:
-#     probmatching_method: 'cdf'
-#     mask_method: 'obs'
-#     precip_thr: -15
-#     kmperpixel: 1.0
-#     timestep: 5.0
-#     num_workers: 24
-
-
+  training_cfg_path: /davinci-1/work/protezionecivile/RADMET_MODELS/IAM4VP/config_used.yaml
+  checkpoint_path: /davinci-1/work/protezionecivile/RADMET_MODELS/IAM4VP/epoch=11-CriticalSuccessIndex_10=0.28.ckpt
 transforms:
-  #  0:
-  #  # this transformation is needed to keep the outside border patches (if they exists)
-  #  # if Downscale is present, height (width) = H (W) / N
-  #    name: "BrPadding"
-  #    args:
-  #      height: 256
-  #      width: 256
-  #      fill_value: -9999
-  #    adjust: [
-  #      "fill_value"
-  #    ]
   0:
-    name: "LogarithmicTransform"
+    name: LogarithmicTransform
     args:
-      # if smooth=True: [a, b] original is shifted in [a+thresh, b+thresh]
-      # else: [a, threshold] --> {threshold}
       threshold: 0.2
-    adjust: [
-        "threshold"
-    ]
+    adjust:
+    - threshold
   1:
-    name: "MinMaxNormalize"
+    name: MinMaxNormalize
     args:
       excluded_value: -9999
       input_min: 0.0
       input_max: 300.0
       output_min: 0.0
       output_max: 1.0
-    adjust: [
-        "input_min",
-        "input_max",
-        "excluded_value"
-    ]
-
-
-#sample_strategy:
-#  name: stratify_by_seasons
-#  num_samples: 100
-#  seed: 42
-
+    adjust:
+    - input_min
+    - input_max
+    - excluded_value
 windows_extraction_args:
   hdf_key: /dataset1/data1/data
   lead_time: 12
   wlen: 12
   stride: 1
   interval_minutes: 5
-
 dataframe_strategy:
   input:
     name: from_hdf_folder
@@ -78,21 +39,16 @@ dataframe_strategy:
       data_folder: /davinci-1/work/protezionecivile/data
       datetime_format: '%d-%m-%Y-%H-%M'
       fallback_folder: /davinci-1/work/protezionecivile/data1/SRI_adj
-
   slicers:
-    - name: start_end
-      args:
-        start_dt: "2025-11-12 12:00:00"
-        end_dt: "2025-11-14 12:00:00"
-
-    - name: continuity
-      args:
-        freq: 5min
-        fill: true
-        max_gap_frames: 3
-
-
+  - name: start_end
+    args:
+      start_dt: '2026-02-14 10:00:00'
+      end_dt: '2026-02-14 10:00:00'
+  - name: continuity
+    args:
+      freq: 5min
+      fill: true
+      max_gap_frames: 3
 save_path: /davinci-1/work/protezionecivile/nwc_webapp/real_time_results/IAM4VP
-save_npz: False
-save_npy: True
-# device: 'cuda:3'
+save_npz: false
+save_npy: true
