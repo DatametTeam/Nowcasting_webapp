@@ -130,12 +130,27 @@
     <!-- ================================================================ -->
     <div class="w-full max-w-full mx-auto px-6 py-6">
 
-      <!-- Zoom info bar -->
-      <div v-if="showComparison" class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6">
+      <!-- Zoom info bar + Download All -->
+      <div v-if="showComparison" class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6 flex items-center justify-between">
         <p class="text-sm text-blue-700">
           <strong>Synchronized Zoom:</strong> scroll to zoom, drag to pan, double-click to reset.
           All images in the same row zoom and pan together.
         </p>
+        <button
+          @click="downloadAllImages"
+          :disabled="downloadingAll"
+          class="flex-shrink-0 ml-4 px-4 py-2 text-sm font-medium text-blue-700 hover:text-blue-800
+                 border border-blue-300 rounded-lg hover:bg-blue-100 transition-colors flex items-center gap-1.5"
+        >
+          <svg v-if="downloadingAll" class="animate-spin w-4 h-4" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" />
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+          </svg>
+          {{ downloadingAll ? 'Downloading...' : 'Download All Images' }}
+        </button>
       </div>
 
       <!-- 12 lead-time sections -->
@@ -153,7 +168,16 @@
             <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
               +{{ ltIdx * 5 }} min
             </span>
-            <span class="text-xs text-gray-400 ml-auto">Lead time {{ ltIdx }}/12</span>
+            <span class="text-xs text-gray-400 ml-auto mr-2">Lead time {{ ltIdx }}/12</span>
+            <button
+              @click="downloadRow(ltIdx - 1)"
+              class="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+              title="Download images for this lead time"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+              </svg>
+            </button>
           </div>
 
           <!-- Content: images (left) + CSI table (right) -->
@@ -743,6 +767,63 @@ function csiCellClass(val) {
   if (val >= 0.6) return 'text-green-700 bg-green-50'
   if (val >= 0.3) return 'text-yellow-700 bg-yellow-50'
   return 'text-red-700 bg-red-50'
+}
+
+// ---------------------------------------------------------------------------
+// Image download helpers
+// ---------------------------------------------------------------------------
+const downloadingAll = ref(false)
+
+async function downloadImage(url, filename) {
+  try {
+    const response = await fetch(url)
+    const blob = await response.blob()
+    const blobUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = blobUrl
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(blobUrl)
+  } catch (e) {
+    console.error(`Failed to download ${filename}:`, e)
+  }
+}
+
+function imageFilename(type, model, ltIdx) {
+  const ts = selectedDateTime.value.replace('T', '_').replaceAll(':', '')
+  const lt = String((ltIdx + 1) * 5).padStart(2, '0')
+  if (type === 'groundtruth') return `GT_${ts}_+${lt}min.png`
+  return `${model}_${ts}_+${lt}min.png`
+}
+
+async function downloadRow(ltIdx) {
+  // Download groundtruth
+  await downloadImage(
+    api.figureUrl(availableModels.value[0], selectedDateTime.value, ltIdx, 'groundtruth'),
+    imageFilename('groundtruth', null, ltIdx)
+  )
+  // Download each model prediction
+  for (const model of availableModels.value) {
+    await new Promise(r => setTimeout(r, 100))
+    await downloadImage(
+      api.figureUrl(model, selectedDateTime.value, ltIdx, 'prediction'),
+      imageFilename('prediction', model, ltIdx)
+    )
+  }
+}
+
+async function downloadAllImages() {
+  downloadingAll.value = true
+  try {
+    for (let i = 0; i < 12; i++) {
+      await downloadRow(i)
+      await new Promise(r => setTimeout(r, 200))
+    }
+  } finally {
+    downloadingAll.value = false
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -327,6 +327,7 @@ const notification = ref('')     // Toast message string (empty = hidden)
 
 let playInterval = null
 let statusPollInterval = null
+let sriPollInterval = null      // Periodic SRI polling (runs even when RT is off)
 let notificationTimer = null
 let lastShownNotification = ''  // Track which notification we already displayed
 
@@ -334,6 +335,7 @@ let lastShownNotification = ''  // Track which notification we already displayed
 const TOTAL_FRAMES = 25        // 13 past (including current) + 12 future
 const CURRENT_INDEX = 12       // Index of "0 min" in the frame array
 const POLL_INTERVAL_MS = 3000  // How often we poll the backend
+const SRI_POLL_INTERVAL_MS = 60000  // How often we poll for new SRI data (1 min)
 
 // ---- Speed control ----
 const speeds = [0.5, 1, 2]
@@ -546,6 +548,35 @@ async function toggleRealTime() {
     }
 
     realTimeActive.value = true
+
+    // Quick check: which models already have predictions for the latest timestamp?
+    // This gives instant "Ready" feedback instead of waiting for the first poll cycle.
+    if (latestTimestamp.value) {
+      const initialModels = {}
+      const checks = await Promise.allSettled(
+        models.value
+          .filter(m => m.toUpperCase() !== 'TEST')
+          .map(async (model) => {
+            const check = await api.checkSinglePrediction(model, latestTimestamp.value)
+            return { model, exists: check.exists }
+          })
+      )
+      for (const result of checks) {
+        if (result.status === 'fulfilled') {
+          initialModels[result.value.model] = {
+            status: result.value.exists ? 'ready' : 'queued'
+          }
+        }
+      }
+      backendState.value = {
+        active: true,
+        models: initialModels,
+        latest_sri: latestSRI.value?.latest_file
+      }
+      // Preload immediately if we have a selected model with predictions
+      await preloadAllFrames()
+    }
+
     startStatusPolling()
   }
 }
@@ -708,7 +739,7 @@ function formatSriFilename(filename) {
   return formatDateTimeInRome(utcDate)
 }
 
-// ---- Data fetching (initial load) ----
+// ---- Data fetching ----
 async function fetchLatestSRI() {
   try {
     latestSRI.value = await api.getLatestSRI()
@@ -717,9 +748,36 @@ async function fetchLatestSRI() {
   }
 }
 
+/**
+ * Periodic SRI polling — runs always (even when real-time is off).
+ * This ensures the map always shows the latest groundtruth data and the
+ * "Latest Data" indicator in the sidebar stays up-to-date.
+ *
+ * When real-time IS active, pollRealtimeStatus already syncs SRI data
+ * every 3s, so we skip the independent fetch to avoid redundant calls.
+ */
+function startSriPolling() {
+  stopSriPolling()
+  sriPollInterval = setInterval(async () => {
+    if (!realTimeActive.value) {
+      await fetchLatestSRI()
+    }
+  }, SRI_POLL_INTERVAL_MS)
+}
+
+function stopSriPolling() {
+  if (sriPollInterval) {
+    clearInterval(sriPollInterval)
+    sriPollInterval = null
+  }
+}
+
 // ---- Lifecycle ----
 onMounted(async () => {
   await fetchLatestSRI()
+
+  // Start periodic SRI polling so groundtruth updates even when RT is off
+  startSriPolling()
 
   // Auto-select first model if available
   if (models.value.length > 0 && !selectedModel.value) {
@@ -749,6 +807,7 @@ onMounted(async () => {
 onUnmounted(() => {
   stopPlay()
   stopStatusPolling()
+  stopSriPolling()
   if (notificationTimer) {
     clearTimeout(notificationTimer)
     notificationTimer = null

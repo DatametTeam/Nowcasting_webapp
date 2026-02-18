@@ -147,6 +147,54 @@
     </div>
 
     <!-- ================================================================ -->
+    <!-- PREDICTION AVAILABILITY DIALOG (shown when partial data exists) -->
+    <!-- ================================================================ -->
+    <div v-if="showPredictionDialog && !computing" class="bg-amber-50 border-b border-amber-200 px-6 py-4">
+      <h3 class="text-sm font-bold text-amber-800 mb-3">Prediction Availability</h3>
+      <div class="space-y-2 mb-4">
+        <div v-for="model in selectedModels" :key="model" class="flex items-center gap-3 text-sm">
+          <span class="font-medium text-gray-700 w-36 truncate" :title="model">{{ model }}</span>
+          <div class="flex-1 bg-gray-200 rounded-full h-2 max-w-xs">
+            <div
+              class="h-2 rounded-full transition-all"
+              :class="availabilityMap[model]?.all_exist ? 'bg-emerald-500' : (availabilityMap[model]?.existing_count > 0 ? 'bg-amber-500' : 'bg-red-400')"
+              :style="{ width: predictionPercent(model) + '%' }"
+            />
+          </div>
+          <span class="text-xs text-gray-600 w-16 text-right">
+            {{ availabilityMap[model]?.existing_count || 0 }}/{{ availabilityMap[model]?.total || 0 }}
+          </span>
+          <span v-if="availabilityMap[model]?.all_exist" class="text-xs text-emerald-600 font-medium w-20">Ready</span>
+          <span v-else-if="availabilityMap[model]?.existing_count > 0" class="text-xs text-amber-600 font-medium w-20">{{ availabilityMap[model]?.missing_count }} missing</span>
+          <span v-else class="text-xs text-red-500 font-medium w-20">No data</span>
+        </div>
+      </div>
+      <p class="text-xs text-gray-600 mb-3">
+        Some models already have partial predictions. How would you like to proceed?
+      </p>
+      <div class="flex gap-3">
+        <button
+          @click="handlePredictionChoice('missing')"
+          class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition-colors"
+        >
+          Compute Missing Only
+        </button>
+        <button
+          @click="handlePredictionChoice('overwrite')"
+          class="px-4 py-2 text-sm font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-500 transition-colors"
+        >
+          Overwrite All
+        </button>
+        <button
+          @click="showPredictionDialog = false"
+          class="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+
+    <!-- ================================================================ -->
     <!-- MAIN CONTENT                                                      -->
     <!-- ================================================================ -->
     <div class="w-full max-w-full mx-auto px-6 py-6">
@@ -802,9 +850,12 @@ const availabilitySummary = computed(() => {
   if (selectedModels.value.length === 0 || Object.keys(availabilityMap.value).length === 0) return ''
   const available = selectedModels.value.filter(m => availabilityMap.value[m]?.all_exist)
   const missing = selectedModels.value.filter(m => availabilityMap.value[m] && !availabilityMap.value[m].all_exist)
-  if (missing.length === 0) return `All ${available.length} models have predictions`
-  if (available.length === 0) return `No predictions found for selected models`
-  return `${available.length} available, ${missing.length} missing: ${missing.join(', ')}`
+  // Compute total predictions info
+  const totalRequired = selectedModels.value.reduce((sum, m) => sum + (availabilityMap.value[m]?.total || 0), 0)
+  const totalExisting = selectedModels.value.reduce((sum, m) => sum + (availabilityMap.value[m]?.existing_count || 0), 0)
+  if (missing.length === 0) return `All ${available.length} models ready (${totalExisting} predictions)`
+  if (available.length === 0) return `${totalExisting}/${totalRequired} predictions found — ${missing.length} models need computing`
+  return `${totalExisting}/${totalRequired} predictions — ${available.length} ready, ${missing.length} missing: ${missing.join(', ')}`
 })
 
 const allSelectedAvailable = computed(() => {
@@ -822,6 +873,13 @@ const results = ref(null)
 const error = ref(null)
 const activeTab = ref('csi')
 const collapsed = reactive({})
+const showPredictionDialog = ref(false)
+
+function predictionPercent(model) {
+  const avail = availabilityMap.value[model]
+  if (!avail || !avail.total) return 0
+  return Math.round((avail.existing_count / avail.total) * 100)
+}
 
 const tabs = [
   { key: 'csi', label: 'CSI' },
@@ -1012,30 +1070,146 @@ onBeforeUnmount(() => {
 async function handleAction() {
   error.value = null
   results.value = null
+  showPredictionDialog.value = false
 
-  // Check which models are missing predictions
-  const missing = selectedModels.value.filter(m => availabilityMap.value[m] && !availabilityMap.value[m].all_exist)
+  const modelsWithMissing = selectedModels.value.filter(m => availabilityMap.value[m] && !availabilityMap.value[m].all_exist)
+  const modelsWithPartial = modelsWithMissing.filter(m => availabilityMap.value[m]?.existing_count > 0)
 
-  if (missing.length > 0) {
-    // Submit jobs for missing models, then compute metrics
-    await computeMissing(missing)
-    if (pollAbort?.cancelled) return
-
-    // Re-check availability
-    const recheck = await Promise.allSettled(
-      selectedModels.value.map(model =>
-        api.checkPredictions(model, startDateTime.value, endDateTime.value)
-      )
-    )
-    const map = {}
-    recheck.forEach((r, i) => {
-      const model = selectedModels.value[i]
-      if (r.status === 'fulfilled') map[model] = r.value
-    })
-    availabilityMap.value = map
+  if (modelsWithMissing.length === 0) {
+    // All models have all predictions → compute metrics directly
+    await computeMetrics()
+    return
   }
 
-  // Now compute metrics
+  if (modelsWithPartial.length > 0) {
+    // Some models have partial predictions → ask user what to do
+    showPredictionDialog.value = true
+    return
+  }
+
+  // All missing models have zero predictions → just compute everything
+  await submitJobsAndComputeMetrics(modelsWithMissing)
+}
+
+async function handlePredictionChoice(choice) {
+  showPredictionDialog.value = false
+  error.value = null
+  results.value = null
+
+  const modelsWithMissing = selectedModels.value.filter(m => !availabilityMap.value[m]?.all_exist)
+
+  if (choice === 'overwrite') {
+    // Submit jobs for full range for all models with any missing data
+    await submitJobsAndComputeMetrics(modelsWithMissing)
+  } else {
+    // Compute missing only — determine optimal ranges per model
+    await submitMissingOnlyAndComputeMetrics(modelsWithMissing)
+  }
+}
+
+/**
+ * Submit jobs for models (full date range), wait, then compute metrics.
+ */
+async function submitJobsAndComputeMetrics(models) {
+  await computeMissing(models)
+  if (pollAbort?.cancelled) return
+  await recheckAndComputeMetrics()
+}
+
+/**
+ * For each model, determine the optimal job range based on which predictions
+ * are missing, submit jobs, wait, then compute metrics.
+ *
+ * Rules:
+ * - Missing all before or all after existing → job for missing range only
+ * - Missing in the middle of existing → job for missing range only
+ * - Missing both before AND after existing → overwrite full range (would need 2 jobs)
+ * - No existing predictions → job for full range
+ */
+async function submitMissingOnlyAndComputeMetrics(models) {
+  computing.value = true
+  for (const k of Object.keys(computeStatus)) delete computeStatus[k]
+  const abort = { cancelled: false }
+  pollAbort = abort
+
+  for (const model of models) {
+    computeStatus[model] = { state: 'submitting', jobId: null }
+  }
+
+  const jobPromises = models.map(model => {
+    const avail = availabilityMap.value[model]
+    if (!avail || avail.existing_count === 0) {
+      // No predictions at all → full range
+      return api.submitJob(model, startDateTime.value, endDateTime.value)
+    }
+
+    const missingTs = (avail.missing_timestamps || []).sort()
+    const existingTs = (avail.existing_timestamps || []).sort()
+
+    if (missingTs.length === 0) {
+      return Promise.resolve({ success: true, is_mock: true, job_id: 'skip' })
+    }
+
+    const firstMissing = missingTs[0]
+    const lastMissing = missingTs[missingTs.length - 1]
+    const firstExisting = existingTs[0]
+    const lastExisting = existingTs[existingTs.length - 1]
+
+    const hasBefore = firstMissing < firstExisting
+    const hasAfter = lastMissing > lastExisting
+
+    if (hasBefore && hasAfter) {
+      // Missing on both sides → overwrite entire range
+      return api.submitJob(model, startDateTime.value, endDateTime.value)
+    }
+
+    // Contiguous missing block → submit for just that range
+    return api.submitJob(model, firstMissing, lastMissing)
+  })
+
+  const jobResults = await Promise.allSettled(jobPromises)
+  if (abort.cancelled) return
+
+  const hpcModels = []
+  jobResults.forEach((r, i) => {
+    const model = models[i]
+    if (r.status === 'fulfilled' && r.value.success) {
+      if (r.value.is_mock) {
+        computeStatus[model] = { state: 'done', jobId: r.value.job_id }
+      } else {
+        computeStatus[model] = { state: 'queued', jobId: r.value.job_id }
+        hpcModels.push(model)
+      }
+    } else {
+      computeStatus[model] = { state: 'error', jobId: null }
+    }
+  })
+
+  if (hpcModels.length > 0 && !abort.cancelled) {
+    await pollUntilComplete(hpcModels, abort)
+  }
+
+  if (!abort.cancelled) {
+    computing.value = false
+    await recheckAndComputeMetrics()
+  }
+}
+
+/**
+ * Re-check availability for all selected models, then compute metrics.
+ */
+async function recheckAndComputeMetrics() {
+  const recheck = await Promise.allSettled(
+    selectedModels.value.map(model =>
+      api.checkPredictions(model, startDateTime.value, endDateTime.value)
+    )
+  )
+  const map = {}
+  recheck.forEach((r, i) => {
+    const model = selectedModels.value[i]
+    if (r.status === 'fulfilled') map[model] = r.value
+  })
+  availabilityMap.value = map
   await computeMetrics()
 }
 
