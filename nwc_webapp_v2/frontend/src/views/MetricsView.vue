@@ -157,33 +157,50 @@
         <div class="bg-white rounded-xl shadow-lg border border-gray-100 p-6 w-full max-w-md">
           <h2 class="text-lg font-bold text-gray-800 mb-4">Computing Predictions</h2>
           <div class="space-y-3 mb-5">
-            <div v-for="model in Object.keys(computeStatus)" :key="model" class="flex items-center gap-3">
-              <svg v-if="computeStatus[model].state === 'done'" class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-              <svg v-else-if="computeStatus[model].state === 'error'" class="w-5 h-5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-              <svg v-else-if="computeStatus[model].state === 'queued'" class="w-5 h-5 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <circle cx="12" cy="12" r="10" />
-                <path stroke-linecap="round" d="M12 6v6l4 2" />
-              </svg>
-              <svg v-else class="animate-spin w-5 h-5 text-blue-500 flex-shrink-0" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" />
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              <span class="text-sm font-medium text-gray-800">{{ model }}</span>
-              <span
-                class="text-xs ml-auto"
-                :class="{
-                  'text-emerald-600': computeStatus[model].state === 'done',
-                  'text-red-500': computeStatus[model].state === 'error',
-                  'text-amber-600': computeStatus[model].state === 'queued',
-                  'text-blue-500': !['done', 'error', 'queued'].includes(computeStatus[model].state),
-                }"
+            <div v-for="model in Object.keys(computeStatus)" :key="model">
+              <div class="flex items-center gap-3">
+                <svg v-if="computeStatus[model].state === 'done'" class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                <svg v-else-if="computeStatus[model].state === 'error'" class="w-5 h-5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                <svg v-else-if="computeStatus[model].state === 'queued'" class="w-5 h-5 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="10" />
+                  <path stroke-linecap="round" d="M12 6v6l4 2" />
+                </svg>
+                <svg v-else class="animate-spin w-5 h-5 text-blue-500 flex-shrink-0" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" />
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <span class="text-sm font-medium text-gray-800">{{ model }}</span>
+                <span
+                  class="text-xs ml-auto"
+                  :class="{
+                    'text-emerald-600': computeStatus[model].state === 'done',
+                    'text-red-500': computeStatus[model].state === 'error',
+                    'text-amber-600': computeStatus[model].state === 'queued',
+                    'text-blue-500': !['done', 'error', 'queued'].includes(computeStatus[model].state),
+                  }"
+                >
+                  {{ computeStatusLabel(computeStatus[model].state) }}
+                </span>
+                <!-- View Log button (only for errors with a log) -->
+                <button
+                  v-if="computeStatus[model].state === 'error' && computeStatus[model].errorLog"
+                  @click="toggleErrorLog(model)"
+                  class="text-xs text-red-500 hover:text-red-700 underline ml-1"
+                >
+                  {{ expandedErrorLogs[model] ? 'Hide Log' : 'View Log' }}
+                </button>
+              </div>
+              <!-- Expandable error log -->
+              <div
+                v-if="computeStatus[model].state === 'error' && computeStatus[model].errorLog && expandedErrorLogs[model]"
+                class="mt-2 ml-8 rounded-lg bg-red-50 border border-red-200 p-3 max-h-48 overflow-auto"
               >
-                {{ computeStatusLabel(computeStatus[model].state) }}
-              </span>
+                <pre class="text-xs text-red-800 whitespace-pre-wrap font-mono">{{ computeStatus[model].errorLog }}</pre>
+              </div>
             </div>
           </div>
           <p class="text-xs text-gray-500 mb-4">
@@ -767,7 +784,8 @@ function toggleCollapse(key) {
 // ---------------------------------------------------------------------------
 // Computing state (job submission)
 // ---------------------------------------------------------------------------
-const computeStatus = reactive({})
+const computeStatus = reactive({})  // { model: { state, jobId, errorLog? } }
+const expandedErrorLogs = reactive({})  // { model: bool }
 let pollAbort = null
 
 const computeProgress = computed(() => {
@@ -829,25 +847,55 @@ async function computeMissing(missingModels) {
   }
 }
 
+/**
+ * Poll job status + prediction existence every 3s until all done.
+ * When a job leaves the PBS queue, we give it 10 consecutive checks (~30s)
+ * to find the prediction files. If not found, we declare it failed and
+ * fetch the PBS error log.
+ */
 async function pollUntilComplete(hpcModels, abort) {
   const pending = new Set(hpcModels)
-  let iterations = 0
-  const maxIterations = 200
+  const failedChecks = new Map()  // model → consecutive "no predictions" count
 
-  while (pending.size > 0 && iterations < maxIterations && !abort.cancelled) {
+  while (pending.size > 0 && !abort.cancelled) {
     await new Promise(r => setTimeout(r, 3000))
     if (abort.cancelled) break
 
     for (const model of [...pending]) {
       try {
-        const jobStatus = await api.getJobStatus(model)
-        if (jobStatus.status === 'R') {
+        // Pass jobId for direct PBS lookup (avoids matching wrong jobs)
+        const storedJobId = computeStatus[model].jobId
+        const jobStatus = await api.getJobStatus(model, storedJobId)
+        if (jobStatus.status === 'Q') {
+          computeStatus[model] = { ...computeStatus[model], state: 'queued' }
+        } else if (jobStatus.status === 'R') {
           computeStatus[model] = { ...computeStatus[model], state: 'running' }
-        } else if (!jobStatus.status) {
+          failedChecks.delete(model)
+        } else {
+          // Job left queue — check if prediction files appeared
           const pred = await api.checkPredictions(model, startDateTime.value, endDateTime.value)
           if (pred.all_exist) {
             computeStatus[model] = { ...computeStatus[model], state: 'done' }
             pending.delete(model)
+            failedChecks.delete(model)
+          } else {
+            // Predictions not found — track consecutive misses
+            const count = (failedChecks.get(model) || 0) + 1
+            failedChecks.set(model, count)
+            if (count >= 10) {
+              // ~30 seconds with no predictions after job left queue → failure
+              const jobId = storedJobId
+              let errorLog = null
+              if (jobId) {
+                try {
+                  const logResult = await api.getJobErrorLog(model, jobId)
+                  if (logResult.found) errorLog = logResult.log
+                } catch { /* ignore */ }
+              }
+              computeStatus[model] = { ...computeStatus[model], state: 'error', errorLog }
+              pending.delete(model)
+              failedChecks.delete(model)
+            }
           }
         }
       } catch {
@@ -855,14 +903,11 @@ async function pollUntilComplete(hpcModels, abort) {
         pending.delete(model)
       }
     }
-    iterations++
   }
+}
 
-  if (iterations >= maxIterations) {
-    for (const model of pending) {
-      computeStatus[model] = { ...computeStatus[model], state: 'error' }
-    }
-  }
+function toggleErrorLog(model) {
+  expandedErrorLogs[model] = !expandedErrorLogs[model]
 }
 
 function cancelCompute() {
@@ -871,6 +916,7 @@ function cancelCompute() {
   loading.value = false
   metricsLoading.value = false
   for (const k of Object.keys(computeStatus)) delete computeStatus[k]
+  for (const k of Object.keys(expandedErrorLogs)) delete expandedErrorLogs[k]
 }
 
 onBeforeUnmount(() => {

@@ -85,8 +85,11 @@ export default {
   submitJob: (model, start, end) =>
     post('/jobs/submit', { model, start, end }),
 
-  getJobStatus: (model) =>
-    get(`/jobs/status?model=${model}`),
+  getJobStatus: (model, jobId = null) =>
+    get(`/jobs/status?model=${model}${jobId ? `&job_id=${jobId}` : ''}`),
+
+  getJobErrorLog: (model, jobId) =>
+    get(`/jobs/error-log?model=${model}&job_id=${jobId}`),
 
   // --- Rendering ---
   /**
