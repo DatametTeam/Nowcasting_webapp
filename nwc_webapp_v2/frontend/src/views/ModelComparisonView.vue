@@ -43,7 +43,6 @@
                 :dark="true"
                 format="dd/MM/yyyy"
                 model-type="yyyy-MM-dd"
-                no-today
                 input-class-name="dp-dark-input"
               />
             </div>
@@ -365,7 +364,9 @@ const configStore = useConfigStore()
 // ---------------------------------------------------------------------------
 // Date/time state — native date input + hour/minute dropdowns
 // ---------------------------------------------------------------------------
-const selectedDateTime = ref('')
+const now = new Date()
+const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
+const selectedDateTime = ref(`${todayStr}T00:00`)
 
 // Parse date part as a Date object for the picker
 const pickerDate = computed(() => {
@@ -925,5 +926,10 @@ async function fetchCsiData() {
 .csi-table .avg-row .row-label {
   background: #f3f4f6;
   color: #374151;
+}
+
+/* ---- Highlight today in calendar ---- */
+:deep(.dp__today) {
+  border: 2px solid #ef4444 !important;
 }
 </style>

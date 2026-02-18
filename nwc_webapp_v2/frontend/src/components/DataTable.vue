@@ -51,6 +51,7 @@ import { computed } from 'vue'
 
 const props = defineProps({
   data: { type: Object, required: true },
+  invertColors: { type: Boolean, default: false },
 })
 
 // Extract column names (top-level keys)
@@ -75,6 +76,14 @@ function formatValue(val) {
 // Color-code cells based on value (green=good, red=bad for metrics 0-1)
 function cellClass(val) {
   if (typeof val !== 'number') return ''
+  if (props.invertColors) {
+    // Lower is better (FAR): green when low, red when high
+    if (val <= 0.3) return 'bg-green-50 text-green-700'
+    if (val <= 0.6) return 'bg-yellow-50 text-yellow-700'
+    if (val < 1) return 'bg-red-50 text-red-700'
+    return 'text-gray-400'
+  }
+  // Default: higher is better (CSI, POD)
   if (val >= 0.7) return 'bg-green-50 text-green-700'
   if (val >= 0.4) return 'bg-yellow-50 text-yellow-700'
   if (val > 0) return 'bg-red-50 text-red-700'

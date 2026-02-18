@@ -137,12 +137,8 @@ def FSS(obs, pred, threshold=0.1, window_size=5):
 
     # Handle edge case: no coverage in both obs and pred
     if mse_den == 0:
-        if mse_num == 0:
-            # Perfect match (both empty)
-            return 1.0
-        else:
-            # Unusual case
-            return None
+        # Both obs and pred have no coverage above threshold — undefined
+        return None
 
     fss_value = 1 - (mse_num / mse_den)
 

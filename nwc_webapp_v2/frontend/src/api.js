@@ -52,6 +52,23 @@ async function post(path, data) {
   return response.json()
 }
 
+/**
+ * Helper: make a POST request with JSON body and return a Blob (binary data).
+ * Used for endpoints that return images (e.g. fit diagrams).
+ */
+async function postBlob(path, data) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: response.statusText }))
+    throw new Error(error.detail || `HTTP ${response.status}`)
+  }
+  return response.blob()
+}
+
 // ============================================================================
 // API methods — one function per backend endpoint
 // ============================================================================
@@ -126,4 +143,11 @@ export default {
 
   computeComparison: (models, timestamp) =>
     post('/metrics/comparison', { models, timestamp }),
+
+  /**
+   * Generate a performance fit diagram (POD vs FAR scatter plot).
+   * Returns a PNG Blob.
+   */
+  fitDiagram: (models, pod_values, far_values, csi_values, threshold) =>
+    postBlob('/metrics/fit-diagram', { models, pod_values, far_values, csi_values, threshold }),
 }

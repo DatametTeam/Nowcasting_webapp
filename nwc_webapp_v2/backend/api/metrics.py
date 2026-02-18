@@ -181,3 +181,40 @@ async def compute_comparison_metrics(request: ComparisonRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error computing comparison metrics: {str(e)}")
+
+
+class FitDiagramRequest(BaseModel):
+    models: List[str]
+    pod_values: List[float]
+    far_values: List[float]
+    csi_values: List[float]
+    threshold: float
+
+
+@router.post("/fit-diagram")
+async def fit_diagram(request: FitDiagramRequest):
+    """Generate a performance fit diagram (POD vs FAR scatter plot) as PNG."""
+    import io
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from starlette.responses import StreamingResponse
+    from nwc_webapp.rendering.fit_diagram import create_performance_fit_diagram
+
+    if len(request.models) != len(request.pod_values):
+        raise HTTPException(status_code=400, detail="models and pod_values must have the same length")
+
+    fig = create_performance_fit_diagram(
+        pod_values=request.pod_values,
+        far_values=request.far_values,
+        csi_values=request.csi_values,
+        model_names=request.models,
+        threshold=request.threshold,
+    )
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    buf.seek(0)
+
+    return StreamingResponse(buf, media_type="image/png")

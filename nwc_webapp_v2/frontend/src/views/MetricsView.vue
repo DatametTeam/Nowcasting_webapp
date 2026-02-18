@@ -1,11 +1,12 @@
 <!--
-  MetricsView.vue — CSI / POD / FAR / FSS / RMSE metrics analysis.
+  MetricsView.vue — Metrics analysis with 6 tabs.
 
   Full rewrite to match Streamlit csi_analysis.py feature set:
   - Dark top bar with date range pickers, model chips, availability checking
   - Job submission for missing predictions (same pattern as ModelComparisonView)
-  - Tabbed results: CSI, FSS, RMSE
+  - Tabbed results: CSI, POD, FAR, FSS, RMSE, Fit Diagrams
   - Color-coded tables + Chart.js line charts
+  - Collapsible metric formulas reference section
 -->
 <template>
   <div class="min-h-[calc(100vh-3.5rem)] bg-gray-50">
@@ -42,7 +43,6 @@
                 :dark="true"
                 format="dd/MM/yyyy"
                 model-type="yyyy-MM-dd"
-                no-today
                 input-class-name="dp-dark-input"
               />
             </div>
@@ -76,7 +76,6 @@
                 :dark="true"
                 format="dd/MM/yyyy"
                 model-type="yyyy-MM-dd"
-                no-today
                 input-class-name="dp-dark-input"
               />
             </div>
@@ -256,9 +255,9 @@
         </div>
 
         <!-- ============================================================ -->
-        <!-- CSI TAB                                                       -->
+        <!-- CSI / POD / FAR TAB (generic, driven by activeMetricConfig)   -->
         <!-- ============================================================ -->
-        <div v-if="activeTab === 'csi'">
+        <div v-if="activeMetricConfig">
 
           <!-- Per-model detailed tables (collapsible) -->
           <div class="space-y-4 mb-8">
@@ -267,20 +266,20 @@
                 class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"
               >
                 <button
-                  @click="toggleCollapse('csi-' + model)"
+                  @click="toggleCollapse(activeTab + '-' + model)"
                   class="w-full px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-3 hover:bg-gray-100 transition-colors"
                 >
                   <svg
                     class="w-4 h-4 text-gray-400 transition-transform"
-                    :class="{ 'rotate-90': !collapsed['csi-' + model] }"
+                    :class="{ 'rotate-90': !collapsed[activeTab + '-' + model] }"
                     fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
                   >
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
                   </svg>
                   <span class="text-sm font-bold text-gray-800">{{ model }}</span>
-                  <span class="text-xs text-gray-400 ml-auto mr-2">CSI / POD / FAR</span>
+                  <span class="text-xs text-gray-400 ml-auto mr-2">{{ activeMetricConfig.label }}</span>
                   <span
-                    @click.stop="downloadModelCSI(model)"
+                    @click.stop="downloadModelMetric(model)"
                     class="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-colors"
                     title="Download as CSV"
                   >
@@ -289,30 +288,19 @@
                     </svg>
                   </span>
                 </button>
-                <div v-if="!collapsed['csi-' + model]" class="p-4 space-y-4">
-                  <div>
-                    <h4 class="text-xs font-semibold text-gray-500 uppercase mb-2">CSI</h4>
-                    <DataTable :data="results.csi[model]" />
-                  </div>
-                  <div>
-                    <h4 class="text-xs font-semibold text-gray-500 uppercase mb-2">POD</h4>
-                    <DataTable :data="results.pod[model]" />
-                  </div>
-                  <div>
-                    <h4 class="text-xs font-semibold text-gray-500 uppercase mb-2">FAR</h4>
-                    <DataTable :data="results.far[model]" />
-                  </div>
+                <div v-if="!collapsed[activeTab + '-' + model]" class="p-4">
+                  <DataTable :data="results[activeMetricConfig.dataKey][model]" :invert-colors="activeMetricConfig.invertColors" />
                 </div>
               </div>
             </div>
           </div>
 
           <!-- Overall Performance (ranked table) -->
-          <div v-if="overallCsi" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-8">
+          <div v-if="overallMetric" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-8">
             <div class="flex items-center justify-between mb-3">
-              <h3 class="text-sm font-bold text-gray-800">Overall Performance (Mean CSI by Threshold)</h3>
+              <h3 class="text-sm font-bold text-gray-800">Overall Performance (Mean {{ activeMetricConfig.label }} by Threshold)</h3>
               <button
-                @click="downloadOverallCSI"
+                @click="downloadOverallMetric"
                 class="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-colors"
                 title="Download as CSV"
               >
@@ -321,6 +309,7 @@
                 </svg>
               </button>
             </div>
+            <p v-if="activeMetricConfig.invertColors" class="text-xs text-gray-500 mb-3">Lower is better. Models sorted by ascending mean {{ activeMetricConfig.label }}.</p>
             <div class="overflow-x-auto">
               <table class="min-w-full text-sm border-collapse">
                 <thead>
@@ -333,23 +322,23 @@
                     >
                       {{ th }} mm/h
                     </th>
-                    <th class="px-3 py-2 text-center font-semibold text-gray-700 border border-gray-200 bg-gray-100">Mean CSI</th>
+                    <th class="px-3 py-2 text-center font-semibold text-gray-700 border border-gray-200 bg-gray-100">Mean {{ activeMetricConfig.label }}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="row in overallCsi" :key="row.model" class="hover:bg-gray-50">
+                  <tr v-for="row in overallMetric" :key="row.model" class="hover:bg-gray-50">
                     <td class="px-3 py-2 font-medium text-gray-700 border border-gray-200 bg-gray-50">{{ row.model }}</td>
                     <td
                       v-for="th in csiThresholds"
                       :key="th"
                       class="px-3 py-2 text-center border border-gray-200"
-                      :class="csiCellClass(row.thresholds[th])"
+                      :class="overallCellClass(row.thresholds[th])"
                     >
                       {{ formatVal(row.thresholds[th]) }}
                     </td>
                     <td
                       class="px-3 py-2 text-center font-semibold border border-gray-200"
-                      :class="csiCellClass(row.mean)"
+                      :class="overallCellClass(row.mean)"
                     >
                       {{ formatVal(row.mean) }}
                     </td>
@@ -359,13 +348,13 @@
             </div>
           </div>
 
-          <!-- CSI vs Lead Time charts (one per threshold) -->
-          <div v-if="csiChartDatasets" class="space-y-6">
+          <!-- Metric vs Lead Time charts (one per threshold) -->
+          <div v-if="results[activeMetricConfig.dataKey]" class="space-y-6">
             <div v-for="th in csiThresholds" :key="th" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
               <div class="flex items-center justify-between mb-3">
-                <h3 class="text-sm font-bold text-gray-800">CSI vs Lead Time — Threshold {{ th }} mm/h</h3>
+                <h3 class="text-sm font-bold text-gray-800">{{ activeMetricConfig.label }} vs Lead Time — Threshold {{ th }} mm/h</h3>
                 <button
-                  @click="downloadCSIChart(th)"
+                  @click="downloadMetricChart(th)"
                   class="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-colors"
                   title="Download as PNG"
                 >
@@ -375,7 +364,7 @@
                 </button>
               </div>
               <div class="h-[300px]">
-                <Line :ref="el => { if (el) csiChartRefs[th] = el }" :data="csiChartData(th)" :options="csiChartOptions" />
+                <Line :ref="el => { if (el) metricChartRefs[th] = el }" :data="metricChartData(activeMetricConfig.dataKey, th)" :options="metricChartOptions(activeMetricConfig.label)" />
               </div>
             </div>
           </div>
@@ -583,7 +572,83 @@
           </div>
           <div v-else class="text-center py-12 text-gray-400 text-sm">No regression data available.</div>
         </div>
+
+        <!-- ============================================================ -->
+        <!-- FIT DIAGRAMS TAB                                              -->
+        <!-- ============================================================ -->
+        <div v-if="activeTab === 'fit'">
+          <div v-if="fitDiagramLoading" class="flex items-center justify-center py-12">
+            <svg class="animate-spin w-8 h-8 text-blue-500" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" />
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <span class="ml-3 text-sm text-gray-500">Generating fit diagrams...</span>
+          </div>
+          <div v-else-if="Object.keys(fitDiagramUrls).length > 0" class="space-y-6">
+            <div v-for="th in csiThresholds" :key="th" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-bold text-gray-800">Performance Fit Diagram — Threshold {{ th }} mm/h</h3>
+                <button
+                  @click="downloadFitDiagram(th)"
+                  class="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                  title="Download as PNG"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                  </svg>
+                </button>
+              </div>
+              <div class="flex justify-center">
+                <img v-if="fitDiagramUrls[th]" :src="fitDiagramUrls[th]" :alt="`Fit Diagram - ${th} mm/h`" class="max-w-full rounded-lg" />
+              </div>
+            </div>
+          </div>
+          <div v-else class="text-center py-12 text-gray-400 text-sm">
+            No fit diagram data available. Ensure CSI, POD, and FAR data are computed.
+          </div>
+        </div>
       </div>
+
+      <!-- ================================================================ -->
+      <!-- METRIC FORMULAS (collapsible reference section)                   -->
+      <!-- ================================================================ -->
+      <details v-if="results && !metricsLoading && !computing" class="mt-8 bg-white rounded-xl shadow-sm border border-gray-100">
+        <summary class="px-5 py-3 cursor-pointer text-sm font-bold text-gray-800 hover:bg-gray-50 transition-colors rounded-xl select-none">
+          Metric Formulas Reference
+        </summary>
+        <div class="px-5 pb-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div class="p-4 rounded-lg bg-gray-50 border border-gray-100">
+            <h4 class="text-xs font-bold text-gray-600 uppercase mb-2">CSI (Critical Success Index)</h4>
+            <code class="text-sm font-mono text-gray-800">CSI = TP / (TP + FN + FP)</code>
+            <p class="text-xs text-gray-500 mt-1">Range [0, 1]. Higher is better.</p>
+          </div>
+          <div class="p-4 rounded-lg bg-gray-50 border border-gray-100">
+            <h4 class="text-xs font-bold text-gray-600 uppercase mb-2">POD (Probability of Detection)</h4>
+            <code class="text-sm font-mono text-gray-800">POD = TP / (TP + FN)</code>
+            <p class="text-xs text-gray-500 mt-1">Range [0, 1]. Higher is better.</p>
+          </div>
+          <div class="p-4 rounded-lg bg-gray-50 border border-gray-100">
+            <h4 class="text-xs font-bold text-gray-600 uppercase mb-2">FAR (False Alarm Ratio)</h4>
+            <code class="text-sm font-mono text-gray-800">FAR = FP / (TP + FP)</code>
+            <p class="text-xs text-gray-500 mt-1">Range [0, 1]. Lower is better.</p>
+          </div>
+          <div class="p-4 rounded-lg bg-gray-50 border border-gray-100">
+            <h4 class="text-xs font-bold text-gray-600 uppercase mb-2">FSS (Fractions Skill Score)</h4>
+            <code class="text-sm font-mono text-gray-800">FSS = 1 - MSE_frac / MSE_ref</code>
+            <p class="text-xs text-gray-500 mt-1">Range [0, 1]. Higher is better.</p>
+          </div>
+          <div class="p-4 rounded-lg bg-gray-50 border border-gray-100">
+            <h4 class="text-xs font-bold text-gray-600 uppercase mb-2">NMSE (Normalized Mean Square Error)</h4>
+            <code class="text-sm font-mono text-gray-800">NMSE = MSE / Var(obs)</code>
+            <p class="text-xs text-gray-500 mt-1">Lower is better. 0 = perfect prediction.</p>
+          </div>
+          <div class="p-4 rounded-lg bg-gray-50 border border-gray-100">
+            <h4 class="text-xs font-bold text-gray-600 uppercase mb-2">Beta (Regression Slope)</h4>
+            <code class="text-sm font-mono text-gray-800">&beta; = Cov(obs, pred) / Var(obs)</code>
+            <p class="text-xs text-gray-500 mt-1">Ideal value = 1.0. Measures calibration.</p>
+          </div>
+        </div>
+      </details>
 
       <!-- Empty state -->
       <div v-if="!results && !loading && !computing && !metricsLoading && !error" class="text-center py-20">
@@ -623,15 +688,17 @@ const configStore = useConfigStore()
 // ---------------------------------------------------------------------------
 // Chart refs (for PNG export)
 // ---------------------------------------------------------------------------
-const csiChartRefs = reactive({})
+const metricChartRefs = reactive({})
 const nmseChartRef = ref(null)
 const betaChartRef = ref(null)
 
 // ---------------------------------------------------------------------------
 // Date/time state
 // ---------------------------------------------------------------------------
-const startDateTime = ref('')
-const endDateTime = ref('')
+const now = new Date()
+const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
+const startDateTime = ref(`${todayStr}T00:00`)
+const endDateTime = ref(`${todayStr}T00:00`)
 
 // Parse date/time parts
 function parseParts(isoStr) {
@@ -757,10 +824,24 @@ const activeTab = ref('csi')
 const collapsed = reactive({})
 
 const tabs = [
-  { key: 'csi', label: 'CSI / POD / FAR' },
+  { key: 'csi', label: 'CSI' },
+  { key: 'pod', label: 'POD' },
+  { key: 'far', label: 'FAR' },
   { key: 'fss', label: 'FSS' },
   { key: 'rmse', label: 'RMSE' },
+  { key: 'fit', label: 'Fit Diagrams' },
 ]
+
+// ---------------------------------------------------------------------------
+// Generic metric tab config (CSI, POD, FAR share the same layout)
+// ---------------------------------------------------------------------------
+const metricTabConfig = {
+  csi: { dataKey: 'csi', label: 'CSI', invertColors: false, sortDesc: true },
+  pod: { dataKey: 'pod', label: 'POD', invertColors: false, sortDesc: true },
+  far: { dataKey: 'far', label: 'FAR', invertColors: true, sortDesc: false },
+}
+
+const activeMetricConfig = computed(() => metricTabConfig[activeTab.value] || null)
 
 const canCompute = computed(() =>
   selectedModels.value.length > 0 &&
@@ -922,6 +1003,7 @@ function cancelCompute() {
 onBeforeUnmount(() => {
   if (pollAbort) pollAbort.cancelled = true
   if (checkAbort) checkAbort.cancelled = true
+  for (const url of Object.values(fitDiagramUrls)) URL.revokeObjectURL(url)
 })
 
 // ---------------------------------------------------------------------------
@@ -968,10 +1050,13 @@ async function computeMetrics() {
       startDateTime.value,
       endDateTime.value
     )
-    // Default-collapse per-model sections
+    // Default-collapse per-model sections for all metric tabs
     for (const model of results.value.models) {
-      if (collapsed['csi-' + model] === undefined) {
-        collapsed['csi-' + model] = true
+      for (const metricKey of ['csi', 'pod', 'far']) {
+        const key = metricKey + '-' + model
+        if (collapsed[key] === undefined) {
+          collapsed[key] = true
+        }
       }
     }
   } catch (e) {
@@ -995,18 +1080,17 @@ const csiThresholds = computed(() => {
   return firstCol ? Object.keys(data[firstCol]) : []
 })
 
-// Overall CSI: for each model, average CSI across all lead times per threshold, then compute mean
-const overallCsi = computed(() => {
-  if (!results.value?.csi || !csiThresholds.value.length) return null
+// Generic overall metric: for each model, average across all lead times per threshold
+function computeOverallForMetric(metricKey, sortDesc) {
+  if (!results.value?.[metricKey] || !csiThresholds.value.length) return null
 
   const rows = []
   for (const model of results.value.models) {
-    if (!results.value.csi[model]) continue
-    const data = results.value.csi[model]
+    if (!results.value[metricKey][model]) continue
+    const data = results.value[metricKey][model]
     const thresholdAvgs = {}
     const allVals = []
     for (const th of csiThresholds.value) {
-      // Average across all lead times for this threshold
       const vals = Object.values(data).map(col => col[th]).filter(v => v != null)
       const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0
       thresholdAvgs[th] = avg
@@ -1018,9 +1102,16 @@ const overallCsi = computed(() => {
       mean: allVals.length ? allVals.reduce((a, b) => a + b, 0) / allVals.length : 0,
     })
   }
-  // Sort by mean CSI descending
-  rows.sort((a, b) => b.mean - a.mean)
+  rows.sort((a, b) => sortDesc ? (b.mean - a.mean) : (a.mean - b.mean))
   return rows
+}
+
+const overallCsi = computed(() => computeOverallForMetric('csi', true))
+
+const overallMetric = computed(() => {
+  const config = activeMetricConfig.value
+  if (!config) return null
+  return computeOverallForMetric(config.dataKey, config.sortDesc)
 })
 
 function formatVal(val) {
@@ -1050,6 +1141,19 @@ function betaCellClass(val) {
   if (dist <= 0.1) return 'bg-green-100 text-green-800'
   if (dist <= 0.3) return 'bg-yellow-50 text-yellow-700'
   return 'bg-red-50 text-red-700'
+}
+
+function farCellClass(val) {
+  if (val === null || val === undefined || typeof val !== 'number') return 'text-gray-300'
+  if (val <= 0.3) return 'bg-green-100 text-green-800'
+  if (val <= 0.6) return 'bg-yellow-50 text-yellow-700'
+  if (val < 1) return 'bg-red-50 text-red-700'
+  return 'text-gray-400'
+}
+
+function overallCellClass(val) {
+  if (!activeMetricConfig.value) return ''
+  return activeMetricConfig.value.invertColors ? farCellClass(val) : csiCellClass(val)
 }
 
 // ---------------------------------------------------------------------------
@@ -1096,16 +1200,11 @@ function modelColor(idx) {
 }
 
 // ---------------------------------------------------------------------------
-// CSI Charts
+// Generic Metric Charts (CSI, POD, FAR)
 // ---------------------------------------------------------------------------
-const csiChartDatasets = computed(() => {
-  if (!results.value?.csi) return null
-  return true
-})
-
-function csiChartData(threshold) {
+function metricChartData(metricKey, threshold) {
   const datasets = results.value.models.map((model, idx) => {
-    const data = results.value.csi[model]
+    const data = results.value[metricKey]?.[model]
     if (!data) return null
     const values = leadTimeLabels.map(lt => {
       const col = data[lt]
@@ -1128,22 +1227,24 @@ function csiChartData(threshold) {
   }
 }
 
-const csiChartOptions = {
-  responsive: true,
-  maintainAspectRatio: false,
-  scales: {
-    y: {
-      beginAtZero: true,
-      max: 1,
-      title: { display: true, text: 'CSI' },
+function metricChartOptions(metricLabel) {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      y: {
+        beginAtZero: true,
+        max: 1,
+        title: { display: true, text: metricLabel },
+      },
+      x: {
+        title: { display: true, text: 'Lead Time' },
+      },
     },
-    x: {
-      title: { display: true, text: 'Lead Time' },
+    plugins: {
+      legend: { position: 'top' },
     },
-  },
-  plugins: {
-    legend: { position: 'top' },
-  },
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1242,6 +1343,60 @@ const betaChartOptions = {
 }
 
 // ---------------------------------------------------------------------------
+// Fit Diagrams
+// ---------------------------------------------------------------------------
+const fitDiagramUrls = reactive({})
+const fitDiagramLoading = ref(false)
+
+// Clear cached fit diagrams when results change
+watch(results, () => {
+  for (const url of Object.values(fitDiagramUrls)) URL.revokeObjectURL(url)
+  for (const key of Object.keys(fitDiagramUrls)) delete fitDiagramUrls[key]
+})
+
+// Load fit diagrams when switching to fit tab
+watch(activeTab, (tab) => {
+  if (tab === 'fit' && results.value && Object.keys(fitDiagramUrls).length === 0) {
+    loadFitDiagrams()
+  }
+})
+
+async function loadFitDiagrams() {
+  if (!results.value?.pod || !results.value?.far || !results.value?.csi) return
+  fitDiagramLoading.value = true
+
+  for (const th of csiThresholds.value) {
+    const models = results.value.models
+    const pod_values = []
+    const far_values = []
+    const csi_values = []
+
+    for (const model of models) {
+      const podData = results.value.pod[model]
+      const farData = results.value.far[model]
+      const csiData = results.value.csi[model]
+
+      const podVals = Object.values(podData || {}).map(col => col[th]).filter(v => v != null)
+      const farVals = Object.values(farData || {}).map(col => col[th]).filter(v => v != null)
+      const csiVals = Object.values(csiData || {}).map(col => col[th]).filter(v => v != null)
+
+      pod_values.push(podVals.length ? podVals.reduce((a, b) => a + b, 0) / podVals.length : 0)
+      far_values.push(farVals.length ? farVals.reduce((a, b) => a + b, 0) / farVals.length : 0)
+      csi_values.push(csiVals.length ? csiVals.reduce((a, b) => a + b, 0) / csiVals.length : 0)
+    }
+
+    try {
+      const blob = await api.fitDiagram(models, pod_values, far_values, csi_values, parseFloat(th))
+      fitDiagramUrls[th] = URL.createObjectURL(blob)
+    } catch (e) {
+      console.error(`Failed to load fit diagram for threshold ${th}:`, e)
+    }
+  }
+
+  fitDiagramLoading.value = false
+}
+
+// ---------------------------------------------------------------------------
 // Export / Download helpers
 // ---------------------------------------------------------------------------
 function filenameDateRange() {
@@ -1272,35 +1427,32 @@ function downloadChartPNG(chartComp, filename) {
   document.body.removeChild(a)
 }
 
-// Per-model CSI/POD/FAR CSV
-function downloadModelCSI(model) {
-  if (!results.value?.csi?.[model]) return
+// Per-model metric CSV (active tab: CSI, POD, or FAR)
+function downloadModelMetric(model) {
+  const config = activeMetricConfig.value
+  if (!config || !results.value?.[config.dataKey]?.[model]) return
+  const data = results.value[config.dataKey][model]
   const range = filenameDateRange()
-  let csv = ''
-  for (const metric of ['csi', 'pod', 'far']) {
-    const data = results.value[metric]?.[model]
-    if (!data) continue
-    csv += `${metric.toUpperCase()} - ${model}\n`
-    const thresholds = Object.keys(Object.values(data)[0] || {})
-    csv += `Lead Time,${thresholds.map(t => t + ' mm/h').join(',')}\n`
-    for (const lt of leadTimeLabels) {
-      const row = [lt + ' min']
-      for (const th of thresholds) {
-        row.push(formatVal(data[lt]?.[th]))
-      }
-      csv += row.join(',') + '\n'
+  let csv = `${config.label} - ${model}\n`
+  const thresholds = Object.keys(Object.values(data)[0] || {})
+  csv += `Lead Time,${thresholds.map(t => t + ' mm/h').join(',')}\n`
+  for (const lt of leadTimeLabels) {
+    const row = [lt + ' min']
+    for (const th of thresholds) {
+      row.push(formatVal(data[lt]?.[th]))
     }
-    csv += '\n'
+    csv += row.join(',') + '\n'
   }
-  downloadFile(csv, `CSI_POD_FAR_${model}_${range}.csv`)
+  downloadFile(csv, `${config.label}_${model}_${range}.csv`)
 }
 
-// Overall CSI CSV
-function downloadOverallCSI() {
-  if (!overallCsi.value) return
+// Overall metric CSV (active tab)
+function downloadOverallMetric() {
+  const config = activeMetricConfig.value
+  if (!config || !overallMetric.value) return
   const range = filenameDateRange()
-  let csv = 'Model,' + csiThresholds.value.map(t => t + ' mm/h').join(',') + ',Mean CSI\n'
-  for (const row of overallCsi.value) {
+  let csv = 'Model,' + csiThresholds.value.map(t => t + ' mm/h').join(',') + `,Mean ${config.label}\n`
+  for (const row of overallMetric.value) {
     const vals = [row.model]
     for (const th of csiThresholds.value) {
       vals.push(formatVal(row.thresholds[th]))
@@ -1308,15 +1460,28 @@ function downloadOverallCSI() {
     vals.push(formatVal(row.mean))
     csv += vals.join(',') + '\n'
   }
-  downloadFile(csv, `CSI_overall_${range}.csv`)
+  downloadFile(csv, `${config.label}_overall_${range}.csv`)
 }
 
-// CSI chart PNG
-function downloadCSIChart(threshold) {
-  const chartComp = csiChartRefs[threshold]
+// Metric chart PNG (active tab)
+function downloadMetricChart(threshold) {
+  const chartComp = metricChartRefs[threshold]
   if (!chartComp) return
+  const config = activeMetricConfig.value
   const range = filenameDateRange()
-  downloadChartPNG(chartComp, `CSI_chart_${threshold}mmh_${range}.png`)
+  downloadChartPNG(chartComp, `${config?.label || 'Metric'}_chart_${threshold}mmh_${range}.png`)
+}
+
+// Fit diagram PNG
+function downloadFitDiagram(threshold) {
+  const url = fitDiagramUrls[threshold]
+  if (!url) return
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `FitDiagram_${threshold}mmh_${filenameDateRange()}.png`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
 }
 
 // FSS table CSV
@@ -1412,19 +1577,22 @@ async function exportAll() {
     }
   }
 
-  // Overall CSI
-  if (overallCsi.value) {
-    csv += 'Overall CSI\n'
-    csv += 'Model,' + csiThresholds.value.map(t => t + ' mm/h').join(',') + ',Mean CSI\n'
-    for (const row of overallCsi.value) {
-      const vals = [row.model]
-      for (const th of csiThresholds.value) {
-        vals.push(formatVal(row.thresholds[th]))
+  // Overall CSI / POD / FAR
+  for (const [metricKey, label, sortDesc] of [['csi', 'CSI', true], ['pod', 'POD', true], ['far', 'FAR', false]]) {
+    const overallData = computeOverallForMetric(metricKey, sortDesc)
+    if (overallData) {
+      csv += `Overall ${label}\n`
+      csv += 'Model,' + csiThresholds.value.map(t => t + ' mm/h').join(',') + `,Mean ${label}\n`
+      for (const row of overallData) {
+        const vals = [row.model]
+        for (const th of csiThresholds.value) {
+          vals.push(formatVal(row.thresholds[th]))
+        }
+        vals.push(formatVal(row.mean))
+        csv += vals.join(',') + '\n'
       }
-      vals.push(formatVal(row.mean))
-      csv += vals.join(',') + '\n'
+      csv += '\n'
     }
-    csv += '\n'
   }
 
   // FSS
@@ -1478,9 +1646,9 @@ async function exportAll() {
 
   // Download chart PNGs with small delays to avoid browser blocking
   const chartDownloads = []
-  if (csiChartDatasets.value) {
+  if (activeMetricConfig.value && csiThresholds.value.length) {
     for (const th of csiThresholds.value) {
-      chartDownloads.push(() => downloadCSIChart(th))
+      chartDownloads.push(() => downloadMetricChart(th))
     }
   }
   if (results.value.regression) {
@@ -1528,5 +1696,10 @@ async function exportAll() {
   padding: 0 16px;
   font-size: 0.875rem;
   font-weight: 600;
+}
+
+/* ---- Highlight today in calendar ---- */
+:deep(.dp__today) {
+  border: 2px solid #ef4444 !important;
 }
 </style>
