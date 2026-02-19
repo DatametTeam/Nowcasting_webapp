@@ -63,18 +63,34 @@
       <!-- ============================================================ -->
       <!-- BOTTOM BAR: Timeline controls (floating over the map)        -->
       <!-- ============================================================ -->
+      <!-- Sidebar toggle button (visible on small screens when sidebar is hidden) -->
+      <button
+        v-if="!sidebarOpen"
+        @click="sidebarOpen = true"
+        class="absolute top-3 right-3 z-[1001] lg:hidden
+               w-10 h-10 flex items-center justify-center rounded-full
+               bg-white shadow-lg border border-gray-200 text-gray-600
+               hover:bg-gray-50 transition-colors"
+        title="Open panel"
+      >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
+
       <div class="absolute bottom-0 left-0 right-0 z-[1000]
                   bg-gradient-to-t from-black/80 via-black/60 to-transparent
-                  px-6 pt-10 pb-4">
+                  px-3 sm:px-6 pt-10 pb-4">
 
         <!-- Current time display -->
         <div class="flex items-center justify-between text-white mb-2">
-          <div class="text-sm font-medium">
+          <div class="text-sm font-medium hidden sm:block">
             <span class="text-gray-300">Model:</span>
             <span class="ml-1 font-bold">{{ selectedModel || 'None' }}</span>
           </div>
           <div class="text-center">
-            <span class="text-2xl font-bold tabular-nums">
+            <span class="text-lg sm:text-2xl font-bold tabular-nums">
               {{ frameMinutesDisplay }}
             </span>
             <span
@@ -86,13 +102,13 @@
               {{ frameIndex <= 12 ? 'Observed' : 'Forecast' }}
             </span>
           </div>
-          <div class="text-sm text-gray-300">
+          <div class="text-sm text-gray-300 hidden sm:block">
             {{ latestTimestampDisplay || 'No data' }}
           </div>
         </div>
 
         <!-- Timeline slider -->
-        <div class="flex items-center gap-4">
+        <div class="flex items-center gap-2 sm:gap-4">
           <!-- Play/Pause button -->
           <button
             @click="togglePlay"
@@ -152,8 +168,8 @@
             {{ speedLabel }}
           </button>
 
-          <!-- Opacity slider -->
-          <div class="flex items-center gap-2" title="Overlay opacity">
+          <!-- Opacity slider (hidden on very small screens) -->
+          <div class="hidden sm:flex items-center gap-2" title="Overlay opacity">
             <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
             </svg>
@@ -176,9 +192,31 @@
     </div>
 
     <!-- ================================================================ -->
-    <!-- RIGHT: Sidebar panel                                             -->
+    <!-- RIGHT: Sidebar panel (drawer on mobile, fixed on desktop)        -->
     <!-- ================================================================ -->
-    <div class="w-72 bg-white border-l border-gray-200 flex flex-col overflow-y-auto">
+    <!-- Backdrop (mobile only) -->
+    <div
+      v-if="sidebarOpen"
+      class="fixed inset-0 bg-black/40 z-[1100] lg:hidden"
+      @click="sidebarOpen = false"
+    />
+    <div
+      class="bg-white border-l border-gray-200 flex flex-col overflow-y-auto
+             fixed right-0 top-14 bottom-0 z-[1101] w-72
+             transform transition-transform duration-200 ease-out
+             lg:static lg:translate-x-0 lg:z-auto"
+      :class="sidebarOpen ? 'translate-x-0' : 'translate-x-full'"
+    >
+      <!-- Close button (mobile only) -->
+      <button
+        @click="sidebarOpen = false"
+        class="lg:hidden absolute top-2 right-2 w-8 h-8 flex items-center justify-center
+               rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+      >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path d="M6 18L18 6M6 6l12 12" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
 
       <!-- Start / Pause Real Time Button -->
       <div class="p-4 border-b border-gray-100">
@@ -312,6 +350,7 @@ function formatDateTimeInRome(date) {
 
 // ---- State ----
 const radarMap = ref(null)
+const sidebarOpen = ref(false)  // Mobile sidebar drawer
 const selectedModel = ref('')
 const frameIndex = ref(12)  // Start at index 12 = "0 min" (current time)
 const playing = ref(false)

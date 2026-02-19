@@ -14,7 +14,7 @@
     <!-- ================================================================ -->
     <!-- TOP BAR: Config panel (dark gradient)                            -->
     <!-- ================================================================ -->
-    <div class="bg-gradient-to-b from-gray-900 to-gray-800 px-6 py-5 shadow-lg">
+    <div class="bg-gradient-to-b from-gray-900 to-gray-800 px-4 sm:px-6 py-4 sm:py-5 shadow-lg">
       <div class="w-full max-w-full mx-auto">
 
         <!-- Title row -->
@@ -29,7 +29,7 @@
         </div>
 
         <!-- Controls row -->
-        <div class="flex items-end gap-4 flex-wrap">
+        <div class="flex flex-col lg:flex-row items-start lg:items-end gap-3 lg:gap-4">
 
           <!-- Start date/time group -->
           <div class="flex items-end gap-2">
@@ -48,7 +48,7 @@
                 input-class-name="dp-dark-input"
               />
             </div>
-            <div class="w-px h-[42px] bg-white/10 mx-1" />
+            <div class="w-px h-[42px] bg-white/10 mx-1 hidden sm:block" />
             <div>
               <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Start Time</label>
               <VueDatePicker
@@ -64,7 +64,7 @@
           </div>
 
           <!-- Arrow -->
-          <div class="text-gray-500 text-lg pb-2">&rarr;</div>
+          <div class="text-gray-500 text-lg pb-2 hidden lg:block">&rarr;</div>
 
           <!-- End date/time group -->
           <div class="flex items-end gap-2">
@@ -83,7 +83,7 @@
                 input-class-name="dp-dark-input"
               />
             </div>
-            <div class="w-px h-[42px] bg-white/10 mx-1" />
+            <div class="w-px h-[42px] bg-white/10 mx-1 hidden sm:block" />
             <div>
               <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">End Time</label>
               <VueDatePicker
@@ -99,16 +99,16 @@
           </div>
 
           <!-- Vertical divider -->
-          <div class="h-[42px] w-px bg-white/10" />
+          <div class="h-[42px] w-px bg-white/10 hidden lg:block" />
 
           <!-- Model chips + availability -->
-          <div class="flex-1 min-w-[200px]">
+          <div class="w-full lg:w-auto lg:flex-1 lg:min-w-[200px]">
             <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Models</label>
             <div class="flex flex-wrap gap-2">
               <label
                 v-for="model in models"
                 :key="model"
-                class="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium
+                class="inline-flex items-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium
                        cursor-pointer transition-all select-none"
                 :class="selectedModels.includes(model)
                   ? 'bg-blue-500/30 text-blue-300 ring-1 ring-blue-400/50'
@@ -128,7 +128,7 @@
             @click="handleAction"
             :disabled="!canCompute"
             class="flex-shrink-0 h-[42px] px-5 rounded-lg font-semibold text-sm transition-all
-                   flex items-center gap-2 self-end"
+                   flex items-center justify-center gap-2 self-end w-full lg:w-auto"
             :class="canCompute
               ? (allSelectedAvailable
                 ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-sm shadow-blue-500/30'

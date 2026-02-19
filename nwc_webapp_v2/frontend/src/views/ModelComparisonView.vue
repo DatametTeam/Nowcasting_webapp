@@ -28,11 +28,11 @@
         </div>
 
         <!-- Controls row -->
-        <div class="flex items-end gap-4">
+        <div class="flex flex-col lg:flex-row items-start lg:items-end gap-3 lg:gap-4">
 
           <!-- Date/time group -->
           <div class="flex items-end gap-2">
-            <!-- Date picker (VueDatePicker — large, dark-themed calendar) -->
+            <!-- Date picker -->
             <div>
               <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Date</label>
               <VueDatePicker
@@ -50,9 +50,9 @@
             </div>
 
             <!-- Small divider between date and time -->
-            <div class="w-px h-[42px] bg-white/10 mx-1" />
+            <div class="w-px h-[42px] bg-white/10 mx-1 hidden sm:block" />
 
-            <!-- Time picker (single VueDatePicker with hour + minute) -->
+            <!-- Time picker -->
             <div>
               <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Time</label>
               <VueDatePicker
@@ -68,10 +68,10 @@
           </div>
 
           <!-- Vertical divider -->
-          <div class="h-[42px] w-px bg-white/10" />
+          <div class="h-[42px] w-px bg-white/10 hidden lg:block" />
 
           <!-- Model selector (chip-style checkboxes) + availability text -->
-          <div class="flex-1">
+          <div class="flex-1 w-full lg:w-auto">
             <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
               Models
             </label>
@@ -79,7 +79,7 @@
               <label
                 v-for="model in models"
                 :key="model"
-                class="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium
+                class="inline-flex items-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium
                        cursor-pointer transition-all select-none"
                 :class="selectedModels.includes(model)
                   ? 'bg-blue-500/30 text-blue-300 ring-1 ring-blue-400/50'
@@ -104,8 +104,8 @@
           <button
             @click="loadComparison"
             :disabled="!canLoad"
-            class="flex-shrink-0 h-[42px] px-5 rounded-lg font-semibold text-sm transition-all
-                   flex items-center gap-2 self-end"
+            class="w-full lg:w-auto flex-shrink-0 h-[42px] px-5 rounded-lg font-semibold text-sm transition-all
+                   flex items-center justify-center gap-2 self-start lg:self-end"
             :class="canLoad
               ? (allSelectedAvailable
                 ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-sm shadow-blue-500/30'
