@@ -192,7 +192,7 @@
                     <!-- Model badges -->
                     <div class="flex gap-1 flex-wrap">
                       <span
-                        v-for="model in selectedModels"
+                        v-for="model in timestampAvailability.models"
                         :key="model"
                         class="text-[10px] px-1.5 py-0.5 rounded font-medium"
                         :class="slot.models[model]
@@ -922,13 +922,13 @@ onMounted(() => {
 // Model selection + availability
 // ---------------------------------------------------------------------------
 const selectedModels = ref([])
-const availabilityMap = ref({})  // { model: { all_exist, missing_count, existing_count } }
+const allModelsAvailability = ref({})  // { model: { all_exist, missing_count, existing_count, ... } } for ALL models
 let checkAbort = null
 
-// Auto-check availability when dates or models change
-watch([startDateTime, endDateTime, selectedModels], async () => {
-  if (!startDateTime.value || !endDateTime.value || selectedModels.value.length === 0) {
-    availabilityMap.value = {}
+// Auto-check availability for ALL models as soon as date range is valid
+watch([startDateTime, endDateTime], async () => {
+  if (!startDateTime.value || !endDateTime.value) {
+    allModelsAvailability.value = {}
     return
   }
   if (!startDateTime.value.includes('T') || !endDateTime.value.includes('T')) return
@@ -938,7 +938,7 @@ watch([startDateTime, endDateTime, selectedModels], async () => {
   checkAbort = thisCheck
 
   const results = await Promise.allSettled(
-    selectedModels.value.map(model =>
+    models.value.map(model =>
       api.checkPredictions(model, startDateTime.value, endDateTime.value)
     )
   )
@@ -947,23 +947,36 @@ watch([startDateTime, endDateTime, selectedModels], async () => {
 
   const map = {}
   results.forEach((r, i) => {
-    const model = selectedModels.value[i]
+    const model = models.value[i]
     if (r.status === 'fulfilled') {
       map[model] = r.value
     } else {
       map[model] = { all_exist: false, existing_count: 0, missing_count: -1 }
     }
   })
-  availabilityMap.value = map
-}, { deep: true })
+  allModelsAvailability.value = map
+})
+
+// Derived: availability map filtered to only selected models (used by compute logic)
+const availabilityMap = computed(() => {
+  if (selectedModels.value.length === 0) return {}
+  const map = {}
+  for (const model of selectedModels.value) {
+    if (allModelsAvailability.value[model]) {
+      map[model] = allModelsAvailability.value[model]
+    }
+  }
+  return map
+})
 
 const availabilitySummary = computed(() => {
-  if (selectedModels.value.length === 0 || Object.keys(availabilityMap.value).length === 0) return ''
-  const available = selectedModels.value.filter(m => availabilityMap.value[m]?.all_exist)
-  const missing = selectedModels.value.filter(m => availabilityMap.value[m] && !availabilityMap.value[m].all_exist)
-  // Compute total predictions info
-  const totalRequired = selectedModels.value.reduce((sum, m) => sum + (availabilityMap.value[m]?.total || 0), 0)
-  const totalExisting = selectedModels.value.reduce((sum, m) => sum + (availabilityMap.value[m]?.existing_count || 0), 0)
+  const map = allModelsAvailability.value
+  if (Object.keys(map).length === 0) return ''
+  const allModels = models.value
+  const available = allModels.filter(m => map[m]?.all_exist)
+  const missing = allModels.filter(m => map[m] && !map[m].all_exist)
+  const totalRequired = allModels.reduce((sum, m) => sum + (map[m]?.total || 0), 0)
+  const totalExisting = allModels.reduce((sum, m) => sum + (map[m]?.existing_count || 0), 0)
   if (missing.length === 0) return `All ${available.length} models ready (${totalExisting} predictions)`
   if (available.length === 0) return `${totalExisting}/${totalRequired} predictions found — ${missing.length} models need computing`
   return `${totalExisting}/${totalRequired} predictions — ${available.length} ready, ${missing.length} missing: ${missing.join(', ')}`
@@ -976,18 +989,20 @@ const allSelectedAvailable = computed(() => {
 
 /**
  * Per-timestamp prediction availability, grouped by date.
- * Built from the existing availabilityMap data (no extra API call needed).
+ * Uses allModelsAvailability (ALL models) so panel appears as soon as dates are set.
  * Shows exactly which models have predictions at each 5-min timestamp.
  */
 const timestampAvailability = computed(() => {
-  if (selectedModels.value.length === 0 || Object.keys(availabilityMap.value).length === 0) return null
+  if (Object.keys(allModelsAvailability.value).length === 0) return null
+
+  const allModels = models.value
 
   // Build a set of existing timestamps per model
   const modelExisting = {}
   const allTimestamps = new Set()
 
-  for (const model of selectedModels.value) {
-    const avail = availabilityMap.value[model]
+  for (const model of allModels) {
+    const avail = allModelsAvailability.value[model]
     if (!avail) continue
     modelExisting[model] = new Set(avail.existing_timestamps || [])
     for (const ts of [...(avail.existing_timestamps || []), ...(avail.missing_timestamps || [])]) {
@@ -1005,7 +1020,7 @@ const timestampAvailability = computed(() => {
 
     const modelsAvail = {}
     let availCount = 0
-    for (const model of selectedModels.value) {
+    for (const model of allModels) {
       const exists = modelExisting[model]?.has(ts) || false
       modelsAvail[model] = exists
       if (exists) availCount++
@@ -1015,12 +1030,12 @@ const timestampAvailability = computed(() => {
       time: time || '00:00',
       models: modelsAvail,
       availCount,
-      allAvail: availCount === selectedModels.value.length,
+      allAvail: availCount === allModels.length,
       noneAvail: availCount === 0,
     })
   }
 
-  return { groups, totalModels: selectedModels.value.length }
+  return { groups, totalModels: allModels.length, models: allModels }
 })
 
 const availabilityExpanded = ref(true)
@@ -1364,20 +1379,20 @@ async function submitMissingOnlyAndComputeMetrics(models) {
 }
 
 /**
- * Re-check availability for all selected models, then compute metrics.
+ * Re-check availability for all models, then compute metrics.
  */
 async function recheckAndComputeMetrics() {
   const recheck = await Promise.allSettled(
-    selectedModels.value.map(model =>
+    models.value.map(model =>
       api.checkPredictions(model, startDateTime.value, endDateTime.value)
     )
   )
-  const map = {}
+  const map = { ...allModelsAvailability.value }
   recheck.forEach((r, i) => {
-    const model = selectedModels.value[i]
+    const model = models.value[i]
     if (r.status === 'fulfilled') map[model] = r.value
   })
-  availabilityMap.value = map
+  allModelsAvailability.value = map
   await computeMetrics()
 }
 
