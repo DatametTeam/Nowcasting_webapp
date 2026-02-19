@@ -152,6 +152,7 @@ onMounted(() => {
     iconSize: [22, 22],
     iconAnchor: [11, 11],
     tooltipAnchor: [0, -14],
+    className: 'radar-icon',
   })
 
   for (const [name, lat, lon] of RADARS) {
@@ -163,6 +164,18 @@ onMounted(() => {
       })
       .addTo(map)
   }
+
+  // Dark map is the default — mark the container so CSS can invert icons
+  const DARK_LAYERS = new Set(['Dark', 'Satellite'])
+  mapContainer.value.classList.add('dark-basemap')
+
+  map.on('baselayerchange', (e) => {
+    if (DARK_LAYERS.has(e.name)) {
+      mapContainer.value.classList.add('dark-basemap')
+    } else {
+      mapContainer.value.classList.remove('dark-basemap')
+    }
+  })
 })
 
 onUnmounted(() => {
@@ -348,6 +361,11 @@ defineExpose({ preloadFrames, showFrame, setOverlayOpacity, invalidateSize })
 }
 .leaflet-control-geosearch .results > *:hover {
   background: rgba(255, 255, 255, 0.1);
+}
+
+/* Invert radar icons to white on dark/satellite base maps */
+.dark-basemap .radar-icon {
+  filter: invert(1);
 }
 
 /* Radar station tooltip — dark style matching the map theme */

@@ -155,3 +155,80 @@ FastAPI serves both the API and the SPA frontend from a single port.
 | `/api/realtime/*`   | Start/stop/status of real-time prediction loop  |
 
 Full interactive docs: http://localhost:8000/docs
+
+## Adding a New Model
+
+Adding a model requires **no code changes** to the webapp. The system picks up models from the config file automatically.
+
+### 1. Add the model name to `cfg.yaml`
+
+Edit `src/nwc_webapp/config/cfg.yaml`:
+
+```yaml
+models:
+  - ConvLSTM
+  - ED_ConvLSTM
+  - IAM4VP
+  - PredFormer
+  - SPROG
+  - YourNewModel    # add here
+```
+
+The model will immediately appear in all dropdowns, selectors, and metric pages.
+
+### 2. Create the model inference config (YAML)
+
+The inference script needs a per-model YAML config. Create it at:
+
+```
+src/nwc_webapp/config/model_configs/real_time/{YourNewModel}.yaml
+```
+
+This config tells the inference script where to find the trained model checkpoint, which transforms to apply, and where to save predictions. See existing model configs for the expected format. Key fields:
+
+```yaml
+trainings_artifacts:
+  training_cfg_path: '/path/to/model/config_used.yaml'
+  checkpoint_path: '/path/to/model/best_checkpoint.ckpt'
+
+transforms:
+  # ... data transforms (log, normalize, etc.)
+
+dataframe_strategy:
+  name: from_hdf_folder_1_hour    # for real-time
+  args:
+    data_folder: "/davinci-1/work/protezionecivile/data1/SRI_adj"
+    datetime_format: "%d-%m-%Y-%H-%M"
+
+save_path: /davinci-1/work/protezionecivile/nwc_webapp/real_time_results/YourNewModel
+save_npy: true
+```
+
+### 3. (Optional) Set a custom conda environment
+
+If the model needs a different conda environment than the default (`nowcasting3.12_webapp`), add it to `cfg.yaml`:
+
+```yaml
+pbs:
+  environments:
+    YourNewModel: "your_custom_env"    # add here
+    default: "nowcasting3.12_webapp"
+```
+
+### 4. Prediction output requirements
+
+The inference script must produce `.npy` files that match this contract:
+
+| Property | Value |
+|----------|-------|
+| **Filename** | `DD-MM-YYYY-HH-MM.npy` (e.g. `18-02-2026-14-30.npy`) |
+| **Shape** | `(12, 1400, 1200)` — 12 lead times at 5-minute intervals |
+| **Save location** | `{real_time_pred}/{ModelName}/` (as configured in `save_path`) |
+| **Index mapping** | Index 0 = +5 min, Index 5 = +30 min, Index 11 = +60 min |
+
+### Summary
+
+- Add name to `cfg.yaml` → model appears in UI
+- Create inference YAML config → PBS jobs can run it
+- (Optional) Custom conda env in `cfg.yaml`
+- No webapp code changes needed

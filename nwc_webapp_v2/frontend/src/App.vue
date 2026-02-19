@@ -25,17 +25,17 @@
       <div class="px-4">
         <div class="flex items-center h-14">
           <!-- App Title -->
-          <div class="flex items-center gap-3 mr-8">
-            <span class="text-xl font-bold tracking-tight">LEOWeather</span>
+          <div class="flex items-center gap-3 mr-4 lg:mr-8">
+            <span class="text-lg sm:text-xl font-bold tracking-tight">LEOWeather</span>
           </div>
 
           <!-- Navigation Tabs -->
-          <div class="flex gap-1">
+          <div class="flex flex-wrap gap-0.5 sm:gap-1">
             <router-link
               v-for="item in navItems"
               :key="item.path"
               :to="item.path"
-              class="px-4 py-2 rounded-md text-sm font-medium transition-colors duration-150"
+              class="px-2 sm:px-4 py-1.5 sm:py-2 rounded-md text-xs sm:text-sm font-medium transition-colors duration-150"
               :class="isActive(item.path)
                 ? 'bg-white/20 text-white'
                 : 'text-white/70 hover:bg-white/10 hover:text-white'"
@@ -45,19 +45,19 @@
           </div>
 
           <!-- Right side: status + Leonardo logo -->
-          <div class="ml-auto flex items-center gap-4">
+          <div class="ml-auto flex items-center gap-2 sm:gap-4">
             <div class="flex items-center gap-2">
               <div
                 class="w-2 h-2 rounded-full"
                 :class="backendConnected ? 'bg-green-300' : 'bg-white/40'"
                 :title="backendConnected ? 'Backend connected' : 'Backend disconnected'"
               />
-              <span class="text-xs text-white/60">
+              <span class="text-xs text-white/60 hidden sm:inline">
                 {{ environment }}
               </span>
             </div>
-            <div class="w-px h-6 bg-white/30" />
-            <img src="/ldo-logo.png" alt="Leonardo" class="h-5 brightness-0 invert" />
+            <div class="w-px h-6 bg-white/30 hidden sm:block" />
+            <img src="/ldo-logo.png" alt="Leonardo" class="h-5 brightness-0 invert hidden sm:block" />
           </div>
         </div>
       </div>
