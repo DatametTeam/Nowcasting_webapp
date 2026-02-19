@@ -83,16 +83,35 @@ class RealtimeService:
         """
         Start the real-time prediction loop.
         Returns dict with 'ok' and optionally 'reason'.
+
+        Pre-checks prediction availability for the latest SRI so model
+        statuses are accurate from the very first status poll.
         """
         with self._lock:
             if self._active:
                 return {"ok": False, "reason": "already_running"}
 
             config = get_config()
+            sri_folder = Path(str(config.sri_folder))
+            latest_sri = self._find_latest_sri(sri_folder)
+
+            # Set initial SRI info so the frontend sees it immediately
+            if latest_sri:
+                sri_dt = self._parse_sri_datetime(latest_sri)
+                self._latest_sri = latest_sri
+                self._latest_sri_timestamp = sri_dt.isoformat() if sri_dt else None
+
+            # Pre-check which models already have predictions for the latest SRI
             for model in config.models:
-                # Test model is always ready (uses static pre-existing data)
                 if model.upper() == "TEST":
                     self._models[model] = {"status": "ready", "job_id": None}
+                elif latest_sri:
+                    sri_stem = latest_sri.replace(".hdf", "")
+                    pred_file = config.real_time_pred / model / f"{sri_stem}.npy"
+                    if pred_file.exists():
+                        self._models[model] = {"status": "ready", "job_id": None}
+                    else:
+                        self._models[model] = {"status": "queued", "job_id": None}
                 else:
                     self._models[model] = {"status": "idle", "job_id": None}
 
@@ -179,16 +198,13 @@ class RealtimeService:
 
         config = get_config()
         sri_folder = Path(str(config.sri_folder))
-        last_seen_file = self._find_latest_sri(sri_folder)
 
-        # Show the current latest SRI on startup
-        if last_seen_file:
-            sri_dt = self._parse_sri_datetime(last_seen_file)
-            with self._lock:
-                self._latest_sri = last_seen_file
-                self._latest_sri_timestamp = sri_dt.isoformat() if sri_dt else None
+        # Initialize last_seen_file to None so the first iteration processes
+        # the existing latest SRI (checks predictions, submits jobs if needed).
+        # start() already set self._latest_sri for display.
+        last_seen_file = None
 
-        logger.info("HPC loop started. Last known SRI: %s", last_seen_file)
+        logger.info("HPC loop started. Will process existing SRI on first iteration.")
 
         SLOW_POLL = 30   # seconds between checks in slow mode
         FAST_POLL = 1    # seconds between checks in fast mode
