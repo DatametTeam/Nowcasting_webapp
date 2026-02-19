@@ -38,7 +38,9 @@
               <VueDatePicker
                 :model-value="pickerDate"
                 @update:model-value="onPickerChange"
+                @update-month-year="onMonthYearChange"
                 :time-config="{ enableTimePicker: false }"
+                :highlight="highlightedDates"
                 auto-apply
                 :dark="true"
                 format="dd/MM/yyyy"
@@ -121,6 +123,78 @@
         <!-- Error (inside dark bar) -->
         <div v-if="error" class="mt-3 px-4 py-2 rounded-lg bg-red-500/20 border border-red-500/30">
           <p class="text-sm text-red-300">{{ error }}</p>
+        </div>
+
+        <!-- Time availability panel (shows when date is selected and has data) -->
+        <div v-if="dayDetail && Object.keys(dayDetail.slots).length > 0" class="mt-3">
+          <button
+            @click="dayDetailExpanded = !dayDetailExpanded"
+            class="flex items-center gap-2 text-xs font-semibold text-gray-400 uppercase tracking-wider
+                   hover:text-gray-300 transition-colors"
+          >
+            <svg
+              class="w-3 h-3 transition-transform"
+              :class="dayDetailExpanded ? 'rotate-90' : ''"
+              fill="currentColor" viewBox="0 0 20 20"
+            >
+              <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
+            </svg>
+            Prediction Availability
+            <span class="text-gray-500 normal-case font-normal tracking-normal">
+              — {{ Object.keys(dayDetail.slots).length }} timestamps on {{ formatDateShort(dayDetail.date) }}
+            </span>
+          </button>
+
+          <Transition name="slide">
+            <div v-if="dayDetailExpanded" class="mt-2 bg-white/5 rounded-lg p-3 max-h-52 overflow-y-auto">
+              <div class="space-y-0.5">
+                <div
+                  v-for="(models, time) in dayDetail.slots"
+                  :key="time"
+                  @click="selectTimeFromPanel(time)"
+                  class="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors
+                         hover:bg-white/10"
+                  :class="isCurrentTime(time) ? 'bg-blue-500/20 ring-1 ring-blue-400/40' : ''"
+                >
+                  <!-- All models indicator -->
+                  <span
+                    class="w-4 text-center text-xs flex-shrink-0"
+                    :class="models.length === dayDetail.total_models
+                      ? 'text-emerald-400'
+                      : 'text-amber-400'"
+                  >
+                    {{ models.length === dayDetail.total_models ? '✓' : '◐' }}
+                  </span>
+                  <!-- Time -->
+                  <span class="text-sm text-gray-200 font-mono w-12 flex-shrink-0">{{ time }}</span>
+                  <!-- Model badges -->
+                  <div class="flex gap-1 flex-wrap">
+                    <span
+                      v-for="model in models"
+                      :key="model"
+                      class="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                      :class="models.length === dayDetail.total_models
+                        ? 'bg-emerald-500/20 text-emerald-300'
+                        : 'bg-blue-500/20 text-blue-300'"
+                    >
+                      {{ model }}
+                    </span>
+                  </div>
+                  <!-- Count on the right -->
+                  <span class="ml-auto text-[10px] text-gray-500 flex-shrink-0">
+                    {{ models.length }}/{{ dayDetail.total_models }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </Transition>
+        </div>
+        <!-- Day detail: no data message -->
+        <div v-else-if="dayDetail && Object.keys(dayDetail.slots).length === 0 && !dayDetailLoading" class="mt-3">
+          <p class="text-xs text-gray-500">No predictions found for this date</p>
+        </div>
+        <div v-if="dayDetailLoading" class="mt-3">
+          <p class="text-xs text-gray-500 animate-pulse">Loading availability...</p>
         </div>
       </div>
     </div>
@@ -377,13 +451,82 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, reactive, watch, onMounted, onBeforeUnmount } from 'vue'
 import { VueDatePicker } from '@vuepic/vue-datepicker'
 import '@vuepic/vue-datepicker/dist/main.css'
 import api from '../api.js'
 import { useConfigStore } from '../stores/config.js'
 
 const configStore = useConfigStore()
+
+// ---------------------------------------------------------------------------
+// Calendar highlighting (dates with predictions)
+// ---------------------------------------------------------------------------
+const highlightedDates = computed(() => ({ dates: calendarDates.value }))
+const calendarDates = ref([])
+const dayDetail = ref(null)       // { date, models, slots, total_models }
+const dayDetailLoading = ref(false)
+const dayDetailExpanded = ref(true)
+
+/**
+ * Fetch which dates in a month have predictions, for calendar highlighting.
+ * Called on mount and whenever the user navigates to a different month.
+ */
+async function fetchCalendarAvailability(year, month) {
+  const models = configStore.models
+  if (!models.length) return
+  try {
+    const res = await api.getCalendarAvailability(models, year, month)
+    // Convert "YYYY-MM-DD" strings to Date objects for VueDatePicker highlight
+    calendarDates.value = res.dates.map(d => new Date(d + 'T12:00:00'))
+  } catch (e) {
+    console.error('Failed to fetch calendar availability:', e)
+  }
+}
+
+/** Called by VueDatePicker when the user navigates months. */
+function onMonthYearChange({ year, month }) {
+  // VueDatePicker months are 0-indexed internally but the event gives 1-indexed
+  fetchCalendarAvailability(year, month)
+}
+
+/**
+ * Fetch per-timestamp model availability for the selected date.
+ * Shows which models have predictions at each 5-minute slot.
+ */
+async function fetchDayDetail(dateStr) {
+  if (!dateStr) { dayDetail.value = null; return }
+  const models = configStore.models
+  if (!models.length) return
+
+  dayDetailLoading.value = true
+  try {
+    dayDetail.value = await api.getDayDetail(models, dateStr)
+  } catch (e) {
+    console.error('Failed to fetch day detail:', e)
+    dayDetail.value = null
+  } finally {
+    dayDetailLoading.value = false
+  }
+}
+
+/** Clicking a time in the availability panel sets the time picker. */
+function selectTimeFromPanel(timeStr) {
+  const [h, m] = timeStr.split(':')
+  selectedDateTime.value = buildDateTime(datePart.value, h, m)
+}
+
+/** Check if a time string matches the currently selected time. */
+function isCurrentTime(timeStr) {
+  return timeStr === `${hourValue.value}:${minuteValue.value}`
+}
+
+/** Format "YYYY-MM-DD" → "DD/MM/YYYY" */
+function formatDateShort(dateStr) {
+  if (!dateStr) return ''
+  const [y, m, d] = dateStr.split('-')
+  return `${d}/${m}/${y}`
+}
 
 // ---------------------------------------------------------------------------
 // Date/time state — native date input + hour/minute dropdowns
@@ -453,6 +596,18 @@ function formatDateDisplay(val) {
   const [y, m, d] = date.split('-')
   return `${d}/${m}/${y} ${time}`
 }
+
+// Fetch day detail whenever the date part changes
+watch(datePart, (newDate) => {
+  fetchDayDetail(newDate)
+})
+
+// Fetch initial calendar availability on mount
+onMounted(() => {
+  const d = datePart.value ? new Date(datePart.value) : new Date()
+  fetchCalendarAvailability(d.getFullYear(), d.getMonth() + 1)
+  if (datePart.value) fetchDayDetail(datePart.value)
+})
 
 // ---------------------------------------------------------------------------
 // Model selection + availability
@@ -1012,5 +1167,28 @@ async function fetchCsiData() {
 /* ---- Highlight today in calendar ---- */
 :deep(.dp__today) {
   border: 2px solid #ef4444 !important;
+}
+
+/* ---- Highlight dates with predictions ---- */
+:deep(.dp__cell_highlight) {
+  background-color: rgba(16, 185, 129, 0.25) !important;
+  border-radius: 50% !important;
+}
+
+/* ---- Slide transition for availability panel ---- */
+.slide-enter-active {
+  transition: all 0.25s ease-out;
+}
+.slide-leave-active {
+  transition: all 0.2s ease-in;
+}
+.slide-enter-from,
+.slide-leave-to {
+  opacity: 0;
+  max-height: 0;
+  margin-top: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  overflow: hidden;
 }
 </style>

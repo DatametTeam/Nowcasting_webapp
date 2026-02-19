@@ -38,7 +38,9 @@
               <VueDatePicker
                 :model-value="startDate"
                 @update:model-value="onStartDateChange"
+                @update-month-year="onStartMonthYearChange"
                 :time-config="{ enableTimePicker: false }"
+                :highlight="highlightedDatesStart"
                 auto-apply
                 :dark="true"
                 format="dd/MM/yyyy"
@@ -71,7 +73,9 @@
               <VueDatePicker
                 :model-value="endDate"
                 @update:model-value="onEndDateChange"
+                @update-month-year="onEndMonthYearChange"
                 :time-config="{ enableTimePicker: false }"
+                :highlight="highlightedDatesEnd"
                 auto-apply
                 :dark="true"
                 format="dd/MM/yyyy"
@@ -710,7 +714,7 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, reactive, watch, onMounted, onBeforeUnmount } from 'vue'
 import { VueDatePicker } from '@vuepic/vue-datepicker'
 import '@vuepic/vue-datepicker/dist/main.css'
 import {
@@ -806,6 +810,42 @@ function formatDateDisplay(val) {
   const [y, m, d] = date.split('-')
   return `${d}/${m}/${y} ${time}`
 }
+
+// ---------------------------------------------------------------------------
+// Calendar highlighting (dates with predictions)
+// ---------------------------------------------------------------------------
+const calendarDatesStart = ref([])
+const calendarDatesEnd = ref([])
+const highlightedDatesStart = computed(() => ({ dates: calendarDatesStart.value }))
+const highlightedDatesEnd = computed(() => ({ dates: calendarDatesEnd.value }))
+
+async function fetchCalendarHighlights(year, month, target) {
+  const models = configStore.models
+  if (!models.length) return
+  try {
+    const res = await api.getCalendarAvailability(models, year, month)
+    const dates = res.dates.map(d => new Date(d + 'T12:00:00'))
+    if (target === 'start') calendarDatesStart.value = dates
+    else calendarDatesEnd.value = dates
+  } catch (e) {
+    console.error('Failed to fetch calendar highlights:', e)
+  }
+}
+
+function onStartMonthYearChange({ year, month }) {
+  fetchCalendarHighlights(year, month, 'start')
+}
+function onEndMonthYearChange({ year, month }) {
+  fetchCalendarHighlights(year, month, 'end')
+}
+
+onMounted(() => {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = d.getMonth() + 1
+  fetchCalendarHighlights(y, m, 'start')
+  fetchCalendarHighlights(y, m, 'end')
+})
 
 // ---------------------------------------------------------------------------
 // Model selection + availability
@@ -1875,5 +1915,11 @@ async function exportAll() {
 /* ---- Highlight today in calendar ---- */
 :deep(.dp__today) {
   border: 2px solid #ef4444 !important;
+}
+
+/* ---- Highlight dates with predictions ---- */
+:deep(.dp__cell_highlight) {
+  background-color: rgba(16, 185, 129, 0.25) !important;
+  border-radius: 50% !important;
 }
 </style>

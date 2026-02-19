@@ -98,6 +98,14 @@ export default {
   checkSingleTarget: (timestamp) =>
     get(`/data/target/check-single?timestamp=${timestamp}`),
 
+  /** Get which dates in a month have predictions (for calendar highlighting). */
+  getCalendarAvailability: (models, year, month) =>
+    get(`/data/predictions/calendar?models=${models.join(',')}&year=${year}&month=${month}`),
+
+  /** Get per-timestamp model availability for a specific date. */
+  getDayDetail: (models, date) =>
+    get(`/data/predictions/day-detail?models=${models.join(',')}&date=${date}`),
+
   // --- Jobs ---
   submitJob: (model, start, end) =>
     post('/jobs/submit', { model, start, end }),

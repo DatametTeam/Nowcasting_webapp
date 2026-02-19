@@ -198,6 +198,95 @@ async def check_single_target(
 
 
 # ============================================================================
+# Calendar availability endpoints
+# ============================================================================
+
+@router.get("/predictions/calendar")
+async def predictions_calendar(
+    models: str = Query(..., description="Comma-separated model names"),
+    year: int = Query(..., description="Year"),
+    month: int = Query(..., description="Month (1-12)"),
+):
+    """
+    Get which dates in a given month have at least one prediction file.
+    Used by the frontend to highlight available dates in the calendar.
+
+    Scans the prediction directories for all requested models, collects
+    unique dates that have .npy files matching the requested year/month.
+    """
+    config = get_config()
+    model_list = [m.strip() for m in models.split(",") if m.strip()]
+
+    dates_with_predictions = set()
+
+    for model_name in model_list:
+        pred_dir = config.real_time_pred / model_name
+        if not pred_dir.exists():
+            continue
+
+        for f in os.listdir(str(pred_dir)):
+            if not f.endswith(".npy"):
+                continue
+            try:
+                dt = datetime.strptime(f.replace(".npy", ""), "%d-%m-%Y-%H-%M")
+                if dt.year == year and dt.month == month:
+                    dates_with_predictions.add(dt.strftime("%Y-%m-%d"))
+            except ValueError:
+                continue
+
+    return {"dates": sorted(dates_with_predictions)}
+
+
+@router.get("/predictions/day-detail")
+async def predictions_day_detail(
+    models: str = Query(..., description="Comma-separated model names"),
+    date: str = Query(..., description="Date in YYYY-MM-DD format"),
+):
+    """
+    Get per-timestamp model availability for a specific date.
+    Returns which models have prediction files at each 5-minute slot.
+
+    Used by the frontend to show a time availability panel so the user
+    knows exactly which timestamps have data and for which models.
+    """
+    config = get_config()
+    model_list = [m.strip() for m in models.split(",") if m.strip()]
+
+    try:
+        target_date = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
+
+    # Collect available timestamps per model for this date
+    slots = {}  # time_str -> [model_names]
+
+    for model_name in model_list:
+        pred_dir = config.real_time_pred / model_name
+        if not pred_dir.exists():
+            continue
+
+        for f in os.listdir(str(pred_dir)):
+            if not f.endswith(".npy"):
+                continue
+            try:
+                dt = datetime.strptime(f.replace(".npy", ""), "%d-%m-%Y-%H-%M")
+                if dt.date() == target_date:
+                    time_str = dt.strftime("%H:%M")
+                    if time_str not in slots:
+                        slots[time_str] = []
+                    slots[time_str].append(model_name)
+            except ValueError:
+                continue
+
+    return {
+        "date": date,
+        "models": model_list,
+        "slots": dict(sorted(slots.items())),
+        "total_models": len(model_list),
+    }
+
+
+# ============================================================================
 # Mock data generation (local development only)
 # ============================================================================
 
