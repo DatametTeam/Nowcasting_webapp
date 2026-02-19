@@ -126,8 +126,12 @@ def _warp_frame(frame: np.ndarray) -> np.ndarray:
     reprojection the overlay is misaligned (shifted/distorted) relative to map
     features.
 
-    The output is flipped vertically so that row 0 = northernmost latitude,
-    matching PIL's top-down image convention.
+    Row 0 of the output = northernmost latitude, matching Leaflet's
+    ImageOverlay convention (row 0 = top = NE corner of bounds).
+
+    Note: the original warp_map() in geo/warping.py does np.flipud to
+    match Folium's origin="lower" convention (row 0 = south). Leaflet
+    uses the opposite convention, so no flip is applied here.
 
     Returns NaN for pixels that fall outside the source grid bounds.
     """
@@ -136,7 +140,7 @@ def _warp_frame(frame: np.ndarray) -> np.ndarray:
     warped = np.full((nlines_dst, ncols_dst), np.nan, dtype=float)
     warped[valid] = frame[line_idx[valid], col_idx[valid]]
 
-    return np.flipud(warped)
+    return warped
 
 
 def _frame_to_png_bytes(frame):
