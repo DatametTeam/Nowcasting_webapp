@@ -43,7 +43,7 @@
                 :highlight="highlightedDatesStart"
                 auto-apply
                 :dark="true"
-                :format="formatPickerDate"
+                :formats="dateFormats"
                 model-type="yyyy-MM-dd"
                 input-class-name="dp-dark-input"
               />
@@ -78,7 +78,7 @@
                 :highlight="highlightedDatesEnd"
                 auto-apply
                 :dark="true"
-                :format="formatPickerDate"
+                :formats="dateFormats"
                 model-type="yyyy-MM-dd"
                 input-class-name="dp-dark-input"
               />
@@ -148,35 +148,69 @@
           <p class="text-sm text-red-300">{{ error }}</p>
         </div>
 
-        <!-- Prediction availability panel (visible when models are selected + dates set) -->
-        <div v-if="selectedModels.length > 0 && Object.keys(availabilityMap).length > 0" class="mt-3 bg-white/5 rounded-lg p-3">
-          <div class="flex items-center justify-between mb-2">
-            <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Prediction Availability</span>
-          </div>
-          <div class="space-y-1.5">
-            <div v-for="model in selectedModels" :key="model" class="flex items-center gap-3">
-              <span class="text-xs text-gray-300 w-28 truncate" :title="model">{{ model }}</span>
-              <!-- Progress bar -->
-              <div class="flex-1 h-2 bg-white/10 rounded-full overflow-hidden max-w-sm">
-                <div
-                  class="h-full rounded-full transition-all"
-                  :class="predictionPercent(model) === 100 ? 'bg-emerald-500' : predictionPercent(model) > 0 ? 'bg-amber-500' : 'bg-red-500'"
-                  :style="{ width: predictionPercent(model) + '%' }"
-                />
+        <!-- Prediction availability panel — timestamp-level, grouped by date -->
+        <div v-if="timestampAvailability" class="mt-3">
+          <button
+            @click="availabilityExpanded = !availabilityExpanded"
+            class="flex items-center gap-2 text-xs font-semibold text-gray-400 uppercase tracking-wider
+                   hover:text-gray-300 transition-colors"
+          >
+            <svg
+              class="w-3 h-3 transition-transform"
+              :class="availabilityExpanded ? 'rotate-90' : ''"
+              fill="currentColor" viewBox="0 0 20 20"
+            >
+              <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
+            </svg>
+            Prediction Availability
+            <span class="text-gray-500 normal-case font-normal tracking-normal">
+              — {{ availabilitySummary }}
+            </span>
+          </button>
+
+          <Transition name="slide">
+            <div v-if="availabilityExpanded" class="mt-2 bg-white/5 rounded-lg p-3 max-h-64 overflow-y-auto">
+              <div v-for="(slots, date) in timestampAvailability.groups" :key="date" class="mb-2 last:mb-0">
+                <!-- Date header (sticky) -->
+                <div class="text-[10px] text-gray-500 font-semibold mb-1 sticky top-0 bg-gray-800/95 backdrop-blur-sm py-0.5 px-1 rounded">
+                  {{ formatDateShort(date) }}
+                </div>
+                <div class="space-y-0.5">
+                  <div
+                    v-for="(slot, idx) in slots"
+                    :key="idx"
+                    class="flex items-center gap-2 px-2 py-1 rounded-md"
+                  >
+                    <!-- Status indicator -->
+                    <span class="w-4 text-center text-xs flex-shrink-0">
+                      <span v-if="slot.allAvail" class="text-emerald-400">✓</span>
+                      <span v-else-if="slot.noneAvail" class="text-red-400">✗</span>
+                      <span v-else class="text-amber-400">◐</span>
+                    </span>
+                    <!-- Time -->
+                    <span class="text-xs text-gray-300 font-mono w-12 flex-shrink-0">{{ slot.time }}</span>
+                    <!-- Model badges -->
+                    <div class="flex gap-1 flex-wrap">
+                      <span
+                        v-for="model in selectedModels"
+                        :key="model"
+                        class="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                        :class="slot.models[model]
+                          ? 'bg-emerald-500/20 text-emerald-300'
+                          : 'bg-red-500/20 text-red-400'"
+                      >
+                        {{ model }}
+                      </span>
+                    </div>
+                    <!-- Count -->
+                    <span class="ml-auto text-[10px] text-gray-500 flex-shrink-0">
+                      {{ slot.availCount }}/{{ timestampAvailability.totalModels }}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <span
-                class="text-[10px] font-mono w-16 text-right"
-                :class="predictionPercent(model) === 100 ? 'text-emerald-400' : predictionPercent(model) > 0 ? 'text-amber-400' : 'text-red-400'"
-              >
-                {{ availabilityMap[model]?.existing_count || 0 }}/{{ availabilityMap[model]?.total || 0 }}
-              </span>
-              <span class="w-4 text-center text-xs flex-shrink-0">
-                <span v-if="predictionPercent(model) === 100" class="text-emerald-400">✓</span>
-                <span v-else-if="predictionPercent(model) > 0" class="text-amber-400">◐</span>
-                <span v-else class="text-red-400">✗</span>
-              </span>
             </div>
-          </div>
+          </Transition>
         </div>
       </div>
     </div>
@@ -845,17 +879,8 @@ function formatDateDisplay(val) {
   return `${d}/${m}/${y} ${time}`
 }
 
-/** Custom format function for VueDatePicker (ensures DD/MM/YYYY display). */
-function formatPickerDate(date) {
-  if (!date) return ''
-  if (typeof date === 'string') {
-    const parts = date.split('-')
-    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`
-    return date
-  }
-  const d = date instanceof Date ? date : new Date(date)
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
-}
+/** VueDatePicker v12 uses 'formats' (object) not 'format' for input display. */
+const dateFormats = { input: 'dd/MM/yyyy' }
 
 // ---------------------------------------------------------------------------
 // Calendar highlighting (dates with predictions)
@@ -948,6 +973,63 @@ const allSelectedAvailable = computed(() => {
   if (selectedModels.value.length === 0) return true
   return selectedModels.value.every(m => availabilityMap.value[m]?.all_exist)
 })
+
+/**
+ * Per-timestamp prediction availability, grouped by date.
+ * Built from the existing availabilityMap data (no extra API call needed).
+ * Shows exactly which models have predictions at each 5-min timestamp.
+ */
+const timestampAvailability = computed(() => {
+  if (selectedModels.value.length === 0 || Object.keys(availabilityMap.value).length === 0) return null
+
+  // Build a set of existing timestamps per model
+  const modelExisting = {}
+  const allTimestamps = new Set()
+
+  for (const model of selectedModels.value) {
+    const avail = availabilityMap.value[model]
+    if (!avail) continue
+    modelExisting[model] = new Set(avail.existing_timestamps || [])
+    for (const ts of [...(avail.existing_timestamps || []), ...(avail.missing_timestamps || [])]) {
+      allTimestamps.add(ts)
+    }
+  }
+
+  // Sort and group by date
+  const sorted = [...allTimestamps].sort()
+  const groups = {}
+
+  for (const ts of sorted) {
+    const [date, time] = ts.split('T')
+    if (!groups[date]) groups[date] = []
+
+    const modelsAvail = {}
+    let availCount = 0
+    for (const model of selectedModels.value) {
+      const exists = modelExisting[model]?.has(ts) || false
+      modelsAvail[model] = exists
+      if (exists) availCount++
+    }
+
+    groups[date].push({
+      time: time || '00:00',
+      models: modelsAvail,
+      availCount,
+      allAvail: availCount === selectedModels.value.length,
+      noneAvail: availCount === 0,
+    })
+  }
+
+  return { groups, totalModels: selectedModels.value.length }
+})
+
+const availabilityExpanded = ref(true)
+
+function formatDateShort(dateStr) {
+  if (!dateStr) return ''
+  const [y, m, d] = dateStr.split('-')
+  return `${d}/${m}/${y}`
+}
 
 // ---------------------------------------------------------------------------
 // State
@@ -1967,5 +2049,22 @@ async function exportAll() {
 :deep(.dp__cell_highlight) {
   background-color: rgba(16, 185, 129, 0.25) !important;
   border-radius: 50% !important;
+}
+
+/* ---- Slide transition for availability panel ---- */
+.slide-enter-active {
+  transition: all 0.25s ease-out;
+}
+.slide-leave-active {
+  transition: all 0.2s ease-in;
+}
+.slide-enter-from,
+.slide-leave-to {
+  opacity: 0;
+  max-height: 0;
+  margin-top: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  overflow: hidden;
 }
 </style>

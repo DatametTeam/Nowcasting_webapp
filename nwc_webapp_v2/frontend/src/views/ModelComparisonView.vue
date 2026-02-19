@@ -43,7 +43,7 @@
                 :highlight="highlightedDates"
                 auto-apply
                 :dark="true"
-                :format="formatPickerDate"
+                :formats="dateFormats"
                 model-type="yyyy-MM-dd"
                 input-class-name="dp-dark-input"
               />
@@ -529,18 +529,8 @@ function formatDateShort(dateStr) {
   return `${d}/${m}/${y}`
 }
 
-/** Custom format function for VueDatePicker (ensures DD/MM/YYYY display). */
-function formatPickerDate(date) {
-  if (!date) return ''
-  // With model-type="yyyy-MM-dd", date is a string like "2026-02-12"
-  if (typeof date === 'string') {
-    const parts = date.split('-')
-    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`
-    return date
-  }
-  const d = date instanceof Date ? date : new Date(date)
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
-}
+/** VueDatePicker v12 uses 'formats' (object) not 'format' for input display. */
+const dateFormats = { input: 'dd/MM/yyyy' }
 
 // ---------------------------------------------------------------------------
 // Date/time state — native date input + hour/minute dropdowns
