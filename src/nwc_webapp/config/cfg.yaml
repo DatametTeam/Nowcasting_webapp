@@ -33,7 +33,7 @@ local_paths:
   gif_storage: "data/predictions/gifs"
 
 # Radar mask (relative to package root)
-radar_mask_path: "resources/mask/radar_mask.hdf"
+radar_mask_path: "resources/mask/mask_correct.hdf"
 
 # Shapefiles for map visualization (relative to package root)
 shapefiles_folder: "resources/shapefiles"
