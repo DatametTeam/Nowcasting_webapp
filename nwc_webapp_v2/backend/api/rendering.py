@@ -17,6 +17,7 @@ This is more efficient because:
 
 PERFORMANCE OPTIMIZATIONS:
 - Radar mask cached in memory (loaded once from HDF5, reused for all frames)
+- Warp lookup tables cached in memory (pyproj on 1.68M points, computed once)
 - PNG compression level 1 (fastest — ~4x faster than default level 6)
 - Cache-Control headers (browser caches images → instant on revisit)
 - Response instead of StreamingResponse (slightly less overhead)
@@ -30,6 +31,7 @@ import numpy as np
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from PIL import Image
+from pyproj import Proj
 
 from nwc_webapp.config.config import get_config
 from nwc_webapp.data.checking import check_single_prediction_exists
@@ -67,6 +69,76 @@ def _get_radar_mask():
     return _radar_mask
 
 
+# Cached warp lookup tables — (col_indices, line_indices, valid_mask)
+# These depend only on the projection parameters, not on the data.
+# Computing them requires pyproj on 1.68M points; we do it once at startup.
+_warp_lookup = None
+
+
+def _get_warp_lookup():
+    """
+    Precompute and cache the nearest-neighbor sampling indices for reprojection.
+
+    WHY: The radar data is in Transverse Mercator (tmerc, lat_0=42°, lon_0=12.5°).
+    Leaflet's ImageOverlay treats images as equirectangular, so we must reproject
+    to a regular lat/lon grid before serving. The index lookup (pyproj on 1.68M
+    points + grid arithmetic) is the expensive part and is always the same —
+    computing it once and reusing it makes each warp ~5-10x faster.
+
+    Returns:
+        (col_indices, line_indices, valid_mask, nlines_dst, ncols_dst)
+    """
+    global _warp_lookup
+    if _warp_lookup is not None:
+        return _warp_lookup
+
+    config = get_config()
+    src = config.source_grid
+    dst = config.dest_grid
+
+    source_proj = Proj(proj="tmerc", lat_0=src.prj_lat, lon_0=src.prj_lon, x_0=0, y_0=0, ellps="WGS84")
+
+    dest_lons = np.linspace(dst.minLon, dst.maxLon, dst.ncols)
+    dest_lats = np.linspace(dst.maxLat, dst.minLat, dst.nlines)
+    dest_lon_grid, dest_lat_grid = np.meshgrid(dest_lons, dest_lats)
+
+    dest_x, dest_y = source_proj(dest_lon_grid, dest_lat_grid)
+
+    col_indices = ((dest_x / src.cRes) + src.cOff).astype(int)
+    line_indices = ((dest_y / src.lRes) + src.lOff).astype(int)
+
+    valid_mask = (
+        (col_indices >= 0) & (col_indices < src.ncols) &
+        (line_indices >= 0) & (line_indices < src.nlines)
+    )
+
+    _warp_lookup = (col_indices, line_indices, valid_mask, dst.nlines, dst.ncols)
+    return _warp_lookup
+
+
+def _warp_frame(frame: np.ndarray) -> np.ndarray:
+    """
+    Reproject a 2D Transverse Mercator frame to equirectangular lat/lon using
+    cached nearest-neighbor lookup tables.
+
+    The raw radar data is in tmerc projection. Leaflet's ImageOverlay stretches
+    images between two lat/lon corners assuming equirectangular layout. Without
+    reprojection the overlay is misaligned (shifted/distorted) relative to map
+    features.
+
+    The output is flipped vertically so that row 0 = northernmost latitude,
+    matching PIL's top-down image convention.
+
+    Returns NaN for pixels that fall outside the source grid bounds.
+    """
+    col_idx, line_idx, valid, nlines_dst, ncols_dst = _get_warp_lookup()
+
+    warped = np.full((nlines_dst, ncols_dst), np.nan, dtype=float)
+    warped[valid] = frame[line_idx[valid], col_idx[valid]]
+
+    return np.flipud(warped)
+
+
 def _frame_to_png_bytes(frame):
     """
     Convert a 2D numpy array to RGBA PNG bytes using the radar colormap.
@@ -81,7 +153,8 @@ def _frame_to_png_bytes(frame):
     """
     normalized = norm(frame)
     rgba = cmap(normalized)  # Float RGBA array (0-1)
-    rgba[frame <= 0] = [0, 0, 0, 0]  # Transparent where no precipitation
+    # Transparent where no precipitation or outside the radar domain (NaN from warp)
+    rgba[~np.isfinite(frame) | (frame <= 0)] = [0, 0, 0, 0]
 
     img = Image.fromarray((rgba * 255).astype(np.uint8))
 
@@ -136,6 +209,9 @@ async def get_groundtruth_overlay(timestamp: str):
 
     frame[frame < 0] = 0
     frame = np.clip(frame, 0, 200)
+
+    # Reproject from Transverse Mercator to equirectangular lat/lon
+    frame = _warp_frame(frame)
 
     png_bytes = _frame_to_png_bytes(frame)
     return Response(content=png_bytes, media_type="image/png", headers=_CACHE_HEADERS)
@@ -218,6 +294,9 @@ async def get_radar_overlay(
         frame = frame * mask
 
     frame = np.clip(frame, 0, 200)
+
+    # Reproject from Transverse Mercator to equirectangular lat/lon
+    frame = _warp_frame(frame)
 
     png_bytes = _frame_to_png_bytes(frame)
     return Response(content=png_bytes, media_type="image/png", headers=_CACHE_HEADERS)
