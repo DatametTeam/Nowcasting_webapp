@@ -43,7 +43,7 @@
                 :highlight="highlightedDatesStart"
                 auto-apply
                 :dark="true"
-                format="dd/MM/yyyy"
+                :format="formatPickerDate"
                 model-type="yyyy-MM-dd"
                 input-class-name="dp-dark-input"
               />
@@ -78,7 +78,7 @@
                 :highlight="highlightedDatesEnd"
                 auto-apply
                 :dark="true"
-                format="dd/MM/yyyy"
+                :format="formatPickerDate"
                 model-type="yyyy-MM-dd"
                 input-class-name="dp-dark-input"
               />
@@ -106,7 +106,7 @@
             <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Models</label>
             <div class="flex flex-wrap gap-2">
               <label
-                v-for="model in configStore.models"
+                v-for="model in models"
                 :key="model"
                 class="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium
                        cursor-pointer transition-all select-none"
@@ -146,6 +146,37 @@
         <!-- Error (inside dark bar) -->
         <div v-if="error" class="mt-3 px-4 py-2 rounded-lg bg-red-500/20 border border-red-500/30">
           <p class="text-sm text-red-300">{{ error }}</p>
+        </div>
+
+        <!-- Prediction availability panel (visible when models are selected + dates set) -->
+        <div v-if="selectedModels.length > 0 && Object.keys(availabilityMap).length > 0" class="mt-3 bg-white/5 rounded-lg p-3">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Prediction Availability</span>
+          </div>
+          <div class="space-y-1.5">
+            <div v-for="model in selectedModels" :key="model" class="flex items-center gap-3">
+              <span class="text-xs text-gray-300 w-28 truncate" :title="model">{{ model }}</span>
+              <!-- Progress bar -->
+              <div class="flex-1 h-2 bg-white/10 rounded-full overflow-hidden max-w-sm">
+                <div
+                  class="h-full rounded-full transition-all"
+                  :class="predictionPercent(model) === 100 ? 'bg-emerald-500' : predictionPercent(model) > 0 ? 'bg-amber-500' : 'bg-red-500'"
+                  :style="{ width: predictionPercent(model) + '%' }"
+                />
+              </div>
+              <span
+                class="text-[10px] font-mono w-16 text-right"
+                :class="predictionPercent(model) === 100 ? 'text-emerald-400' : predictionPercent(model) > 0 ? 'text-amber-400' : 'text-red-400'"
+              >
+                {{ availabilityMap[model]?.existing_count || 0 }}/{{ availabilityMap[model]?.total || 0 }}
+              </span>
+              <span class="w-4 text-center text-xs flex-shrink-0">
+                <span v-if="predictionPercent(model) === 100" class="text-emerald-400">✓</span>
+                <span v-else-if="predictionPercent(model) > 0" class="text-amber-400">◐</span>
+                <span v-else class="text-red-400">✗</span>
+              </span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -737,6 +768,9 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, T
 
 const configStore = useConfigStore()
 
+// Filter out Test model — only shown in RealTime
+const models = computed(() => configStore.models.filter(m => m.toUpperCase() !== 'TEST'))
+
 // ---------------------------------------------------------------------------
 // Chart refs (for PNG export)
 // ---------------------------------------------------------------------------
@@ -811,6 +845,18 @@ function formatDateDisplay(val) {
   return `${d}/${m}/${y} ${time}`
 }
 
+/** Custom format function for VueDatePicker (ensures DD/MM/YYYY display). */
+function formatPickerDate(date) {
+  if (!date) return ''
+  if (typeof date === 'string') {
+    const parts = date.split('-')
+    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`
+    return date
+  }
+  const d = date instanceof Date ? date : new Date(date)
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
+}
+
 // ---------------------------------------------------------------------------
 // Calendar highlighting (dates with predictions)
 // ---------------------------------------------------------------------------
@@ -820,10 +866,9 @@ const highlightedDatesStart = computed(() => ({ dates: calendarDatesStart.value 
 const highlightedDatesEnd = computed(() => ({ dates: calendarDatesEnd.value }))
 
 async function fetchCalendarHighlights(year, month, target) {
-  const models = configStore.models
-  if (!models.length) return
+  if (!models.value.length) return
   try {
-    const res = await api.getCalendarAvailability(models, year, month)
+    const res = await api.getCalendarAvailability(models.value, year, month)
     const dates = res.dates.map(d => new Date(d + 'T12:00:00'))
     if (target === 'start') calendarDatesStart.value = dates
     else calendarDatesEnd.value = dates
@@ -833,10 +878,11 @@ async function fetchCalendarHighlights(year, month, target) {
 }
 
 function onStartMonthYearChange({ year, month }) {
-  fetchCalendarHighlights(year, month, 'start')
+  // VueDatePicker months are 0-indexed (0=Jan), backend expects 1-indexed
+  fetchCalendarHighlights(year, month + 1, 'start')
 }
 function onEndMonthYearChange({ year, month }) {
-  fetchCalendarHighlights(year, month, 'end')
+  fetchCalendarHighlights(year, month + 1, 'end')
 }
 
 onMounted(() => {

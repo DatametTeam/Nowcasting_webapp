@@ -43,7 +43,7 @@
                 :highlight="highlightedDates"
                 auto-apply
                 :dark="true"
-                format="dd/MM/yyyy"
+                :format="formatPickerDate"
                 model-type="yyyy-MM-dd"
                 input-class-name="dp-dark-input"
               />
@@ -77,7 +77,7 @@
             </label>
             <div class="flex flex-wrap gap-2">
               <label
-                v-for="model in configStore.models"
+                v-for="model in models"
                 :key="model"
                 class="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium
                        cursor-pointer transition-all select-none"
@@ -459,6 +459,9 @@ import { useConfigStore } from '../stores/config.js'
 
 const configStore = useConfigStore()
 
+// Filter out Test model — only shown in RealTime
+const models = computed(() => configStore.models.filter(m => m.toUpperCase() !== 'TEST'))
+
 // ---------------------------------------------------------------------------
 // Calendar highlighting (dates with predictions)
 // ---------------------------------------------------------------------------
@@ -473,10 +476,9 @@ const dayDetailExpanded = ref(true)
  * Called on mount and whenever the user navigates to a different month.
  */
 async function fetchCalendarAvailability(year, month) {
-  const models = configStore.models
-  if (!models.length) return
+  if (!models.value.length) return
   try {
-    const res = await api.getCalendarAvailability(models, year, month)
+    const res = await api.getCalendarAvailability(models.value, year, month)
     // Convert "YYYY-MM-DD" strings to Date objects for VueDatePicker highlight
     calendarDates.value = res.dates.map(d => new Date(d + 'T12:00:00'))
   } catch (e) {
@@ -486,8 +488,8 @@ async function fetchCalendarAvailability(year, month) {
 
 /** Called by VueDatePicker when the user navigates months. */
 function onMonthYearChange({ year, month }) {
-  // VueDatePicker months are 0-indexed internally but the event gives 1-indexed
-  fetchCalendarAvailability(year, month)
+  // VueDatePicker months are 0-indexed (0=Jan, 11=Dec), backend expects 1-indexed
+  fetchCalendarAvailability(year, month + 1)
 }
 
 /**
@@ -496,12 +498,11 @@ function onMonthYearChange({ year, month }) {
  */
 async function fetchDayDetail(dateStr) {
   if (!dateStr) { dayDetail.value = null; return }
-  const models = configStore.models
-  if (!models.length) return
+  if (!models.value.length) return
 
   dayDetailLoading.value = true
   try {
-    dayDetail.value = await api.getDayDetail(models, dateStr)
+    dayDetail.value = await api.getDayDetail(models.value, dateStr)
   } catch (e) {
     console.error('Failed to fetch day detail:', e)
     dayDetail.value = null
@@ -526,6 +527,19 @@ function formatDateShort(dateStr) {
   if (!dateStr) return ''
   const [y, m, d] = dateStr.split('-')
   return `${d}/${m}/${y}`
+}
+
+/** Custom format function for VueDatePicker (ensures DD/MM/YYYY display). */
+function formatPickerDate(date) {
+  if (!date) return ''
+  // With model-type="yyyy-MM-dd", date is a string like "2026-02-12"
+  if (typeof date === 'string') {
+    const parts = date.split('-')
+    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`
+    return date
+  }
+  const d = date instanceof Date ? date : new Date(date)
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
 }
 
 // ---------------------------------------------------------------------------
@@ -624,16 +638,16 @@ watch(selectedDateTime, async (newVal) => {
   const thisCheck = { cancelled: false }
   checkAbort = thisCheck
 
-  const models = configStore.models
+  const modelList = models.value
   const results = await Promise.allSettled(
-    models.map(model => api.checkSinglePrediction(model, newVal))
+    modelList.map(model => api.checkSinglePrediction(model, newVal))
   )
 
   if (thisCheck.cancelled) return
 
   const map = {}
   results.forEach((r, i) => {
-    map[models[i]] = r.status === 'fulfilled' && r.value.exists
+    map[modelList[i]] = r.status === 'fulfilled' && r.value.exists
   })
   availabilityMap.value = map
 })

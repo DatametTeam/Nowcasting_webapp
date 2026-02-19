@@ -413,47 +413,46 @@ const latestTimestampDisplay = computed(() => {
 // ---- Preload all 25 frames when model or timestamp changes ----
 
 async function preloadAllFrames() {
-  if (!selectedModel.value || !radarMap.value) return
-  // Test model uses static data — doesn't need a timestamp.
-  // Other models need latestTimestamp to build per-timestamp URLs.
-  const isTestModel = selectedModel.value.toUpperCase() === 'TEST'
-  if (!isTestModel && !latestTimestamp.value) return
+  if (!radarMap.value) return
+  // Need at least a timestamp to show groundtruth, OR the Test model
+  const isTest = selectedModel.value?.toUpperCase() === 'TEST'
+  if (!isTest && !latestTimestamp.value) return
 
   const baseDt = latestTimestamp.value ? new Date(latestTimestamp.value) : new Date()
+  const hasModel = !!selectedModel.value
 
   // Build 25 URLs: 13 past/current (groundtruth) + 12 future (predictions)
   //
-  // TEST MODEL: All 25 frames come from the static predictions.npy file.
-  //   Frames 0-11  → predictions.npy[0-11]  (groundtruth, frame_type='groundtruth')
-  //   Frame  12    → predictions.npy[11]     (last GT frame = current time)
-  //   Frames 13-24 → predictions.npy[12-23]  (predictions, frame_type='prediction')
+  // NO MODEL SELECTED: Only groundtruth frames (0-12) are loaded from SRI.
+  //   Future frames (13-24) return null → RadarMap shows blank (no overlay).
   //
-  // OTHER MODELS: Past frames from SRI files, future from per-timestamp .npy files.
-  const isTest = selectedModel.value.toUpperCase() === 'TEST'
-
+  // TEST MODEL: All 25 frames from the static predictions.npy file.
+  //
+  // OTHER MODELS: Past from SRI files, future from per-timestamp .npy files.
   const urls = Array.from({ length: TOTAL_FRAMES }, (_, i) => {
     const minuteOffset = frameToMinutes(i)
 
     if (minuteOffset <= 0) {
       if (isTest) {
-        // Test: groundtruth from predictions.npy[0-11]
-        // Frame 0 (-60min) → index 0, Frame 11 (-5min) → index 11, Frame 12 (0min) → index 11
         const gtIndex = Math.min(i, 11)
         return api.overlayUrl('Test', latestTimestamp.value, gtIndex, 'groundtruth')
       }
-      // Other models: groundtruth from SRI files
+      // Groundtruth from SRI files (works with or without a model selected)
       const pastDt = new Date(baseDt.getTime() + minuteOffset * 60000)
       const ts = formatIsoTimestamp(pastDt)
       return api.groundtruthOverlayUrl(ts)
     } else {
-      // Future: use prediction overlay (lead_time 0-11)
+      // Future: need a selected model for predictions
+      if (!hasModel) return null
       const leadTimeIndex = Math.round(minuteOffset / 5) - 1
       return api.overlayUrl(selectedModel.value, latestTimestamp.value, leadTimeIndex)
     }
   })
 
-  await radarMap.value.preloadFrames(urls)
-  // Show the frame matching the current slider position (not always frame 0)
+  // Filter out nulls for RadarMap — pass empty string so frame slots still line up
+  const safeUrls = urls.map(u => u || '')
+
+  await radarMap.value.preloadFrames(safeUrls)
   radarMap.value.showFrame(frameIndex.value)
 }
 
@@ -474,10 +473,9 @@ function formatIsoTimestamp(dt) {
 watch(selectedModel, () => { preloadAllFrames() })
 
 // When latest timestamp changes (new SRI data) → preload new frames.
-// During real-time mode, preloading is triggered when the selected model
-// transitions to "ready" (in pollRealtimeStatus), so we skip here.
+// This runs regardless of real-time mode so groundtruth always updates.
 watch(latestTimestamp, () => {
-  if (!realTimeActive.value) preloadAllFrames()
+  preloadAllFrames()
 })
 
 // When frame index changes (slider drag) → instantly show that frame
@@ -776,10 +774,13 @@ function stopSriPolling() {
 onMounted(async () => {
   await fetchLatestSRI()
 
+  // Immediately show groundtruth on the map (even before a model is selected)
+  await preloadAllFrames()
+
   // Start periodic SRI polling so groundtruth updates even when RT is off
   startSriPolling()
 
-  // Auto-select first model if available
+  // Auto-select first model if available (this triggers watch → preload with predictions)
   if (models.value.length > 0 && !selectedModel.value) {
     selectedModel.value = models.value[0]
   }
