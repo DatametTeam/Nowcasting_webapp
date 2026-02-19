@@ -65,6 +65,36 @@ const RADAR_BOUNDS = [
   [47.5730, 20.4801],   // Northeast corner
 ]
 
+// Italian radar station positions [name, lat, lon]
+const RADARS = [
+  ['BRIC', 45.034, 7.734],
+  ['CAPOCACCIA', 40.5671, 8.1588],
+  ['CAPOFIUME', 44.65, 11.62],
+  ['CROCIONE', 43.9615, 10.6103],
+  ['FIUMICINO', 41.9105, 12.2344],
+  ['FOSSALON', 45.72, 13.47],
+  ['GATTATICO', 44.79, 10.51],
+  ['GRANDE', 45.36, 11.67],
+  ['IL MONTE', 41.9394, 14.6208],
+  ['LAURO', 37.1126, 14.8357],
+  ['LINATE', 45.3437, 9.28837],
+  ['MACAION', 46.49, 11.21],
+  ['MIDIA', 42.0578, 13.1772],
+  ['PETTINASCURA', 39.3698, 16.6183],
+  ['RASU', 40.42, 9.01],
+  ['SAGITTARIA', 45.69, 12.79],
+  ['SERANO', 42.8659, 12.8002],
+  ['SETTEPANI', 44.247, 8.199],
+  ['XBAND1', 40.883, 14.286],
+  ['XBAND2', 38.07, 15.65],
+  ['XBAND3', 41.139, 16.76],
+  ['XBAND4', 37.462, 15.05],
+  ['ZOUFPLAN', 46.5625, 12.9703],
+  ['ARMIDDA', 39.8822, 9.4937],
+  ['DESIO', 45.6273, 9.1963],
+  ['FLERO', 45.4814, 10.1768],
+]
+
 // Base map tile layers
 const BASE_MAPS = {
   'Dark': L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
@@ -115,6 +145,24 @@ onMounted(() => {
     searchLabel: 'Search place...',
   })
   map.addControl(searchControl)
+
+  // Add radar station markers with custom icon and tooltip on hover
+  const radarIcon = L.icon({
+    iconUrl: '/radar.png',
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+    tooltipAnchor: [0, -14],
+  })
+
+  for (const [name, lat, lon] of RADARS) {
+    L.marker([lat, lon], { icon: radarIcon, interactive: true })
+      .bindTooltip(name, {
+        permanent: false,
+        direction: 'top',
+        className: 'radar-tooltip',
+      })
+      .addTo(map)
+  }
 })
 
 onUnmounted(() => {
@@ -300,5 +348,22 @@ defineExpose({ preloadFrames, showFrame, setOverlayOpacity, invalidateSize })
 }
 .leaflet-control-geosearch .results > *:hover {
   background: rgba(255, 255, 255, 0.1);
+}
+
+/* Radar station tooltip — dark style matching the map theme */
+.radar-tooltip {
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 4px 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.radar-tooltip::before {
+  border-top-color: rgba(0, 0, 0, 0.8) !important;
 }
 </style>
