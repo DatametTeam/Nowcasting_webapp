@@ -79,11 +79,18 @@ def _get_warp_lookup():
     """
     Precompute and cache the nearest-neighbor sampling indices for reprojection.
 
-    WHY: The radar data is in Transverse Mercator (tmerc, lat_0=42°, lon_0=12.5°).
-    Leaflet's ImageOverlay treats images as equirectangular, so we must reproject
-    to a regular lat/lon grid before serving. The index lookup (pyproj on 1.68M
-    points + grid arithmetic) is the expensive part and is always the same —
-    computing it once and reusing it makes each warp ~5-10x faster.
+    WHY — Web Mercator vs equirectangular:
+    Leaflet internally uses EPSG:3857 (Web Mercator) and stretches ImageOverlay
+    images linearly in meters between the SW and NE corners. If we create a grid
+    that is uniform in lat/lon degrees (equirectangular), the vertical pixel
+    spacing in Web Mercator increases toward the poles, so northern features end
+    up displayed a few km too far north.
+
+    FIX: create the destination grid uniform in EPSG:3857 meters instead.
+    Then Leaflet's linear stretch is exact and the overlay aligns perfectly.
+
+    The bounds passed to Leaflet stay in EPSG:4326 lat/lon — Leaflet converts
+    them to EPSG:3857 internally, which is consistent with our grid.
 
     Returns:
         (col_indices, line_indices, valid_mask, nlines_dst, ncols_dst)
@@ -98,14 +105,29 @@ def _get_warp_lookup():
 
     source_proj = Proj(proj="tmerc", lat_0=src.prj_lat, lon_0=src.prj_lon, x_0=0, y_0=0, ellps="WGS84")
 
-    dest_lons = np.linspace(dst.minLon, dst.maxLon, dst.ncols)
-    dest_lats = np.linspace(dst.maxLat, dst.minLat, dst.nlines)
-    dest_lon_grid, dest_lat_grid = np.meshgrid(dest_lons, dest_lats)
+    # EPSG:3857 uses the WGS84 equatorial radius
+    R = 6378137.0
 
-    dest_x, dest_y = source_proj(dest_lon_grid, dest_lat_grid)
+    # Convert lat/lon bounds to Web Mercator (EPSG:3857) in meters
+    x_min = R * np.radians(dst.minLon)
+    x_max = R * np.radians(dst.maxLon)
+    y_min = R * np.log(np.tan(np.pi / 4 + np.radians(dst.minLat) / 2))
+    y_max = R * np.log(np.tan(np.pi / 4 + np.radians(dst.maxLat) / 2))
 
-    col_indices = ((dest_x / src.cRes) + src.cOff).astype(int)
-    line_indices = ((dest_y / src.lRes) + src.lOff).astype(int)
+    # Destination grid: uniform spacing in EPSG:3857 meters
+    dest_x_merc = np.linspace(x_min, x_max, dst.ncols)
+    dest_y_merc = np.linspace(y_max, y_min, dst.nlines)   # north (top) to south (bottom)
+    dest_xm_grid, dest_ym_grid = np.meshgrid(dest_x_merc, dest_y_merc)
+
+    # EPSG:3857 → EPSG:4326 (lat/lon in degrees)
+    dest_lon = np.degrees(dest_xm_grid / R)
+    dest_lat = np.degrees(2 * np.arctan(np.exp(dest_ym_grid / R)) - np.pi / 2)
+
+    # EPSG:4326 → source tmerc → source grid indices
+    dest_x_tmerc, dest_y_tmerc = source_proj(dest_lon, dest_lat)
+
+    col_indices = ((dest_x_tmerc / src.cRes) + src.cOff).astype(int)
+    line_indices = ((dest_y_tmerc / src.lRes) + src.lOff).astype(int)
 
     valid_mask = (
         (col_indices >= 0) & (col_indices < src.ncols) &
@@ -118,16 +140,14 @@ def _get_warp_lookup():
 
 def _warp_frame(frame: np.ndarray) -> np.ndarray:
     """
-    Reproject a 2D Transverse Mercator frame to equirectangular lat/lon using
+    Reproject a 2D Transverse Mercator frame to Web Mercator (EPSG:3857) using
     cached nearest-neighbor lookup tables.
 
-    The raw radar data is in tmerc projection. Leaflet's ImageOverlay stretches
-    images between two lat/lon corners assuming equirectangular layout. Without
-    reprojection the overlay is misaligned (shifted/distorted) relative to map
-    features.
+    The raw radar data is in tmerc. The output is a Web Mercator image: pixels
+    are uniform in EPSG:3857 meters, so Leaflet's linear stretch between the
+    SW/NE bounds is geometrically exact and the overlay aligns with the basemap.
 
-    Row 0 of the output = northernmost latitude, matching Leaflet's
-    ImageOverlay convention (row 0 = top = NE corner of bounds).
+    Row 0 = northernmost (top of image = NE corner of Leaflet bounds).
 
     Note: the original warp_map() in geo/warping.py does np.flipud to
     match Folium's origin="lower" convention (row 0 = south). Leaflet

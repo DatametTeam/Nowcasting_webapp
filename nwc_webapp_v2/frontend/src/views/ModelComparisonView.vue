@@ -444,7 +444,7 @@
         <svg class="mx-auto w-16 h-16 text-gray-300 mb-4" fill="none" stroke="currentColor" stroke-width="1" viewBox="0 0 24 24">
           <path d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
-        <p class="text-gray-400 text-sm">Select 2+ models and a date/time, then click <strong>Load Comparison</strong></p>
+        <p class="text-gray-400 text-sm">Select one or more models and a date/time, then click <strong>Load Comparison</strong></p>
       </div>
     </div>
   </div>
@@ -671,7 +671,7 @@ const csiData = ref(null)
 const csiLoading = ref(false)
 
 const canLoad = computed(() =>
-  selectedModels.value.length >= 2 && selectedDateTime.value && selectedDateTime.value.length >= 16 && !loading.value && !computing.value
+  selectedModels.value.length >= 1 && selectedDateTime.value && selectedDateTime.value.length >= 16 && !loading.value && !computing.value
 )
 
 const availableModels = computed(() =>
@@ -682,7 +682,7 @@ const availableModels = computed(() =>
 const buttonLabel = computed(() => {
   if (loading.value) return 'Loading...'
   if (computing.value) return 'Computing...'
-  if (!allSelectedAvailable.value && selectedModels.value.length >= 2) return 'Compute Predictions'
+  if (!allSelectedAvailable.value && selectedModels.value.length >= 1) return 'Compute Predictions'
   return 'Load Comparison'
 })
 
@@ -1031,8 +1031,8 @@ async function loadComparison() {
       availabilityMap.value = map
     }
 
-    if (availableModels.value.length < 2) {
-      error.value = 'Need at least 2 models with available predictions for comparison.'
+    if (availableModels.value.length < 1) {
+      error.value = 'No models with available predictions found.'
       return
     }
 
