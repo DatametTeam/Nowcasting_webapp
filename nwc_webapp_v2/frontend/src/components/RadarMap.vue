@@ -52,12 +52,16 @@ const loadedCount = ref(0)
 const totalCount = ref(0)
 
 let map = null
-// Array of Leaflet ImageOverlay layers (one per frame)
+// Array of Leaflet ImageOverlay layers (one per frame) — used by single-product API
 let frameLayers = []
 let activeFrameIndex = -1
-// Generation counter: incremented on each preloadFrames call so that
+// Generation counter: incremented on each preloadFrames/loadProductFrames call so that
 // stale (superseded) preloads discard their results instead of leaking layers.
 let preloadGeneration = 0
+
+// Multi-product layer map for DataExplorer:
+// { productKey: { layers: [...ImageOverlay|null], activeIndex: number, opacity: number } }
+let productLayerMap = {}
 
 // Radar overlay bounds (from maps.py in the Streamlit app)
 const RADAR_BOUNDS = [
@@ -301,8 +305,117 @@ function invalidateSize() {
   }
 }
 
+// ==========================================================================
+// Multi-product API (used by DataExplorerView)
+// ==========================================================================
+
+/**
+ * Remove all existing overlay layers for a specific product.
+ */
+function removeProduct(product) {
+  if (!productLayerMap[product]) return
+  for (const layer of productLayerMap[product].layers) {
+    if (map && layer) map.removeLayer(layer)
+  }
+  delete productLayerMap[product]
+}
+
+/**
+ * Remove all product layers from the map (full reset for multi-product view).
+ */
+function clearAllProducts() {
+  for (const product of Object.keys(productLayerMap)) {
+    removeProduct(product)
+  }
+}
+
+/**
+ * Preload all frames for a single product in parallel.
+ * Creates hidden ImageOverlay layers — call showAllAtFrame() to display them.
+ *
+ * @param {string} product - Product key (e.g. 'SRI_adj', 'VMI')
+ * @param {string[]} urls - Array of image URLs, one per unified timestamp
+ * @param {number} opacity - Initial opacity for visible frames
+ */
+async function loadProductFrames(product, urls, opacity = 0.7) {
+  if (!map) return
+
+  const gen = ++preloadGeneration
+  removeProduct(product)
+
+  const layers = new Array(urls.length).fill(null)
+
+  const promises = urls.map((url, index) => {
+    if (!url) return Promise.resolve({ index, success: false })
+    return new Promise((resolve) => {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => resolve({ index, url, success: true })
+      img.onerror = () => resolve({ index, url, success: false })
+      img.src = url
+    })
+  })
+
+  const results = await Promise.all(promises)
+  if (gen !== preloadGeneration) return
+
+  for (const result of results) {
+    if (result.success) {
+      layers[result.index] = L.imageOverlay(result.url, RADAR_BOUNDS, {
+        opacity: 0,
+        interactive: false,
+      }).addTo(map)
+    }
+  }
+
+  productLayerMap[product] = { layers, activeIndex: -1, opacity }
+}
+
+/**
+ * Show a specific frame for all loaded products simultaneously.
+ * Hides the previous frame for each product.
+ *
+ * @param {number} frameIndex - Index into the unified timestamp array
+ */
+function showAllAtFrame(frameIndex) {
+  for (const entry of Object.values(productLayerMap)) {
+    // Hide current
+    if (entry.activeIndex >= 0 && entry.layers[entry.activeIndex]) {
+      entry.layers[entry.activeIndex].setOpacity(0)
+    }
+    // Show new frame at product opacity
+    if (frameIndex >= 0 && frameIndex < entry.layers.length && entry.layers[frameIndex]) {
+      entry.layers[frameIndex].setOpacity(entry.opacity)
+    }
+    entry.activeIndex = frameIndex
+  }
+}
+
+/**
+ * Update the opacity of the currently visible frame for a product.
+ *
+ * @param {string} product - Product key
+ * @param {number} opacity - New opacity value (0–1)
+ */
+function setProductOpacity(product, opacity) {
+  if (!productLayerMap[product]) return
+  const entry = productLayerMap[product]
+  entry.opacity = opacity
+  if (entry.activeIndex >= 0 && entry.layers[entry.activeIndex]) {
+    entry.layers[entry.activeIndex].setOpacity(opacity)
+  }
+}
+
 // Expose methods for the parent component to call
-defineExpose({ preloadFrames, showFrame, setOverlayOpacity, invalidateSize })
+defineExpose({
+  // Single-product (backward compat — used by RealTimeView)
+  preloadFrames, showFrame, setOverlayOpacity,
+  // Multi-product (used by DataExplorerView)
+  loadProductFrames, showAllAtFrame, setProductOpacity,
+  removeProduct, clearAllProducts,
+  // Utility
+  invalidateSize,
+})
 </script>
 
 <style>

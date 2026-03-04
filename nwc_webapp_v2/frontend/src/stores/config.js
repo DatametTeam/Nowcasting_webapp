@@ -29,6 +29,7 @@ export const useConfigStore = defineStore('config', {
     sriFolder: '',
     gifStorage: '',
     csiThresholds: [],
+    radarProducts: {},
     loaded: false,
     error: null,
   }),
@@ -47,6 +48,7 @@ export const useConfigStore = defineStore('config', {
         this.sriFolder = data.sri_folder
         this.gifStorage = data.gif_storage
         this.csiThresholds = data.csi_thresholds
+        this.radarProducts = data.radar_products || {}
         this.loaded = true
         this.error = null
       } catch (e) {

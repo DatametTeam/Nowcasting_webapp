@@ -1,0 +1,7 @@
+parname = CZ
+unit    = dbZ
+offset  = -31
+slope   = 0.5
+voidInd = 1
+nullInd = 0
+bottom  = 2

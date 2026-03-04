@@ -1,0 +1,7 @@
+mode  = legend
+color = 0 0 0
+font  = Helvetica
+size  = 10
+tickformat = (I)
+title = mt
+scale    = 1.2 0.06

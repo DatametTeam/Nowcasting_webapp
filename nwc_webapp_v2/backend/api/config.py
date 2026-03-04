@@ -19,6 +19,7 @@ from fastapi import APIRouter
 
 from nwc_webapp.config.config import get_config
 from nwc_webapp.config.environment import is_hpc, is_local
+from nwc_webapp.rendering.colormaps import get_legend_data, build_legend_file_path
 
 router = APIRouter(prefix="/api/config", tags=["config"])
 
@@ -34,6 +35,29 @@ async def get_app_config():
     """
     config = get_config()
 
+    # Build radar_products with parsed legend data for the frontend colorbar
+    radar_products = {}
+    for product_name, product_cfg in config.radar_products.items():
+        legend_name = product_cfg.get("legend", "R")
+        legend_path = build_legend_file_path(legend_name)
+        thresholds = []
+        colors = []
+        if legend_path.exists():
+            legend_data = get_legend_data(legend_path)
+            thresholds = legend_data["Thresh"]
+            # Convert (r,g,b,a) float tuples back to rgb() strings for CSS
+            colors = [
+                f"rgb({int(r*255)},{int(g*255)},{int(b*255)})"
+                for r, g, b, *_ in legend_data["rgb"]
+            ]
+        radar_products[product_name] = {
+            "legend": legend_name,
+            "label": product_cfg.get("label", product_name),
+            "unit": product_cfg.get("unit", ""),
+            "thresholds": thresholds,
+            "colors": colors,
+        }
+
     return {
         "models": config.models,
         "environment": "hpc" if is_hpc() else "local",
@@ -41,6 +65,7 @@ async def get_app_config():
         "gif_storage": str(config.gif_storage),
         "real_time_pred": str(config.real_time_pred),
         "csi_thresholds": config.csi_threshold,
+        "radar_products": radar_products,
     }
 
 

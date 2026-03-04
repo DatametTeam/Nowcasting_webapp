@@ -201,6 +201,28 @@ class Config:
         # Resolve relative to package root (config.py is in config/ subfolder)
         return Path(__file__).parent.parent / rel_path
 
+    @property
+    def radar_products(self) -> Dict[str, Any]:
+        """Get radar product configurations for the Data Explorer."""
+        return self._config.get("radar_products", {})
+
+    def get_product_folder(self, product_name: str) -> Optional[Path]:
+        """
+        Get the data folder for a radar product based on the current environment.
+
+        Args:
+            product_name: Product key (e.g. 'SRI_adj', 'VMI')
+
+        Returns:
+            Path to product folder, or None if not configured for this environment.
+        """
+        products = self.radar_products
+        if product_name not in products:
+            return None
+        product = products[product_name]
+        folder = product.get("folder_hpc", "") if is_hpc() else product.get("folder_local", "")
+        return Path(folder) if folder else None
+
     # Structured configs
     @property
     def visualization(self) -> VisualizationConfig:

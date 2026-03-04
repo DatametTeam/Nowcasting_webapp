@@ -1,0 +1,6 @@
+mode     = legend
+color    = 255 255 255
+font     = Helvetica
+size     = 16
+position = 0.9 0.6
+title    = kg/mq

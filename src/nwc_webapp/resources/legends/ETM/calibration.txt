@@ -1,0 +1,7 @@
+parname = ETM
+unit    = m
+offset  = 2000
+slope   = 60
+nullInd = 0
+voidInd = 1
+bottom  = 2

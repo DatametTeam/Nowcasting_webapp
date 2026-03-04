@@ -1,0 +1,6 @@
+parname   = VIL
+unit      = kg/mq
+scaling   = 6
+minVal    = 0
+maxVal    = 100
+nullInd   = 0

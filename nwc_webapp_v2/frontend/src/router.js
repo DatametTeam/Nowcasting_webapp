@@ -20,6 +20,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import RealTimeView from './views/RealTimeView.vue'
+import DataExplorerView from './views/DataExplorerView.vue'
 import ModelComparisonView from './views/ModelComparisonView.vue'
 import MetricsView from './views/MetricsView.vue'
 
@@ -30,6 +31,11 @@ const routes = [
     path: '/realtime',
     name: 'Real Time',
     component: RealTimeView,
+  },
+  {
+    path: '/explorer',
+    name: 'Data Explorer',
+    component: DataExplorerView,
   },
   {
     path: '/comparison',

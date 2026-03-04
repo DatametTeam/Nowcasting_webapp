@@ -1,0 +1,5 @@
+mode  = legend
+color = 255 255 255
+font  = Helvetica
+size  = 14
+title = dbZ

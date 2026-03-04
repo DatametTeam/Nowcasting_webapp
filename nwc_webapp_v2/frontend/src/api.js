@@ -116,11 +116,21 @@ export default {
   getJobErrorLog: (model, jobId) =>
     get(`/jobs/error-log?model=${model}&job_id=${jobId}`),
 
-  // --- Rendering ---
+  // --- Data Explorer ---
   /**
-   * Returns the URL for an overlay image (not fetched, used as <img src>).
-   * The browser will request the image directly from the backend.
+   * Get available HDF5 timestamps for a radar product in a date range (max 12h).
    */
+  explorerTimestamps: (start, end, product = 'SRI_adj') =>
+    get(`/data/explorer/timestamps?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&product=${product}`),
+
+  /**
+   * Returns the URL for a product overlay at a given timestamp.
+   * Used as an <img src> by RadarMap's ImageOverlay.
+   */
+  explorerOverlayUrl: (product, timestamp) =>
+    `${API_BASE}/render/overlay/groundtruth/${encodeURIComponent(timestamp)}?product=${product}`,
+
+  // --- Rendering ---
   /**
    * Returns the URL for a groundtruth (SRI) overlay image.
    * Used for the past portion of the timeline (-60 to 0 minutes).

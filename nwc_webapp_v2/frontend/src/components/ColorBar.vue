@@ -1,22 +1,19 @@
 <!--
-  ColorBar.vue — Precipitation colorbar legend for the radar map.
+  ColorBar.vue — Radar product colorbar legend.
 
-  Displays a vertical gradient colorbar matching the server-side colormap
-  used for rendering radar overlays. The colors and thresholds come from
-  the legend file (src/nwc_webapp/resources/legends/R/legend.txt).
+  Accepts an optional `legend` prop:
+    { label, unit, thresholds: number[], colors: string[] }
 
-  COLORMAP EXPLANATION:
-  The backend uses a LinearSegmentedColormap with 10 color stops,
-  mapped non-linearly via CustomNorm to thresholds:
-    [0, 1, 2, 5, 10, 20, 30, 50, 75, 100] mm/h
+  If no prop is provided (e.g. in RealTimeView), falls back to the
+  hardcoded SRI rain rate colormap (backward compat).
 
-  In the colormap, these 10 colors are evenly spaced (0% to 100%),
-  but the threshold values are non-linear. So the gradient is evenly
-  spaced but the tick labels show the actual mm/h values.
+  Thresholds and colors come from /api/config/ → radar_products[product].
+  The gradient is evenly spaced (one stop per color), but tick labels
+  show the actual physical values (non-linear).
 -->
 <template>
   <div class="colorbar-container">
-    <div class="colorbar-title">mm/h</div>
+    <div class="colorbar-title">{{ unit }}</div>
     <div class="colorbar-body">
       <!-- Tick labels on the left -->
       <div class="colorbar-ticks">
@@ -30,21 +27,67 @@
         </span>
       </div>
       <!-- Gradient bar -->
-      <div class="colorbar-gradient" />
+      <div class="colorbar-gradient" :style="{ background: gradient }" />
     </div>
   </div>
 </template>
 
 <script setup>
-// Thresholds from legend.txt: [0, 1, 2, 5, 10, 20, 30, 50, 75, 100]
-// Colors are evenly spaced in colormap space (10 stops → 0%, 11.1%, 22.2%, ...)
-const thresholds = [0, 1, 2, 5, 10, 20, 30, 50, 75, 100]
+import { computed } from 'vue'
 
-const ticks = thresholds.map((value, i) => ({
-  value,
-  // Position as percentage (evenly spaced in colormap space)
-  position: (i / (thresholds.length - 1)) * 100,
-}))
+// ---- Default SRI (R legend) data — used when no `legend` prop is provided ----
+const DEFAULT_THRESHOLDS = [0, 1, 2, 5, 10, 20, 30, 50, 75, 100]
+const DEFAULT_COLORS = [
+  'rgb(100,100,100)',
+  'rgb(0,120,200)',
+  'rgb(0,200,250)',
+  'rgb(0,150,0)',
+  'rgb(0,250,0)',
+  'rgb(250,250,0)',
+  'rgb(250,150,0)',
+  'rgb(250,0,0)',
+  'rgb(180,0,0)',
+  'rgb(220,100,250)',
+]
+const DEFAULT_UNIT = 'mm/h'
+
+const props = defineProps({
+  /**
+   * Legend data from the config store.
+   * Shape: { label: string, unit: string, thresholds: number[], colors: string[] }
+   * If null/undefined, the hardcoded SRI defaults are used.
+   */
+  legend: {
+    type: Object,
+    default: null,
+  },
+})
+
+const thresholds = computed(() =>
+  props.legend?.thresholds?.length ? props.legend.thresholds : DEFAULT_THRESHOLDS
+)
+const colors = computed(() =>
+  props.legend?.colors?.length ? props.legend.colors : DEFAULT_COLORS
+)
+const unit = computed(() => props.legend?.unit ?? DEFAULT_UNIT)
+
+// Position of each tick as a % from bottom (evenly spaced in colormap space)
+const ticks = computed(() =>
+  thresholds.value.map((value, i) => ({
+    value,
+    position: (i / (thresholds.value.length - 1)) * 100,
+  }))
+)
+
+// Build CSS gradient string from colors (bottom = lowest, top = highest)
+const gradient = computed(() => {
+  const n = colors.value.length
+  const stops = colors.value.map((color, i) => {
+    const pct = ((i / (n - 1)) * 100).toFixed(1)
+    return `${color} ${pct}%`
+  })
+  return `linear-gradient(to top, ${stops.join(', ')})`
+})
 </script>
 
 <style scoped>
@@ -70,7 +113,7 @@ const ticks = thresholds.map((value, i) => ({
 .colorbar-body {
   display: flex;
   align-items: stretch;
-  height: 220px;
+  height: 180px;
   gap: 4px;
 }
 
@@ -95,34 +138,5 @@ const ticks = thresholds.map((value, i) => ({
 .colorbar-gradient {
   width: 14px;
   border-radius: 3px;
-  /*
-    Colors from legend.txt (RGB values), evenly spaced in gradient.
-    Bottom = low values (gray), Top = high values (purple).
-
-    The 10 colors match the 10 thresholds:
-      0 mm/h:   rgb(100, 100, 100)  — gray
-      1 mm/h:   rgb(0, 120, 200)    — blue
-      2 mm/h:   rgb(0, 200, 250)    — cyan
-      5 mm/h:   rgb(0, 150, 0)      — dark green
-      10 mm/h:  rgb(0, 250, 0)      — bright green
-      20 mm/h:  rgb(250, 250, 0)    — yellow
-      30 mm/h:  rgb(250, 150, 0)    — orange
-      50 mm/h:  rgb(250, 0, 0)      — red
-      75 mm/h:  rgb(180, 0, 0)      — dark red
-      100 mm/h: rgb(220, 100, 250)  — purple
-  */
-  background: linear-gradient(
-    to top,
-    rgb(100, 100, 100) 0%,
-    rgb(0, 120, 200) 11.1%,
-    rgb(0, 200, 250) 22.2%,
-    rgb(0, 150, 0) 33.3%,
-    rgb(0, 250, 0) 44.4%,
-    rgb(250, 250, 0) 55.6%,
-    rgb(250, 150, 0) 66.7%,
-    rgb(250, 0, 0) 77.8%,
-    rgb(180, 0, 0) 88.9%,
-    rgb(220, 100, 250) 100%
-  );
 }
 </style>

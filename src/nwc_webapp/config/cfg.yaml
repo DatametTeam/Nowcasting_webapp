@@ -160,3 +160,30 @@ logging:
   level: "INFO"
   log_to_file: false
   log_to_console: true
+
+# Radar products for the Data Explorer tab
+radar_products:
+  SRI_adj:
+    legend: "R"
+    label: "Rain Rate"
+    unit: "mm/h"
+    folder_local: "data/mock_sri"
+    folder_hpc: "/davinci-1/work/protezionecivile/data1/SRI_adj"
+  VMI:
+    legend: "CZ"
+    label: "Reflectivity"
+    unit: "dBZ"
+    folder_local: ""
+    folder_hpc: "/davinci-1/work/protezionecivile/data1/VMI"
+  ETM:
+    legend: "ETM"
+    label: "Echo Top"
+    unit: "m"
+    folder_local: ""
+    folder_hpc: "/davinci-1/work/protezionecivile/data1/ETM"
+  VIL:
+    legend: "VIL"
+    label: "VIL"
+    unit: "kg/m²"
+    folder_local: ""
+    folder_hpc: "/davinci-1/work/protezionecivile/data1/VIL"

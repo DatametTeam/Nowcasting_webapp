@@ -45,6 +45,9 @@ router = APIRouter(prefix="/api/render", tags=["rendering"])
 # Cached helpers — loaded once, reused for every request
 # ==========================================================================
 
+# Per-product colormap/norm cache — keyed by product legend name (e.g. 'R', 'CZ')
+_product_cmaps: dict = {}
+
 _radar_mask = None
 
 
@@ -163,7 +166,26 @@ def _warp_frame(frame: np.ndarray) -> np.ndarray:
     return warped
 
 
-def _frame_to_png_bytes(frame):
+def _get_product_cmap_norm(legend_name: str):
+    """
+    Return (cmap, norm) for a given legend name, cached per legend.
+    Falls back to the default SRI 'R' colormap if the legend is not found.
+    """
+    global _product_cmaps
+    if legend_name in _product_cmaps:
+        return _product_cmaps[legend_name]
+
+    from nwc_webapp.rendering.colormaps import configure_colorbar
+    result = configure_colorbar(legend_name, min_val=0, max_val=100)
+    product_cmap, product_norm = result[0], result[1]
+    # configure_colorbar returns 'jet' string when legend file missing — fall back to default
+    if isinstance(product_cmap, str):
+        product_cmap, product_norm = cmap, norm
+    _product_cmaps[legend_name] = (product_cmap, product_norm)
+    return product_cmap, product_norm
+
+
+def _frame_to_png_bytes(frame, frame_cmap=None, frame_norm=None):
     """
     Convert a 2D numpy array to RGBA PNG bytes using the radar colormap.
 
@@ -173,10 +195,18 @@ def _frame_to_png_bytes(frame):
     3. Make no-precipitation pixels fully transparent
     4. Encode as PNG with fast compression (level 1)
 
+    frame_cmap / frame_norm: optional colormap/norm overrides.
+    If None, uses the default SRI 'R' colormap.
+
     Returns bytes (not a buffer), suitable for Response(content=...).
     """
-    normalized = norm(frame)
-    rgba = cmap(normalized)  # Float RGBA array (0-1)
+    if frame_cmap is None:
+        frame_cmap = cmap
+    if frame_norm is None:
+        frame_norm = norm
+
+    normalized = frame_norm(frame)
+    rgba = frame_cmap(normalized)  # Float RGBA array (0-1)
     # Transparent where no precipitation or outside the radar domain (NaN from warp)
     rgba[~np.isfinite(frame) | (frame <= 0)] = [0, 0, 0, 0]
 
@@ -200,13 +230,16 @@ _CACHE_HEADERS = {"Cache-Control": "public, max-age=3600"}
 # ==========================================================================
 
 @router.get("/overlay/groundtruth/{timestamp}")
-async def get_groundtruth_overlay(timestamp: str):
+async def get_groundtruth_overlay(
+    timestamp: str,
+    product: str = Query("SRI_adj", description="Radar product (SRI_adj, VMI, ETM, VIL)"),
+):
     """
-    Generate a groundtruth (SRI) overlay image (RGBA PNG) for the map.
+    Generate a radar product overlay image (RGBA PNG) for the map.
 
-    Loads the raw SRI HDF5 file for a given timestamp and renders it
-    with the same colormap used for predictions. This powers the "past"
-    section of the timeline slider (-60 to 0 minutes).
+    The default product is SRI_adj (rain rate), which powers the "past"
+    section of the real-time timeline. The Data Explorer tab uses this
+    endpoint for all products by passing ?product=VMI, ?product=ETM, etc.
     """
     try:
         dt = datetime.fromisoformat(timestamp)
@@ -214,13 +247,23 @@ async def get_groundtruth_overlay(timestamp: str):
         raise HTTPException(status_code=400, detail=f"Invalid datetime: {e}")
 
     config = get_config()
-    sri_filename = dt.strftime("%d-%m-%Y-%H-%M") + ".hdf"
-    sri_path = Path(str(config.sri_folder)) / sri_filename
+    filename = dt.strftime("%d-%m-%Y-%H-%M") + ".hdf"
 
-    if not sri_path.exists():
-        raise HTTPException(status_code=404, detail=f"SRI file not found: {sri_filename}")
+    # Resolve product folder and legend
+    products = config.radar_products
+    if product not in products:
+        raise HTTPException(status_code=400, detail=f"Unknown product: {product}")
 
-    with h5py.File(sri_path, "r") as f:
+    product_cfg = products[product]
+    product_folder = config.get_product_folder(product)
+    if not product_folder:
+        raise HTTPException(status_code=404, detail=f"No data folder configured for {product} in this environment")
+
+    file_path = Path(str(product_folder)) / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+
+    with h5py.File(file_path, "r") as f:
         if "dataset1/data1/data" in f:
             frame = f["dataset1/data1/data"][()].astype(float)
         else:
@@ -234,10 +277,13 @@ async def get_groundtruth_overlay(timestamp: str):
     frame[frame < 0] = 0
     frame = np.clip(frame, 0, 200)
 
-    # Reproject from Transverse Mercator to equirectangular lat/lon
+    # Reproject from Transverse Mercator to Web Mercator
     frame = _warp_frame(frame)
 
-    png_bytes = _frame_to_png_bytes(frame)
+    # Use per-product colormap
+    legend_name = product_cfg.get("legend", "R")
+    p_cmap, p_norm = _get_product_cmap_norm(legend_name)
+    png_bytes = _frame_to_png_bytes(frame, p_cmap, p_norm)
     return Response(content=png_bytes, media_type="image/png", headers=_CACHE_HEADERS)
 
 

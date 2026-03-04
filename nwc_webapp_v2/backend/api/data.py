@@ -287,6 +287,77 @@ async def predictions_day_detail(
 
 
 # ============================================================================
+# Data Explorer endpoints
+# ============================================================================
+
+@router.get("/explorer/timestamps")
+async def explorer_timestamps(
+    start: str = Query(..., description="Start datetime (YYYY-MM-DDTHH:MM)"),
+    end: str = Query(..., description="End datetime (YYYY-MM-DDTHH:MM)"),
+    product: str = Query("SRI_adj", description="Radar product (SRI_adj, VMI, ETM, VIL)"),
+):
+    """
+    List available HDF5 timestamps for a radar product in a date range.
+
+    Generates expected 5-minute timestamps and checks which files exist
+    in the product folder. Returns found + missing lists.
+
+    Maximum range: 12 hours.
+    """
+    try:
+        start_dt = datetime.fromisoformat(start)
+        end_dt = datetime.fromisoformat(end)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid datetime format: {e}")
+
+    if end_dt <= start_dt:
+        raise HTTPException(status_code=400, detail="End datetime must be after start datetime")
+
+    if (end_dt - start_dt).total_seconds() > 12 * 3600:
+        raise HTTPException(status_code=400, detail="Date range cannot exceed 12 hours")
+
+    config = get_config()
+    products = config.radar_products
+    if product not in products:
+        raise HTTPException(status_code=400, detail=f"Unknown product: {product}. Available: {list(products.keys())}")
+
+    product_folder = config.get_product_folder(product)
+    if not product_folder:
+        # No folder configured for this environment — return empty result (not an error)
+        return {
+            "timestamps": [],
+            "missing": [],
+            "total_expected": 0,
+            "total_found": 0,
+            "product": product,
+        }
+
+    # Generate all expected 5-minute timestamps
+    expected = []
+    current = start_dt
+    while current <= end_dt:
+        expected.append(current)
+        current += timedelta(minutes=5)
+
+    found = []
+    missing = []
+    for dt in expected:
+        filename = dt.strftime("%d-%m-%Y-%H-%M") + ".hdf"
+        if (product_folder / filename).exists():
+            found.append(dt.isoformat())
+        else:
+            missing.append(dt.isoformat())
+
+    return {
+        "timestamps": found,
+        "missing": missing,
+        "total_expected": len(expected),
+        "total_found": len(found),
+        "product": product,
+    }
+
+
+# ============================================================================
 # Mock data generation (local development only)
 # ============================================================================
 
