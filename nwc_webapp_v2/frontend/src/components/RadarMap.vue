@@ -63,6 +63,10 @@ let preloadGeneration = 0
 // { productKey: { layers: [...ImageOverlay|null], activeIndex: number, opacity: number } }
 let productLayerMap = {}
 
+// Per-product generation counters — independent of the single-product counter.
+// Allows loading 4 products in parallel without cancelling each other.
+let productGenerations = {}
+
 // Radar overlay bounds (from maps.py in the Streamlit app)
 const RADAR_BOUNDS = [
   [35.0623, 4.51987],   // Southwest corner
@@ -327,6 +331,7 @@ function clearAllProducts() {
   for (const product of Object.keys(productLayerMap)) {
     removeProduct(product)
   }
+  productGenerations = {}
 }
 
 /**
@@ -340,7 +345,11 @@ function clearAllProducts() {
 async function loadProductFrames(product, urls, opacity = 0.7) {
   if (!map) return
 
-  const gen = ++preloadGeneration
+  // Use per-product generation so parallel loads of different products
+  // don't cancel each other (bug: shared preloadGeneration did exactly that).
+  if (!productGenerations[product]) productGenerations[product] = 0
+  const myGen = ++productGenerations[product]
+
   removeProduct(product)
 
   const layers = new Array(urls.length).fill(null)
@@ -357,7 +366,8 @@ async function loadProductFrames(product, urls, opacity = 0.7) {
   })
 
   const results = await Promise.all(promises)
-  if (gen !== preloadGeneration) return
+  // Only cancel if THIS product's load was superseded — not other products
+  if (myGen !== productGenerations[product]) return
 
   for (const result of results) {
     if (result.success) {
@@ -376,16 +386,24 @@ async function loadProductFrames(product, urls, opacity = 0.7) {
  * Hides the previous frame for each product.
  *
  * @param {number} frameIndex - Index into the unified timestamp array
+ * @param {Object|null} opacities - Optional { product: opacity } map.
+ *   If provided, each product uses its entry from this map instead of
+ *   entry.opacity. Pass 0 to hide a disabled product without removing
+ *   its layers.
  */
-function showAllAtFrame(frameIndex) {
-  for (const entry of Object.values(productLayerMap)) {
-    // Hide current
+function showAllAtFrame(frameIndex, opacities = null) {
+  for (const [product, entry] of Object.entries(productLayerMap)) {
+    // Hide current frame
     if (entry.activeIndex >= 0 && entry.layers[entry.activeIndex]) {
       entry.layers[entry.activeIndex].setOpacity(0)
     }
-    // Show new frame at product opacity
+    // Determine target opacity
+    const targetOpacity = opacities != null
+      ? (opacities[product] ?? entry.opacity)
+      : entry.opacity
+    // Show new frame
     if (frameIndex >= 0 && frameIndex < entry.layers.length && entry.layers[frameIndex]) {
-      entry.layers[frameIndex].setOpacity(entry.opacity)
+      entry.layers[frameIndex].setOpacity(targetOpacity)
     }
     entry.activeIndex = frameIndex
   }

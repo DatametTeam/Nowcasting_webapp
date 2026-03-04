@@ -1,35 +1,37 @@
 <!--
   DataExplorerView.vue — Historical radar data browser.
 
-  Lets users explore SRI_adj, VMI, ETM, and VIL radar layers over a
-  selected date range (max 12 hours), with:
-  - A timeline slider to animate through frames
-  - Per-layer enable/disable and opacity control
-  - Stacked colorbars for each active layer
-  - Missing-data indicators
-
-  No predictions or AI — pure radar data exploration.
+  Fixes applied (v2):
+  1.  Short product names (SRI, VMI, ETM, VIL) in sidebar
+  2.  VueDatePicker with 5-minute step (same as MetricsView)
+  3.  Always load all 4 products on "Load Data"
+  4.  Per-product generation counters → all layers visible simultaneously
+  5.  Checkbox toggle immediately shows/hides layer on map
+  6.  Speed displayed as cycle button (no white-on-white select)
+  7.  Product name on left side of colorbar; colorbars capped to map height
+  8.  Sidebar: fixed right-0 top-14 bottom-0 (no white gap)
+  9.  overflow-hidden on root → no page scroll; only sidebar scrolls
+  10. Full date "DD/MM/YYYY - HH:MM" in timeline bar
+  11. Opacity slider goes to 0%
+  12. Per-product missing frames list (filenames)
 -->
 <template>
-  <div class="h-[calc(100vh-3.5rem)] flex">
+  <!-- overflow-hidden prevents page-level scroll; sidebar is the only scroll area -->
+  <div class="h-[calc(100vh-3.5rem)] flex overflow-hidden">
 
     <!-- ================================================================ -->
     <!-- LEFT: Map area                                                    -->
     <!-- ================================================================ -->
-    <div class="flex-1 flex flex-col relative">
-      <RadarMap
-        ref="radarMap"
-        class="flex-1"
-      />
+    <div class="flex-1 flex flex-col relative min-w-0">
+      <RadarMap ref="radarMap" class="flex-1" />
 
-      <!-- Sidebar toggle (mobile) -->
+      <!-- Sidebar toggle (mobile only) -->
       <button
         v-if="!sidebarOpen"
         @click="sidebarOpen = true"
         class="absolute top-3 right-3 z-[1001] lg:hidden
                w-10 h-10 flex items-center justify-center rounded-full
-               bg-white shadow-lg border border-gray-200 text-gray-600
-               hover:bg-gray-50 transition-colors"
+               bg-white shadow-lg border border-gray-200 text-gray-600"
         title="Open panel"
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -37,12 +39,18 @@
         </svg>
       </button>
 
-      <!-- Stacked colorbars — bottom right, above timeline bar -->
-      <div class="absolute bottom-[110px] right-[10px] z-[1001] flex flex-col gap-2 items-end">
-        <div v-for="product in activeProducts" :key="product" class="flex flex-col items-center">
-          <div class="text-white text-[9px] font-bold mb-0.5 bg-black/50 px-1 rounded">{{ product }}</div>
-          <ColorBar :legend="radarProducts[product]" />
-        </div>
+      <!-- Stacked colorbars — bottom right, above timeline, max-height capped -->
+      <div
+        class="absolute bottom-[110px] right-[10px] z-[1001]
+               flex flex-col gap-1.5 items-end
+               max-h-[calc(100vh-18rem)] overflow-y-auto"
+      >
+        <ColorBar
+          v-for="product in visibleProducts"
+          :key="product"
+          :legend="radarProducts[product]"
+          :product-name="SHORT_NAMES[product]"
+        />
       </div>
 
       <!-- ============================================================ -->
@@ -54,43 +62,37 @@
                px-3 sm:px-6 pt-10 pb-4"
         :class="{ 'pointer-events-none opacity-40': !isLoaded }"
       >
-        <!-- Current timestamp display -->
+        <!-- Top row: layer names | full datetime | speed button -->
         <div class="flex items-center justify-between text-white mb-2">
-          <div class="text-sm font-medium hidden sm:block text-gray-300">
-            {{ activeProducts.length ? activeProducts.join(' + ') : 'No layers selected' }}
+          <div class="text-xs font-medium text-gray-300 hidden sm:block truncate max-w-[160px]">
+            {{ visibleProducts.map(p => SHORT_NAMES[p]).join(' + ') || '—' }}
           </div>
+
+          <!-- Full date + time (fix #10) -->
           <div class="text-center">
-            <span class="text-lg sm:text-2xl font-bold tabular-nums">
+            <span class="text-base sm:text-xl font-bold tabular-nums tracking-tight">
               {{ currentTimestampDisplay }}
             </span>
-            <span class="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-blue-500/30 text-blue-300">
-              radar
-            </span>
           </div>
-          <!-- Speed control -->
-          <div class="flex items-center gap-2 text-sm">
-            <span class="text-gray-300 text-xs hidden sm:inline">Speed</span>
-            <select
-              v-model="playSpeed"
-              class="bg-white/10 text-white text-xs rounded px-1 py-0.5 border border-white/20 outline-none"
-            >
-              <option :value="0.5">0.5×</option>
-              <option :value="1">1×</option>
-              <option :value="2">2×</option>
-              <option :value="4">4×</option>
-            </select>
-          </div>
+
+          <!-- Speed cycle button (fix #6 — no select dropdown) -->
+          <button
+            @click="cycleSpeed"
+            class="text-sm bg-white/15 hover:bg-white/25 border border-white/25 text-white
+                   rounded-md px-3 py-1 transition-colors font-semibold tabular-nums min-w-[48px]"
+          >
+            {{ playSpeed }}×
+          </button>
         </div>
 
-        <!-- Timeline slider row -->
+        <!-- Slider row -->
         <div class="flex items-center gap-3">
-          <!-- Play/Pause -->
+          <!-- Play / Pause -->
           <button
             @click="togglePlay"
             :disabled="!isLoaded || timestamps.length === 0"
-            class="w-9 h-9 flex items-center justify-center rounded-full
-                   bg-white/10 hover:bg-white/20 border border-white/20
-                   text-white transition-colors flex-shrink-0
+            class="w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0
+                   bg-white/10 hover:bg-white/20 border border-white/20 text-white transition-colors
                    disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <svg v-if="!isPlaying" class="w-4 h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
@@ -101,7 +103,7 @@
             </svg>
           </button>
 
-          <!-- Slider -->
+          <!-- Range slider + hour ticks -->
           <div class="flex-1 relative">
             <input
               type="range"
@@ -109,11 +111,11 @@
               :max="Math.max(0, timestamps.length - 1)"
               :value="frameIndex"
               @input="onSliderInput"
-              class="w-full h-1.5 rounded-full appearance-none cursor-pointer timeline-slider"
               :disabled="!isLoaded || timestamps.length === 0"
+              class="w-full h-1.5 rounded-full appearance-none cursor-pointer timeline-slider
+                     disabled:opacity-40 disabled:cursor-not-allowed"
             />
-            <!-- Tick marks — one per hour -->
-            <div v-if="hourTicks.length > 0" class="relative mt-1 h-4">
+            <div v-if="hourTicks.length" class="relative mt-1 h-4">
               <span
                 v-for="tick in hourTicks"
                 :key="tick.label"
@@ -123,67 +125,110 @@
             </div>
           </div>
 
-          <!-- Frame count -->
+          <!-- Frame counter -->
           <div class="text-xs text-gray-400 flex-shrink-0 tabular-nums">
-            {{ frameIndex + 1 }} / {{ timestamps.length || 0 }}
+            {{ timestamps.length ? `${frameIndex + 1}/${timestamps.length}` : '0/0' }}
           </div>
         </div>
       </div>
     </div>
 
     <!-- ================================================================ -->
-    <!-- RIGHT: Sidebar panel                                             -->
+    <!-- RIGHT: Sidebar (same pattern as RealTimeView)                   -->
     <!-- ================================================================ -->
+    <!-- Mobile backdrop -->
     <div
-      class="w-72 bg-gray-900 border-l border-gray-700 flex flex-col overflow-y-auto
-             transition-all duration-300
-             fixed inset-y-0 right-0 z-[1002] lg:relative lg:z-auto"
-      :class="sidebarOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'"
-      style="top: 3.5rem;"
+      v-if="sidebarOpen"
+      class="fixed inset-0 bg-black/40 z-[1100] lg:hidden"
+      @click="sidebarOpen = false"
+    />
+
+    <div
+      class="bg-gray-900 border-l border-gray-700 flex flex-col
+             fixed right-0 top-14 bottom-0 z-[1101] w-72
+             transform transition-transform duration-200 ease-out overflow-y-auto
+             lg:static lg:translate-x-0 lg:z-auto"
+      :class="sidebarOpen ? 'translate-x-0' : 'translate-x-full'"
     >
-      <!-- Close button (mobile) -->
+      <!-- Close (mobile) -->
       <button
         @click="sidebarOpen = false"
-        class="lg:hidden absolute top-3 right-3 text-gray-400 hover:text-white"
+        class="lg:hidden absolute top-2 right-2 w-8 h-8 flex items-center justify-center
+               rounded-full text-gray-400 hover:text-gray-200 hover:bg-white/10 transition-colors"
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path d="M6 18L18 6M6 6l12 12" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
       </button>
 
-      <div class="p-4 space-y-5 flex-1">
-        <!-- ---- Title ---- -->
-        <div>
+      <!-- ---- Sidebar content ---- -->
+      <div class="p-4 space-y-5">
+
+        <!-- Title -->
+        <div class="pt-1">
           <h2 class="text-white font-bold text-base">Data Explorer</h2>
-          <p class="text-gray-400 text-xs mt-0.5">Browse historical radar data</p>
+          <p class="text-gray-400 text-xs mt-0.5">Browse historical radar layers</p>
         </div>
 
-        <!-- ---- Date/Time Range ---- -->
-        <div class="space-y-2">
-          <label class="text-gray-300 text-xs font-semibold uppercase tracking-wide">Date Range</label>
-          <div class="space-y-2">
-            <div>
-              <label class="text-gray-400 text-xs mb-1 block">Start</label>
-              <input
-                v-model="startDateTime"
-                type="datetime-local"
-                class="w-full bg-gray-800 text-white text-xs rounded-md px-3 py-2
-                       border border-gray-600 focus:border-blue-500 focus:outline-none"
+        <!-- ---- Date / Time Range (VueDatePicker, same pattern as MetricsView) ---- -->
+        <div class="space-y-3">
+          <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Date Range</h3>
+
+          <!-- Start -->
+          <div>
+            <label class="block text-xs text-gray-500 mb-1.5">Start</label>
+            <div class="flex gap-2">
+              <VueDatePicker
+                :model-value="startDate"
+                @update:model-value="onStartDateChange"
+                :time-config="{ enableTimePicker: false }"
+                auto-apply
+                :dark="true"
+                :formats="dateFormats"
+                model-type="yyyy-MM-dd"
+                input-class-name="dp-dark-input dp-explorer-date"
               />
-            </div>
-            <div>
-              <label class="text-gray-400 text-xs mb-1 block">End</label>
-              <input
-                v-model="endDateTime"
-                type="datetime-local"
-                class="w-full bg-gray-800 text-white text-xs rounded-md px-3 py-2
-                       border border-gray-600 focus:border-blue-500 focus:outline-none"
+              <VueDatePicker
+                :model-value="startTimeObj"
+                @update:model-value="onStartTimeChange"
+                time-picker
+                :dark="true"
+                :is-24="true"
+                :time-config="{ minutesIncrement: 5, minutesGridIncrement: 5 }"
+                input-class-name="dp-dark-input dp-explorer-time"
               />
             </div>
           </div>
-          <!-- Validation warning -->
-          <p v-if="rangeWarning" class="text-amber-400 text-xs flex items-center gap-1">
-            <svg class="w-3.5 h-3.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+
+          <!-- End -->
+          <div>
+            <label class="block text-xs text-gray-500 mb-1.5">End</label>
+            <div class="flex gap-2">
+              <VueDatePicker
+                :model-value="endDate"
+                @update:model-value="onEndDateChange"
+                :time-config="{ enableTimePicker: false }"
+                auto-apply
+                :dark="true"
+                :formats="dateFormats"
+                model-type="yyyy-MM-dd"
+                input-class-name="dp-dark-input dp-explorer-date"
+              />
+              <VueDatePicker
+                :model-value="endTimeObj"
+                @update:model-value="onEndTimeChange"
+                time-picker
+                :dark="true"
+                :is-24="true"
+                :time-config="{ minutesIncrement: 5, minutesGridIncrement: 5 }"
+                input-class-name="dp-dark-input dp-explorer-time"
+              />
+            </div>
+          </div>
+
+          <!-- Validation -->
+          <p v-if="rangeWarning" class="text-amber-400 text-xs flex items-start gap-1">
+            <svg class="w-3.5 h-3.5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
             </svg>
             {{ rangeWarning }}
@@ -193,97 +238,110 @@
         <!-- ---- Load button ---- -->
         <button
           @click="loadData"
-          :disabled="isLoading || !!rangeWarning || activeProducts.length === 0"
+          :disabled="isLoading || !!rangeWarning"
           class="w-full py-2.5 rounded-lg text-sm font-semibold transition-colors
                  bg-blue-600 hover:bg-blue-500 text-white
-                 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                 disabled:opacity-50 disabled:cursor-not-allowed
+                 flex items-center justify-center gap-2"
         >
           <svg v-if="isLoading" class="animate-spin h-4 w-4" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" />
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
-          <span v-if="isLoading">Loading... {{ loadProgress.loaded }}/{{ loadProgress.total }}</span>
+          <span v-if="isLoading">Loading {{ loadProgress.loaded }}/{{ loadProgress.total }}</span>
           <span v-else>Load Data</span>
         </button>
 
         <!-- ---- Radar Layers ---- -->
         <div class="space-y-2">
-          <label class="text-gray-300 text-xs font-semibold uppercase tracking-wide">Radar Layers</label>
-          <div class="space-y-3">
+          <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Layers</h3>
+
+          <div
+            v-for="product in productOrder"
+            :key="product"
+            class="bg-gray-800 rounded-lg p-3 space-y-2"
+          >
+            <!-- Header: checkbox + short name + unit -->
+            <div class="flex items-center gap-2">
+              <input
+                type="checkbox"
+                :id="`layer-${product}`"
+                v-model="layerConfig[product].enabled"
+                class="w-4 h-4 rounded accent-blue-500 cursor-pointer flex-shrink-0"
+              />
+              <label :for="`layer-${product}`" class="text-white text-sm font-bold cursor-pointer flex-1">
+                {{ SHORT_NAMES[product] }}
+              </label>
+              <span class="text-gray-400 text-xs">{{ radarProducts[product]?.unit || '' }}</span>
+            </div>
+
+            <!-- Opacity slider (fix #11: min=0) -->
+            <div class="flex items-center gap-2">
+              <span class="text-gray-400 text-xs w-12 flex-shrink-0">Opacity</span>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                v-model.number="layerConfig[product].opacity"
+                class="flex-1 h-1 accent-blue-400 cursor-pointer"
+              />
+              <span class="text-gray-400 text-xs w-8 text-right tabular-nums">
+                {{ Math.round(layerConfig[product].opacity * 100) }}%
+              </span>
+            </div>
+
+            <!-- Data stats after load -->
+            <div v-if="productStats[product]" class="text-xs">
+              <span class="text-green-400 font-medium">{{ productStats[product].found }}</span>
+              <span class="text-gray-500">/{{ productStats[product].expected }} frames</span>
+              <button
+                v-if="productStats[product].missingTs.length > 0"
+                @click="toggleMissing(product)"
+                class="text-amber-400 hover:text-amber-300 ml-1.5 underline underline-offset-2"
+              >
+                {{ productStats[product].missingTs.length }} missing
+                {{ showMissingFor === product ? '▲' : '▼' }}
+              </button>
+            </div>
+
+            <!-- Missing frames list (fix #12) -->
             <div
-              v-for="product in productOrder"
-              :key="product"
-              class="bg-gray-800 rounded-lg p-3 space-y-2"
+              v-if="showMissingFor === product && productStats[product]?.missingTs.length"
+              class="mt-1 space-y-0.5 max-h-36 overflow-y-auto rounded bg-black/30 px-2 py-1.5"
             >
-              <!-- Header: checkbox + label + unit -->
-              <div class="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  :id="`layer-${product}`"
-                  v-model="layerConfig[product].enabled"
-                  class="w-4 h-4 rounded accent-blue-500 cursor-pointer"
-                />
-                <label :for="`layer-${product}`" class="text-white text-sm font-medium cursor-pointer flex-1">
-                  {{ radarProducts[product]?.label || product }}
-                </label>
-                <span class="text-gray-400 text-xs">{{ radarProducts[product]?.unit || '' }}</span>
-              </div>
-              <!-- Opacity slider (only when enabled) -->
-              <div v-if="layerConfig[product].enabled" class="flex items-center gap-2">
-                <span class="text-gray-400 text-xs w-12">Opacity</span>
-                <input
-                  type="range"
-                  min="0.1"
-                  max="1"
-                  step="0.05"
-                  v-model.number="layerConfig[product].opacity"
-                  @input="onOpacityChange(product)"
-                  class="flex-1 h-1 accent-blue-400 cursor-pointer"
-                />
-                <span class="text-gray-400 text-xs w-8 text-right">{{ Math.round(layerConfig[product].opacity * 100) }}%</span>
-              </div>
-              <!-- Per-product data availability (shown after load) -->
-              <div v-if="productStats[product]" class="text-xs text-gray-400">
-                <span class="text-green-400">{{ productStats[product].found }}</span>
-                / {{ productStats[product].expected }} frames found
-                <span v-if="productStats[product].missing > 0" class="text-amber-400 ml-1">
-                  ({{ productStats[product].missing }} missing)
-                </span>
+              <div
+                v-for="ts in productStats[product].missingTs"
+                :key="ts"
+                class="font-mono text-[10px] text-amber-300/80"
+              >
+                {{ formatMissingTs(ts) }}
               </div>
             </div>
           </div>
         </div>
 
-        <!-- ---- Missing data summary ---- -->
-        <div v-if="isLoaded && totalMissing > 0" class="bg-amber-900/30 rounded-lg p-3 space-y-1">
-          <p class="text-amber-400 text-xs font-semibold">Missing Frames</p>
-          <p class="text-amber-300 text-xs">
-            {{ totalMissing }} timestamp(s) have incomplete data across active layers.
-          </p>
-        </div>
-
-        <!-- ---- Status bar (after load) ---- -->
-        <div v-if="isLoaded" class="bg-gray-800 rounded-lg p-3 text-xs text-gray-300 space-y-1">
+        <!-- ---- Summary after load ---- -->
+        <div v-if="isLoaded" class="bg-gray-800 rounded-lg p-3 text-xs text-gray-400 space-y-1">
           <div class="flex justify-between">
-            <span>Timestamps</span>
+            <span>Frames</span>
             <span class="text-white font-medium">{{ timestamps.length }}</span>
           </div>
           <div class="flex justify-between">
             <span>Duration</span>
             <span class="text-white font-medium">{{ durationDisplay }}</span>
           </div>
-          <div class="flex justify-between">
-            <span>Active layers</span>
-            <span class="text-white font-medium">{{ activeProducts.length }}</span>
-          </div>
         </div>
+
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
+import { VueDatePicker } from '@vuepic/vue-datepicker'
+import '@vuepic/vue-datepicker/dist/main.css'
 import { useConfigStore } from '../stores/config.js'
 import api from '../api.js'
 import RadarMap from '../components/RadarMap.vue'
@@ -293,87 +351,139 @@ const configStore = useConfigStore()
 
 // ---- Map ref ----
 const radarMap = ref(null)
+const sidebarOpen = ref(false)
 
-// ---- Sidebar ----
-const sidebarOpen = ref(true)
-
-// ---- Date range ----
-// Default: last 2 hours rounded to 5 minutes
-function defaultDateTime(offsetMinutes = 0) {
-  const now = new Date()
-  now.setMinutes(Math.floor(now.getMinutes() / 5) * 5, 0, 0)
-  now.setMinutes(now.getMinutes() + offsetMinutes)
-  // Format as YYYY-MM-DDTHH:MM for datetime-local input
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`
-}
-
-const startDateTime = ref(defaultDateTime(-120))
-const endDateTime = ref(defaultDateTime(0))
-
-// ---- Product config ----
+// ---- Short display names (fix #1) ----
+const SHORT_NAMES = { SRI_adj: 'SRI', VMI: 'VMI', ETM: 'ETM', VIL: 'VIL' }
 const productOrder = ['SRI_adj', 'VMI', 'ETM', 'VIL']
 
-const layerConfig = ref({
-  SRI_adj: { enabled: true, opacity: 0.8 },
-  VMI:     { enabled: false, opacity: 0.7 },
-  ETM:     { enabled: false, opacity: 0.7 },
-  VIL:     { enabled: false, opacity: 0.7 },
+// ---- Speeds (cycle button, fix #6) ----
+const speeds = [0.5, 1, 2, 4]
+const playSpeed = ref(1)
+function cycleSpeed() {
+  const idx = speeds.indexOf(playSpeed.value)
+  playSpeed.value = speeds[(idx + 1) % speeds.length]
+  if (isPlaying.value) { stopAnimation(); startAnimation() }
+}
+
+// ---- Date/time state (VueDatePicker pattern from MetricsView) ----
+function todayStr() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
+}
+// Default: today 00:00 → 02:00
+const startDateTime = ref(`${todayStr()}T00:00`)
+const endDateTime   = ref(`${todayStr()}T02:00`)
+
+function parseParts(isoStr) {
+  if (!isoStr || !isoStr.includes('T')) return { date: '', hour: '00', minute: '00' }
+  const [date, time] = isoStr.split('T')
+  const [hour, minute] = (time || '00:00').split(':')
+  return { date, hour: hour || '00', minute: minute || '00' }
+}
+const startDate = computed(() => parseParts(startDateTime.value).date || null)
+const endDate   = computed(() => parseParts(endDateTime.value).date || null)
+const startTimeObj = computed(() => {
+  const p = parseParts(startDateTime.value)
+  return { hours: parseInt(p.hour) || 0, minutes: parseInt(p.minute) || 0, seconds: 0 }
+})
+const endTimeObj = computed(() => {
+  const p = parseParts(endDateTime.value)
+  return { hours: parseInt(p.hour) || 0, minutes: parseInt(p.minute) || 0, seconds: 0 }
 })
 
-// ---- State ----
-const timestamps = ref([])        // unified sorted list of ISO timestamp strings
-const frameIndex = ref(0)
-const isPlaying = ref(false)
-const playSpeed = ref(1)
-const isLoading = ref(false)
-const isLoaded = ref(false)
-const loadProgress = ref({ loaded: 0, total: 0 })
-const productStats = ref({})      // { product: { found, missing, expected } }
+function buildDT(date, hour, minute) {
+  if (!date) return ''
+  return `${date}T${String(hour).padStart(2,'0')}:${String(minute).padStart(2,'0')}`
+}
+function onStartDateChange(val) {
+  if (typeof val === 'string' && val) {
+    const p = parseParts(startDateTime.value)
+    startDateTime.value = buildDT(val, p.hour, p.minute)
+  }
+}
+function onStartTimeChange(val) {
+  if (val?.hours !== undefined) {
+    const p = parseParts(startDateTime.value)
+    startDateTime.value = buildDT(p.date || todayStr(), val.hours, val.minutes)
+  }
+}
+function onEndDateChange(val) {
+  if (typeof val === 'string' && val) {
+    const p = parseParts(endDateTime.value)
+    endDateTime.value = buildDT(val, p.hour, p.minute)
+  }
+}
+function onEndTimeChange(val) {
+  if (val?.hours !== undefined) {
+    const p = parseParts(endDateTime.value)
+    endDateTime.value = buildDT(p.date || todayStr(), val.hours, val.minutes)
+  }
+}
+const dateFormats = { input: 'dd/MM/yyyy' }
+
+// ---- Layer config: all enabled by default (fix #3) ----
+const layerConfig = ref({
+  SRI_adj: { enabled: true, opacity: 0.8 },
+  VMI:     { enabled: true, opacity: 0.7 },
+  ETM:     { enabled: true, opacity: 0.7 },
+  VIL:     { enabled: true, opacity: 0.7 },
+})
+
+// ---- Animation state ----
+const timestamps    = ref([])
+const frameIndex    = ref(0)
+const isPlaying     = ref(false)
+const isLoading     = ref(false)
+const isLoaded      = ref(false)
+const loadProgress  = ref({ loaded: 0, total: 0 })
+const productStats  = ref({})   // { product: { found, expected, missingTs: string[] } }
+const showMissingFor = ref(null)
 
 let playInterval = null
 
 // ---- Computed ----
 const radarProducts = computed(() => configStore.radarProducts)
 
-const activeProducts = computed(() =>
-  productOrder.filter(p => layerConfig.value[p].enabled)
+// Products that have been loaded and are currently enabled (for colorbars)
+const visibleProducts = computed(() =>
+  isLoaded.value ? productOrder.filter(p => layerConfig.value[p].enabled) : []
 )
 
 const rangeWarning = computed(() => {
   if (!startDateTime.value || !endDateTime.value) return null
-  const start = new Date(startDateTime.value)
-  const end = new Date(endDateTime.value)
-  if (isNaN(start) || isNaN(end)) return 'Invalid date'
-  if (end <= start) return 'End must be after start'
-  const hours = (end - start) / 3600000
-  if (hours > 12) return 'Range cannot exceed 12 hours'
+  const s = new Date(startDateTime.value)
+  const e = new Date(endDateTime.value)
+  if (isNaN(s) || isNaN(e)) return 'Invalid date'
+  if (e <= s) return 'End must be after start'
+  if ((e - s) / 3600000 > 12) return 'Range cannot exceed 12 hours'
   return null
 })
 
+// Full date display: "04/03/2026 - 05:40" (fix #10)
 const currentTimestampDisplay = computed(() => {
-  if (!timestamps.value.length) return '--:--'
+  if (!timestamps.value.length) return '--/--/---- - --:--'
   const ts = timestamps.value[frameIndex.value]
-  if (!ts) return '--:--'
+  if (!ts) return '--/--/---- - --:--'
+  // ISO timestamp from Python is naive (no tz), browser parses as local time
   const dt = new Date(ts)
-  return dt.toLocaleString('it-IT', {
-    timeZone: 'Europe/Rome',
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  const d = String(dt.getDate()).padStart(2, '0')
+  const m = String(dt.getMonth() + 1).padStart(2, '0')
+  const y = dt.getFullYear()
+  const H = String(dt.getHours()).padStart(2, '0')
+  const M = String(dt.getMinutes()).padStart(2, '0')
+  return `${d}/${m}/${y} - ${H}:${M}`
 })
 
 const durationDisplay = computed(() => {
   if (timestamps.value.length < 2) return '--'
-  const first = new Date(timestamps.value[0])
-  const last = new Date(timestamps.value[timestamps.value.length - 1])
-  const mins = Math.round((last - first) / 60000)
+  const mins = Math.round(
+    (new Date(timestamps.value.at(-1)) - new Date(timestamps.value[0])) / 60000
+  )
   return mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`
 })
 
-// Hour tick marks for the slider
+// Hour-tick marks for the slider
 const hourTicks = computed(() => {
   if (timestamps.value.length < 2) return []
   const ticks = []
@@ -381,7 +491,7 @@ const hourTicks = computed(() => {
   timestamps.value.forEach((ts, i) => {
     const dt = new Date(ts)
     if (dt.getMinutes() === 0) {
-      const label = dt.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' })
+      const label = `${String(dt.getHours()).padStart(2,'0')}:00`
       if (!seen.has(label)) {
         seen.add(label)
         ticks.push({ label, pct: (i / (timestamps.value.length - 1)) * 100 })
@@ -391,41 +501,54 @@ const hourTicks = computed(() => {
   return ticks
 })
 
-const totalMissing = computed(() => {
-  return Object.values(productStats.value).reduce((sum, s) => sum + (s.missing || 0), 0)
-})
+// ---- goToFrame: unified frame navigation with per-product opacities ----
+function goToFrame(idx) {
+  frameIndex.value = idx
+  if (!radarMap.value || !isLoaded.value) return
+  // Build opacity map: 0 for disabled products (fix #5)
+  const opacities = {}
+  for (const product of productOrder) {
+    opacities[product] = layerConfig.value[product].enabled
+      ? layerConfig.value[product].opacity
+      : 0
+  }
+  radarMap.value.showAllAtFrame(idx, opacities)
+}
 
-// ---- Methods ----
+// Watch layerConfig (enabled + opacity) and re-render current frame (fixes #5 and opacity)
+watch(layerConfig, () => {
+  if (!isLoaded.value || timestamps.value.length === 0) return
+  goToFrame(frameIndex.value)
+}, { deep: true })
 
+// ---- Load data ----
 async function loadData() {
-  if (rangeWarning.value || activeProducts.value.length === 0) return
-
+  if (rangeWarning.value) return
   isLoading.value = true
   isLoaded.value = false
   isPlaying.value = false
   stopAnimation()
   timestamps.value = []
   productStats.value = {}
+  showMissingFor.value = null
   loadProgress.value = { loaded: 0, total: 0 }
 
-  if (radarMap.value) {
-    radarMap.value.clearAllProducts()
-  }
+  radarMap.value?.clearAllProducts()
 
   const start = startDateTime.value
-  const end = endDateTime.value
+  const end   = endDateTime.value
 
   try {
-    // Fetch timestamps for each active product in parallel
+    // Fetch timestamps for ALL 4 products in parallel (fix #3)
     const results = await Promise.all(
-      activeProducts.value.map(product =>
+      productOrder.map(product =>
         api.explorerTimestamps(start, end, product).catch(() => ({
           timestamps: [], missing: [], total_expected: 0, total_found: 0, product,
         }))
       )
     )
 
-    // Build unified sorted timestamp set (union of all found timestamps)
+    // Unified sorted timestamp set (union of all found timestamps)
     const tsSet = new Set()
     results.forEach(r => r.timestamps.forEach(ts => tsSet.add(ts)))
     const sortedTs = Array.from(tsSet).sort()
@@ -433,42 +556,33 @@ async function loadData() {
 
     // Store per-product stats
     results.forEach((r, i) => {
-      const product = activeProducts.value[i]
+      const product = productOrder[i]
+      const missingSet = new Set(r.missing)
       productStats.value[product] = {
-        found: r.total_found,
-        missing: r.missing.length,
-        expected: r.total_expected,
-        missingSet: new Set(r.missing),
+        found:     r.total_found,
+        expected:  r.total_expected,
+        missingTs: r.missing,   // array of ISO strings
+        missingSet,
       }
     })
 
-    if (sortedTs.length === 0) {
-      isLoading.value = false
-      return
-    }
+    if (sortedTs.length === 0) { isLoading.value = false; return }
 
-    // Build URL arrays for each active product (null where file is missing)
-    loadProgress.value.total = activeProducts.value.length * sortedTs.length
-    const loadPromises = activeProducts.value.map(async (product) => {
+    // Load all 4 products in parallel (fix #4: per-product generation in RadarMap)
+    loadProgress.value.total = productOrder.length * sortedTs.length
+    await Promise.all(productOrder.map(async (product) => {
       const stats = productStats.value[product]
-      const urls = sortedTs.map(ts => {
-        // If this timestamp is known missing, pass null (RadarMap skips it)
-        if (stats?.missingSet?.has(ts)) return null
-        return api.explorerOverlayUrl(product, ts)
-      })
-      await radarMap.value?.loadProductFrames(
-        product,
-        urls,
-        layerConfig.value[product].opacity,
+      const urls = sortedTs.map(ts =>
+        stats?.missingSet?.has(ts) ? null : api.explorerOverlayUrl(product, ts)
       )
+      await radarMap.value?.loadProductFrames(product, urls, layerConfig.value[product].opacity)
       loadProgress.value.loaded += sortedTs.length
-    })
+    }))
 
-    await Promise.all(loadPromises)
-
-    frameIndex.value = 0
-    radarMap.value?.showAllAtFrame(0)
     isLoaded.value = true
+    frameIndex.value = 0
+    goToFrame(0)
+
   } catch (e) {
     console.error('Failed to load explorer data:', e)
   } finally {
@@ -476,79 +590,96 @@ async function loadData() {
   }
 }
 
+// ---- Slider ----
 function onSliderInput(e) {
-  const idx = Number(e.target.value)
-  frameIndex.value = idx
-  radarMap.value?.showAllAtFrame(idx)
+  goToFrame(Number(e.target.value))
 }
 
+// ---- Animation ----
 function togglePlay() {
-  if (isPlaying.value) {
-    stopAnimation()
-  } else {
-    startAnimation()
-  }
+  if (isPlaying.value) stopAnimation(); else startAnimation()
 }
-
 function startAnimation() {
-  if (timestamps.value.length === 0) return
+  if (!timestamps.value.length) return
   isPlaying.value = true
-  const fps = playSpeed.value * 2  // base 2 fps × speed multiplier
+  const fps = playSpeed.value * 3
   playInterval = setInterval(() => {
-    const next = (frameIndex.value + 1) % timestamps.value.length
-    frameIndex.value = next
-    radarMap.value?.showAllAtFrame(next)
+    goToFrame((frameIndex.value + 1) % timestamps.value.length)
   }, 1000 / fps)
 }
-
 function stopAnimation() {
   isPlaying.value = false
-  if (playInterval) {
-    clearInterval(playInterval)
-    playInterval = null
-  }
+  if (playInterval) { clearInterval(playInterval); playInterval = null }
 }
 
-function onOpacityChange(product) {
-  radarMap.value?.setProductOpacity(product, layerConfig.value[product].opacity)
+// ---- Missing frames helpers (fix #12) ----
+function toggleMissing(product) {
+  showMissingFor.value = showMissingFor.value === product ? null : product
+}
+function formatMissingTs(isoTs) {
+  // Format as the actual filename on disk: DD-MM-YYYY-HH-MM.hdf
+  const dt = new Date(isoTs)
+  const pad = n => String(n).padStart(2, '0')
+  return `${pad(dt.getDate())}-${pad(dt.getMonth()+1)}-${dt.getFullYear()}-${pad(dt.getHours())}-${pad(dt.getMinutes())}.hdf`
 }
 
-// When speed changes mid-animation, restart with new interval
-watch(playSpeed, () => {
-  if (isPlaying.value) {
-    stopAnimation()
-    startAnimation()
-  }
-})
-
-onUnmounted(() => {
-  stopAnimation()
-})
+onUnmounted(stopAnimation)
 </script>
 
 <style scoped>
-/* Timeline slider track */
+/* Timeline slider */
 .timeline-slider {
-  background: linear-gradient(to right, #3b82f6 0%, #3b82f6 var(--val, 0%), #4b5563 var(--val, 0%), #4b5563 100%);
+  background: linear-gradient(
+    to right,
+    #3b82f6 0%,
+    #3b82f6 calc(var(--pct, 0) * 1%),
+    #4b5563 calc(var(--pct, 0) * 1%),
+    #4b5563 100%
+  );
 }
-
 .timeline-slider::-webkit-slider-thumb {
   appearance: none;
-  width: 16px;
-  height: 16px;
+  width: 16px; height: 16px;
   border-radius: 50%;
   background: white;
   cursor: pointer;
   box-shadow: 0 1px 4px rgba(0,0,0,0.4);
 }
-
 .timeline-slider::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
+  width: 16px; height: 16px;
   border-radius: 50%;
   background: white;
   cursor: pointer;
   border: none;
   box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+</style>
+
+<style>
+/* VueDatePicker dark input — compact for sidebar */
+.dp-explorer-date {
+  width: 118px !important;
+  height: 36px !important;
+  border-radius: 0.5rem !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: white !important;
+  font-size: 0.8rem !important;
+  padding: 0 0.5rem !important;
+}
+.dp-explorer-time {
+  width: 96px !important;
+  height: 36px !important;
+  border-radius: 0.5rem !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: white !important;
+  font-size: 0.8rem !important;
+  padding: 0 0.4rem !important;
+}
+.dp-explorer-date:focus,
+.dp-explorer-time:focus {
+  border-color: #60a5fa !important;
+  outline: none !important;
 }
 </style>

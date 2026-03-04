@@ -1,24 +1,28 @@
 <!--
   ColorBar.vue — Radar product colorbar legend.
 
-  Accepts an optional `legend` prop:
+  Accepts an optional `legend` prop with colormap data from /api/config/:
     { label, unit, thresholds: number[], colors: string[] }
 
-  If no prop is provided (e.g. in RealTimeView), falls back to the
-  hardcoded SRI rain rate colormap (backward compat).
+  Accepts an optional `productName` prop (e.g. "SRI", "VMI") displayed as a
+  vertical label on the LEFT of the gradient (used in DataExplorerView stacking).
 
-  Thresholds and colors come from /api/config/ → radar_products[product].
-  The gradient is evenly spaced (one stop per color), but tick labels
-  show the actual physical values (non-linear).
+  Falls back to hardcoded SRI defaults when no prop is provided (RealTimeView
+  backward compat — no changes needed there).
 -->
 <template>
   <div class="colorbar-container">
-    <div class="colorbar-title">{{ unit }}</div>
     <div class="colorbar-body">
-      <!-- Tick labels on the left -->
+      <!-- Left label: product name (vertical) -->
+      <div v-if="productName" class="colorbar-label">
+        {{ productName }}
+      </div>
+      <!-- Gradient bar -->
+      <div class="colorbar-gradient" :style="{ background: gradient }" />
+      <!-- Tick labels on the right -->
       <div class="colorbar-ticks">
         <span
-          v-for="(tick, i) in ticks"
+          v-for="tick in ticks"
           :key="tick.value"
           class="colorbar-tick"
           :style="{ bottom: tick.position + '%' }"
@@ -26,41 +30,27 @@
           {{ tick.value }}
         </span>
       </div>
-      <!-- Gradient bar -->
-      <div class="colorbar-gradient" :style="{ background: gradient }" />
     </div>
+    <!-- Unit label below (only when no productName) -->
+    <div v-if="!productName" class="colorbar-unit">{{ unit }}</div>
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue'
 
-// ---- Default SRI (R legend) data — used when no `legend` prop is provided ----
 const DEFAULT_THRESHOLDS = [0, 1, 2, 5, 10, 20, 30, 50, 75, 100]
 const DEFAULT_COLORS = [
-  'rgb(100,100,100)',
-  'rgb(0,120,200)',
-  'rgb(0,200,250)',
-  'rgb(0,150,0)',
-  'rgb(0,250,0)',
-  'rgb(250,250,0)',
-  'rgb(250,150,0)',
-  'rgb(250,0,0)',
-  'rgb(180,0,0)',
-  'rgb(220,100,250)',
+  'rgb(100,100,100)', 'rgb(0,120,200)', 'rgb(0,200,250)', 'rgb(0,150,0)',
+  'rgb(0,250,0)', 'rgb(250,250,0)', 'rgb(250,150,0)', 'rgb(250,0,0)',
+  'rgb(180,0,0)', 'rgb(220,100,250)',
 ]
 const DEFAULT_UNIT = 'mm/h'
 
 const props = defineProps({
-  /**
-   * Legend data from the config store.
-   * Shape: { label: string, unit: string, thresholds: number[], colors: string[] }
-   * If null/undefined, the hardcoded SRI defaults are used.
-   */
-  legend: {
-    type: Object,
-    default: null,
-  },
+  legend: { type: Object, default: null },
+  /** Short product name shown as a vertical label on the left (e.g. "SRI"). */
+  productName: { type: String, default: null },
 })
 
 const thresholds = computed(() =>
@@ -71,7 +61,6 @@ const colors = computed(() =>
 )
 const unit = computed(() => props.legend?.unit ?? DEFAULT_UNIT)
 
-// Position of each tick as a % from bottom (evenly spaced in colormap space)
 const ticks = computed(() =>
   thresholds.value.map((value, i) => ({
     value,
@@ -79,13 +68,9 @@ const ticks = computed(() =>
   }))
 )
 
-// Build CSS gradient string from colors (bottom = lowest, top = highest)
 const gradient = computed(() => {
   const n = colors.value.length
-  const stops = colors.value.map((color, i) => {
-    const pct = ((i / (n - 1)) * 100).toFixed(1)
-    return `${color} ${pct}%`
-  })
+  const stops = colors.value.map((color, i) => `${color} ${((i / (n - 1)) * 100).toFixed(1)}%`)
   return `linear-gradient(to top, ${stops.join(', ')})`
 })
 </script>
@@ -95,48 +80,61 @@ const gradient = computed(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 8px 6px;
+  gap: 3px;
+  padding: 6px 5px;
   background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(8px);
   border-radius: 8px;
   user-select: none;
 }
 
-.colorbar-title {
-  color: white;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-}
-
 .colorbar-body {
   display: flex;
   align-items: stretch;
-  height: 180px;
-  gap: 4px;
+  height: 130px;
+  gap: 3px;
+}
+
+/* Vertical product label (e.g. "SRI") */
+.colorbar-label {
+  width: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  white-space: nowrap;
+}
+
+.colorbar-gradient {
+  width: 12px;
+  border-radius: 2px;
+  flex-shrink: 0;
 }
 
 .colorbar-ticks {
   position: relative;
-  width: 28px;
-  display: flex;
-  flex-direction: column;
+  width: 26px;
 }
 
 .colorbar-tick {
   position: absolute;
-  right: 0;
+  left: 2px;
   transform: translateY(50%);
   color: white;
-  font-size: 10px;
+  font-size: 9px;
   font-variant-numeric: tabular-nums;
   line-height: 1;
-  text-align: right;
 }
 
-.colorbar-gradient {
-  width: 14px;
-  border-radius: 3px;
+.colorbar-unit {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
 }
 </style>
