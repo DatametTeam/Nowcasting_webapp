@@ -537,7 +537,9 @@ async function setLookback(hours) {
   await loadData({ preserve: false })
 }
 
-// ---- Polling ----
+// ---- Polling: sliding window ----
+// Each poll: append new frames at the end, drop old frames from the front.
+// Typically 1 new frame per product (4 PNG requests total) — stays fast.
 async function pollForNewData() {
   if (isLoading.value) return
   isUpdating.value = true
@@ -557,11 +559,14 @@ async function pollForNewData() {
     const newRangeTs = Array.from(tsSet).sort()
     if (newRangeTs.length === 0) return
 
-    const currentSet = new Set(timestamps.value)
-    const addedTs = newRangeTs.filter(ts => !currentSet.has(ts))
-    if (addedTs.length === 0) return  // Nothing new
+    const newRangeSet  = new Set(newRangeTs)
+    const currentSet   = new Set(timestamps.value)
+    const addedTs      = newRangeTs.filter(ts => !currentSet.has(ts))
+    const droppedCount = timestamps.value.filter(ts => !newRangeSet.has(ts)).length
 
-    // Update stats
+    if (addedTs.length === 0 && droppedCount === 0) return  // nothing changed
+
+    // Update per-product stats
     results.forEach((r, i) => {
       productStats.value[productOrder[i]] = {
         found:      r.total_found,
@@ -571,29 +576,34 @@ async function pollForNewData() {
       }
     })
 
-    // Merge: keep all existing frames + append new ones (don't remove old ones
-    // from the map — that would require re-indexing all layers). Old frames stay
-    // accessible by scrolling left. When the buffer exceeds 2× the lookback
-    // window, do a full reload to reclaim memory.
-    const mergedTs = [...timestamps.value, ...addedTs]
-    timestamps.value = mergedTs
-
-    // Append only the new frames (typically 1 per product = 4 PNG requests)
-    await Promise.all(productOrder.map(async (product) => {
-      const stats = productStats.value[product]
-      const newUrls = addedTs.map(ts =>
-        stats?.missingSet?.has(ts) ? null : api.explorerOverlayUrl(product, ts)
-      )
-      await radarMap.value?.appendProductFrames(product, newUrls)
-    }))
-
-    if (followLive.value) {
-      goToFrame(mergedTs.length - 1)
+    // 1. Append new frames to the end (fast: typically 1 PNG per product)
+    if (addedTs.length > 0) {
+      await Promise.all(productOrder.map(async (product) => {
+        const stats = productStats.value[product]
+        const newUrls = addedTs.map(ts =>
+          stats?.missingSet?.has(ts) ? null : api.explorerOverlayUrl(product, ts)
+        )
+        await radarMap.value?.appendProductFrames(product, newUrls)
+      }))
     }
 
-    // Buffer too large → full reload to reclaim memory (happens ~every lookbackHours)
-    if (mergedTs.length > lookbackHours.value * 12 * 2) {
-      await loadData({ preserve: false })
+    // 2. Drop old frames from the front (instant — just remove Leaflet layers)
+    if (droppedCount > 0) {
+      for (const product of productOrder) {
+        radarMap.value?.trimProductFrames(product, droppedCount)
+      }
+    }
+
+    // 3. Update timestamp list and frame pointer
+    const prevFrameIndex = frameIndex.value
+    timestamps.value = newRangeTs
+    const adjustedIndex = Math.max(0, prevFrameIndex - droppedCount)
+
+    if (followLive.value) {
+      goToFrame(newRangeTs.length - 1)
+    } else {
+      // Stay on the same frame (shifted by the number of dropped frames)
+      goToFrame(Math.min(adjustedIndex, newRangeTs.length - 1))
     }
 
   } catch (e) {

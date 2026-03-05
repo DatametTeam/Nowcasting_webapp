@@ -425,6 +425,27 @@ function setProductOpacity(product, opacity) {
 }
 
 /**
+ * Remove the oldest N frames for a product (sliding window).
+ * Removes layers from the front of the array and adjusts the active index.
+ * Called after appending new frames so the window stays fixed-size.
+ *
+ * @param {string} product - Product key
+ * @param {number} count   - Number of frames to drop from the front
+ */
+function trimProductFrames(product, count) {
+  if (!productLayerMap[product] || count <= 0) return
+  const entry = productLayerMap[product]
+  if (count >= entry.layers.length) return  // safety: don't trim everything
+
+  const removed = entry.layers.splice(0, count)
+  for (const layer of removed) {
+    if (map && layer) map.removeLayer(layer)
+  }
+  // Shift the active-frame pointer; -1 means "no frame currently visible"
+  entry.activeIndex = Math.max(-1, entry.activeIndex - count)
+}
+
+/**
  * Append new frames to an already-loaded product without clearing existing layers.
  * Used by LiveView for efficient polling: only the newly-arrived frames are fetched,
  * existing frames remain on the map untouched.
@@ -471,7 +492,7 @@ defineExpose({
   // Single-product (backward compat — used by RealTimeView)
   preloadFrames, showFrame, setOverlayOpacity,
   // Multi-product (used by DataExplorerView and LiveView)
-  loadProductFrames, appendProductFrames, showAllAtFrame, setProductOpacity,
+  loadProductFrames, appendProductFrames, trimProductFrames, showAllAtFrame, setProductOpacity,
   removeProduct, clearAllProducts,
   // Utility
   invalidateSize,
