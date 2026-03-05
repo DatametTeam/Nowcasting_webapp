@@ -269,10 +269,27 @@ async def get_groundtruth_overlay(
         else:
             raise HTTPException(status_code=500, detail="Unknown HDF5 structure")
 
+    import logging
+    _log = logging.getLogger(__name__)
+    _log.warning(
+        "[DEBUG] %s %s | dtype=%s shape=%s min=%.2f max=%.2f nonzero=%d",
+        product, filename,
+        frame.dtype, frame.shape,
+        float(np.nanmin(frame)), float(np.nanmax(frame)),
+        int(np.count_nonzero(frame)),
+    )
+
     # Apply radar mask (cached in memory)
     mask = _get_radar_mask()
     if mask is not None:
         frame = frame * mask
+
+    _log.warning(
+        "[DEBUG] %s %s | after mask: min=%.2f max=%.2f nonzero=%d",
+        product, filename,
+        float(np.nanmin(frame)), float(np.nanmax(frame)),
+        int(np.count_nonzero(frame)),
+    )
 
     frame[frame < 0] = 0
 
