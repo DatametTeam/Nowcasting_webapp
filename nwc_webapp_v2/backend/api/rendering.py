@@ -275,14 +275,18 @@ async def get_groundtruth_overlay(
         frame = frame * mask
 
     frame[frame < 0] = 0
-    frame = np.clip(frame, 0, 200)
+
+    # Use per-product colormap — must be done BEFORE clipping so we know
+    # the legend's actual max threshold (e.g. ETM: 12000 m, SRI: 100 mm/h).
+    # Hardcoding 200 destroyed ETM/VIL values which are in completely
+    # different value ranges.
+    legend_name = product_cfg.get("legend", "R")
+    p_cmap, p_norm = _get_product_cmap_norm(legend_name)
+    clip_max = p_norm.thresh[-1] if hasattr(p_norm, "thresh") else 200
+    frame = np.clip(frame, 0, clip_max)
 
     # Reproject from Transverse Mercator to Web Mercator
     frame = _warp_frame(frame)
-
-    # Use per-product colormap
-    legend_name = product_cfg.get("legend", "R")
-    p_cmap, p_norm = _get_product_cmap_norm(legend_name)
     png_bytes = _frame_to_png_bytes(frame, p_cmap, p_norm)
     return Response(content=png_bytes, media_type="image/png", headers=_CACHE_HEADERS)
 
