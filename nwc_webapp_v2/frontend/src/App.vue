@@ -110,10 +110,11 @@ const configStore = useConfigStore()
 
 // Navigation items (same tabs as the Streamlit app)
 const navItems = [
-  { path: '/realtime', label: 'Real Time' },
-  { path: '/explorer', label: 'Data Explorer' },
+  { path: '/realtime',   label: 'Real Time' },
+  { path: '/nowcasting', label: 'Nowcasting' },
+  { path: '/explorer',   label: 'Data Explorer' },
   { path: '/comparison', label: 'Model Comparison' },
-  { path: '/metrics', label: 'Metrics Analysis' },
+  { path: '/metrics',    label: 'Metrics Analysis' },
 ]
 
 // Reactive state

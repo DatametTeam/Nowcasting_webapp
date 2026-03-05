@@ -19,6 +19,7 @@
  */
 import { createRouter, createWebHistory } from 'vue-router'
 
+import LiveView from './views/LiveView.vue'
 import RealTimeView from './views/RealTimeView.vue'
 import DataExplorerView from './views/DataExplorerView.vue'
 import ModelComparisonView from './views/ModelComparisonView.vue'
@@ -30,6 +31,11 @@ const routes = [
   {
     path: '/realtime',
     name: 'Real Time',
+    component: LiveView,
+  },
+  {
+    path: '/nowcasting',
+    name: 'Nowcasting',
     component: RealTimeView,
   },
   {
