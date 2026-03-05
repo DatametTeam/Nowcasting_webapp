@@ -424,12 +424,54 @@ function setProductOpacity(product, opacity) {
   }
 }
 
+/**
+ * Append new frames to an already-loaded product without clearing existing layers.
+ * Used by LiveView for efficient polling: only the newly-arrived frames are fetched,
+ * existing frames remain on the map untouched.
+ *
+ * @param {string} product - Product key (e.g. 'SRI_adj')
+ * @param {(string|null)[]} urls - URLs for the new frames to append (null = missing frame)
+ */
+async function appendProductFrames(product, urls) {
+  if (!map || !productLayerMap[product] || urls.length === 0) return
+
+  const entry = productLayerMap[product]
+  const startIndex = entry.layers.length
+
+  // Reserve slots in the array immediately so indices are stable
+  for (let i = 0; i < urls.length; i++) {
+    entry.layers.push(null)
+  }
+
+  const promises = urls.map((url, i) => {
+    if (!url) return Promise.resolve()
+    const globalIndex = startIndex + i
+    return new Promise((resolve) => {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => {
+        if (productLayerMap[product]) {
+          entry.layers[globalIndex] = L.imageOverlay(url, RADAR_BOUNDS, {
+            opacity: 0,
+            interactive: false,
+          }).addTo(map)
+        }
+        resolve()
+      }
+      img.onerror = () => resolve()
+      img.src = url
+    })
+  })
+
+  await Promise.all(promises)
+}
+
 // Expose methods for the parent component to call
 defineExpose({
   // Single-product (backward compat — used by RealTimeView)
   preloadFrames, showFrame, setOverlayOpacity,
-  // Multi-product (used by DataExplorerView)
-  loadProductFrames, showAllAtFrame, setProductOpacity,
+  // Multi-product (used by DataExplorerView and LiveView)
+  loadProductFrames, appendProductFrames, showAllAtFrame, setProductOpacity,
   removeProduct, clearAllProducts,
   // Utility
   invalidateSize,

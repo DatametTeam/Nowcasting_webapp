@@ -357,17 +357,23 @@ const visibleProducts = computed(() =>
   isLoaded.value ? productOrder.filter(p => layerConfig.value[p].enabled) : []
 )
 
+// Rome timezone formatter — data timestamps are UTC, display in local (Rome) time
+const romeFormatter = new Intl.DateTimeFormat('it-IT', {
+  timeZone: 'Europe/Rome',
+  day: '2-digit', month: '2-digit', year: 'numeric',
+  hour: '2-digit', minute: '2-digit', hour12: false,
+})
+
 const currentTimestampDisplay = computed(() => {
   if (!timestamps.value.length) return '--/--/---- - --:--'
   const ts = timestamps.value[frameIndex.value]
   if (!ts) return '--/--/---- - --:--'
-  const dt = new Date(ts)
-  const d = String(dt.getDate()).padStart(2, '0')
-  const m = String(dt.getMonth() + 1).padStart(2, '0')
-  const y = dt.getFullYear()
-  const H = String(dt.getHours()).padStart(2, '0')
-  const M = String(dt.getMinutes()).padStart(2, '0')
-  return `${d}/${m}/${y} - ${H}:${M}`
+  // Append 'Z' so the browser parses the backend's naive UTC string as UTC,
+  // then Intl converts to Rome time (UTC+1 winter, UTC+2 summer).
+  const dt = new Date(ts + 'Z')
+  const parts = romeFormatter.formatToParts(dt)
+  const get = type => parts.find(p => p.type === type)?.value ?? '00'
+  return `${get('day')}/${get('month')}/${get('year')} - ${get('hour')}:${get('minute')}`
 })
 
 const hourTicks = computed(() => {
@@ -375,9 +381,12 @@ const hourTicks = computed(() => {
   const ticks = []
   const seen = new Set()
   timestamps.value.forEach((ts, i) => {
-    const dt = new Date(ts)
-    if (dt.getMinutes() === 0) {
-      const label = `${String(dt.getHours()).padStart(2, '0')}:00`
+    // Parse as UTC, display in Rome time
+    const dt = new Date(ts + 'Z')
+    const romeMinute = Number(new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', minute: 'numeric' }).format(dt))
+    const romeHour   = new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', hour: '2-digit', hour12: false }).format(dt)
+    if (romeMinute === 0) {
+      const label = `${romeHour}:00`
       if (!seen.has(label)) {
         seen.add(label)
         ticks.push({ label, pct: (i / (timestamps.value.length - 1)) * 100 })
@@ -400,14 +409,21 @@ const nextUpdateText = computed(() => {
 })
 
 // ---- Helpers ----
+
+// Data delay: files arrive ~10 minutes after the nominal timestamp
+const DATA_DELAY_MS = 10 * 60 * 1000
+
 function computeRange() {
-  const now   = new Date()
-  const start = new Date(now - lookbackHours.value * 3600 * 1000)
+  // Data is stored in UTC. Use UTC throughout so file lookups match.
+  // Subtract DATA_DELAY_MS from "now" so we don't search for files that
+  // haven't been written yet (10-minute data arrival delay).
+  const endUtc   = new Date(Date.now() - DATA_DELAY_MS)
+  const startUtc = new Date(endUtc - lookbackHours.value * 3600 * 1000)
   const fmt = dt => {
     const p = n => String(n).padStart(2, '0')
-    return `${dt.getFullYear()}-${p(dt.getMonth()+1)}-${p(dt.getDate())}T${p(dt.getHours())}:${p(dt.getMinutes())}`
+    return `${dt.getUTCFullYear()}-${p(dt.getUTCMonth()+1)}-${p(dt.getUTCDate())}T${p(dt.getUTCHours())}:${p(dt.getUTCMinutes())}`
   }
-  return { start: fmt(start), end: fmt(now) }
+  return { start: fmt(startUtc), end: fmt(endUtc) }
 }
 
 // ---- Frame navigation ----
@@ -526,7 +542,62 @@ async function pollForNewData() {
   if (isLoading.value) return
   isUpdating.value = true
   try {
-    await loadData({ preserve: true })
+    const { start, end } = computeRange()
+
+    const results = await Promise.all(
+      productOrder.map(product =>
+        api.explorerTimestamps(start, end, product).catch(() => ({
+          timestamps: [], missing: [], total_expected: 0, total_found: 0,
+        }))
+      )
+    )
+
+    const tsSet = new Set()
+    results.forEach(r => r.timestamps.forEach(ts => tsSet.add(ts)))
+    const newRangeTs = Array.from(tsSet).sort()
+    if (newRangeTs.length === 0) return
+
+    const currentSet = new Set(timestamps.value)
+    const addedTs = newRangeTs.filter(ts => !currentSet.has(ts))
+    if (addedTs.length === 0) return  // Nothing new
+
+    // Update stats
+    results.forEach((r, i) => {
+      productStats.value[productOrder[i]] = {
+        found:      r.total_found,
+        expected:   r.total_expected,
+        missingTs:  r.missing,
+        missingSet: new Set(r.missing),
+      }
+    })
+
+    // Merge: keep all existing frames + append new ones (don't remove old ones
+    // from the map — that would require re-indexing all layers). Old frames stay
+    // accessible by scrolling left. When the buffer exceeds 2× the lookback
+    // window, do a full reload to reclaim memory.
+    const mergedTs = [...timestamps.value, ...addedTs]
+    timestamps.value = mergedTs
+
+    // Append only the new frames (typically 1 per product = 4 PNG requests)
+    await Promise.all(productOrder.map(async (product) => {
+      const stats = productStats.value[product]
+      const newUrls = addedTs.map(ts =>
+        stats?.missingSet?.has(ts) ? null : api.explorerOverlayUrl(product, ts)
+      )
+      await radarMap.value?.appendProductFrames(product, newUrls)
+    }))
+
+    if (followLive.value) {
+      goToFrame(mergedTs.length - 1)
+    }
+
+    // Buffer too large → full reload to reclaim memory (happens ~every lookbackHours)
+    if (mergedTs.length > lookbackHours.value * 12 * 2) {
+      await loadData({ preserve: false })
+    }
+
+  } catch (e) {
+    console.error('LiveView poll error:', e)
   } finally {
     isUpdating.value = false
   }
