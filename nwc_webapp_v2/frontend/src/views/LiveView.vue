@@ -207,6 +207,16 @@
           </div>
         </div>
 
+        <!-- Error message + retry -->
+        <div v-if="loadError && !isLoading" class="bg-red-900/30 border border-red-700/50 rounded-lg p-3 space-y-2">
+          <p class="text-red-400 text-xs leading-snug">{{ loadError }}</p>
+          <button
+            @click="loadData({ preserve: false })"
+            class="w-full py-1.5 rounded text-xs font-semibold
+                   bg-red-700/30 hover:bg-red-700/50 border border-red-600/50 text-red-300"
+          >Retry</button>
+        </div>
+
         <!-- Loading indicator -->
         <div v-if="isLoading" class="flex items-center gap-2 text-xs text-gray-400">
           <svg class="animate-spin h-4 w-4 text-blue-400" viewBox="0 0 24 24">
@@ -345,6 +355,7 @@ const isLoaded     = ref(false)
 const loadProgress = ref({ loaded: 0, total: 0 })
 const productStats = ref({})
 const showMissingFor = ref(null)
+const loadError    = ref('')    // last error message, shown in UI
 
 let playInterval    = null
 let pollTimer       = null
@@ -454,6 +465,7 @@ async function loadData({ preserve = false } = {}) {
   const { start, end } = computeRange()
 
   isLoading.value = true
+  loadError.value = ''
 
   if (!preserve) {
     // Full reset
@@ -468,9 +480,11 @@ async function loadData({ preserve = false } = {}) {
   try {
     const results = await Promise.all(
       productOrder.map(product =>
-        api.explorerTimestamps(start, end, product).catch(() => ({
-          timestamps: [], missing: [], total_expected: 0, total_found: 0,
-        }))
+        api.explorerTimestamps(start, end, product).catch((err) => {
+          console.error(`[LiveView] explorerTimestamps failed for ${product}:`, err)
+          loadError.value = `API error (${product}): ${err.message}`
+          return { timestamps: [], missing: [], total_expected: 0, total_found: 0 }
+        })
       )
     )
 
@@ -478,7 +492,12 @@ async function loadData({ preserve = false } = {}) {
     results.forEach(r => r.timestamps.forEach(ts => tsSet.add(ts)))
     const sortedTs = Array.from(tsSet).sort()
 
-    if (sortedTs.length === 0) return
+    if (sortedTs.length === 0) {
+      if (!loadError.value)
+        loadError.value = `No files found for ${start} → ${end} (UTC). Check backend logs.`
+      return
+    }
+    loadError.value = ''
 
     // Decide where to land after reload
     const prevLen      = timestamps.value.length
