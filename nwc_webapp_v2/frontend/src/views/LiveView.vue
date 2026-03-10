@@ -582,6 +582,13 @@ async function pollForNewData() {
     const newRangeTs = Array.from(tsSet).sort()
     if (newRangeTs.length === 0) return
 
+    // If nothing is loaded yet (e.g. initial load found no files), do a full
+    // load now that data has arrived — append requires an existing product entry.
+    if (!isLoaded.value) {
+      await loadData({ preserve: false })
+      return
+    }
+
     const newRangeSet  = new Set(newRangeTs)
     const currentSet   = new Set(timestamps.value)
     const addedTs      = newRangeTs.filter(ts => !currentSet.has(ts))
