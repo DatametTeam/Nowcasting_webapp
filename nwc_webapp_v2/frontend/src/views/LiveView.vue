@@ -298,7 +298,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useConfigStore } from '../stores/config.js'
 import api from '../api.js'
 import RadarMap from '../components/RadarMap.vue'
@@ -531,7 +531,9 @@ async function loadData({ preserve = false } = {}) {
 
 // ---- Lookback change ----
 async function setLookback(hours) {
-  if (hours === lookbackHours.value || isLoading.value) return
+  if (isLoading.value) return
+  // Allow re-clicking the same button if the previous load failed (isLoaded=false)
+  if (hours === lookbackHours.value && isLoaded.value) return
   lookbackHours.value = hours
   stopAnimation()
   await loadData({ preserve: false })
@@ -664,6 +666,9 @@ function formatMissingTs(isoTs) {
 
 // ---- Lifecycle ----
 onMounted(async () => {
+  // Wait for the browser to layout and size the Leaflet container before loading.
+  // Without this, Leaflet may have zero-dimension tiles on first paint.
+  await nextTick()
   await loadData({ preserve: false })
   startPolling()
 })
