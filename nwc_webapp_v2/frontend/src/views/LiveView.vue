@@ -426,9 +426,11 @@ const DATA_DELAY_MS = 10 * 60 * 1000
 
 function computeRange() {
   // Data is stored in UTC. Use UTC throughout so file lookups match.
-  // Subtract DATA_DELAY_MS from "now" so we don't search for files that
-  // haven't been written yet (10-minute data arrival delay).
-  const endUtc   = new Date(Date.now() - DATA_DELAY_MS)
+  // Subtract DATA_DELAY_MS then floor to the nearest 5-minute mark so that
+  // the backend's expected timestamps (which step at 5-min intervals) align
+  // with actual filenames (DD-MM-YYYY-HH-MM.hdf on 5-min boundaries).
+  const endUtc = new Date(Date.now() - DATA_DELAY_MS)
+  endUtc.setUTCMinutes(Math.floor(endUtc.getUTCMinutes() / 5) * 5, 0, 0)
   const startUtc = new Date(endUtc - lookbackHours.value * 3600 * 1000)
   const fmt = dt => {
     const p = n => String(n).padStart(2, '0')
