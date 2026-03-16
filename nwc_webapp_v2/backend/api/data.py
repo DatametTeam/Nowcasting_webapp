@@ -332,7 +332,7 @@ async def explorer_timestamps(
             "product": product,
         }
 
-n    # Determine file extension based on product format
+    # Determine file extension based on product format
     product_cfg = products[product]
     file_format = product_cfg.get("file_format", "hdf")
     file_ext = ".tif" if file_format == "tiff" else ".hdf"

@@ -318,8 +318,8 @@ const configStore = useConfigStore()
 const radarMap = ref(null)
 const sidebarOpen = ref(false)
 
-const SHORT_NAMES = { SRI_adj: 'SRI', VMI: 'VMI', ETM: 'ETM', VIL: 'VIL' }
-const productOrder = ['SRI_adj', 'VMI', 'ETM', 'VIL']
+const SHORT_NAMES = { SRI_adj: 'SRI', VMI: 'VMI', ETM: 'ETM', VIL: 'VIL', IR_108: 'IR' }
+const productOrder = ['SRI_adj', 'VMI', 'ETM', 'VIL', 'IR_108']
 const lookbackOptions = [1, 2, 4, 6, 12]
 const POLL_MS = 5 * 60 * 1000  // 5-minute polling
 
@@ -344,6 +344,7 @@ const layerConfig = ref({
   VMI:     { enabled: true, opacity: 0.7 },
   ETM:     { enabled: true, opacity: 0.7 },
   VIL:     { enabled: true, opacity: 0.7 },
+  IR_108:  { enabled: true, opacity: 0.75 },
 })
 
 // ---- Timeline state ----
@@ -358,7 +359,8 @@ const showMissingFor = ref(null)
 const loadError    = ref('')    // last error message, shown in UI
 
 let playInterval    = null
-let pollTimer       = null
+let initialTimer    = null   // setTimeout — fires at the next 5-min clock mark
+let pollTimer       = null   // setInterval — fires every 5 min after alignment
 let countdownTimer  = null
 
 // ---- Computed ----
@@ -649,14 +651,32 @@ async function pollForNewData() {
   }
 }
 
+// Returns milliseconds until the next 5-minute clock boundary (00:05, 00:10, ...).
+// Aligning polls to clock marks ensures we check right when new files should arrive,
+// instead of drifting relative to whenever the page was loaded.
+function msUntilNextFiveMinMark() {
+  const ms = Date.now() % POLL_MS
+  return POLL_MS - ms
+}
+
 function startPolling() {
   stopPolling()
-  nextUpdateSecs.value = POLL_MS / 1000
 
-  pollTimer = setInterval(() => {
+  const delay = msUntilNextFiveMinMark()
+  nextUpdateSecs.value = Math.round(delay / 1000)
+
+  // Step 1: fire at the exact next 5-minute clock mark
+  initialTimer = setTimeout(() => {
+    initialTimer = null
     pollForNewData()
     nextUpdateSecs.value = POLL_MS / 1000
-  }, POLL_MS)
+
+    // Step 2: then repeat every 5 minutes exactly on the mark
+    pollTimer = setInterval(() => {
+      pollForNewData()
+      nextUpdateSecs.value = POLL_MS / 1000
+    }, POLL_MS)
+  }, delay)
 
   countdownTimer = setInterval(() => {
     if (nextUpdateSecs.value > 0) nextUpdateSecs.value--
@@ -664,8 +684,9 @@ function startPolling() {
 }
 
 function stopPolling() {
-  if (pollTimer)     { clearInterval(pollTimer);     pollTimer     = null }
-  if (countdownTimer){ clearInterval(countdownTimer); countdownTimer = null }
+  if (initialTimer)   { clearTimeout(initialTimer);   initialTimer   = null }
+  if (pollTimer)      { clearInterval(pollTimer);      pollTimer      = null }
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
 }
 
 // ---- Slider + animation ----
