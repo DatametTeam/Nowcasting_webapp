@@ -491,7 +491,10 @@ async function loadData({ preserve = false } = {}) {
     )
 
     const tsSet = new Set()
-    results.forEach(r => r.timestamps.forEach(ts => tsSet.add(ts)))
+    results.forEach(r => {
+      r.timestamps.forEach(ts => tsSet.add(ts))
+      r.missing.forEach(ts => tsSet.add(ts))
+    })
     const sortedTs = Array.from(tsSet).sort()
 
     if (sortedTs.length === 0) {
@@ -578,7 +581,10 @@ async function pollForNewData() {
     )
 
     const tsSet = new Set()
-    results.forEach(r => r.timestamps.forEach(ts => tsSet.add(ts)))
+    results.forEach(r => {
+      r.timestamps.forEach(ts => tsSet.add(ts))
+      r.missing.forEach(ts => tsSet.add(ts))
+    })
     const newRangeTs = Array.from(tsSet).sort()
     if (newRangeTs.length === 0) return
 
