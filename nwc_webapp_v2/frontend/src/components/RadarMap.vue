@@ -487,13 +487,39 @@ async function appendProductFrames(product, urls) {
   await Promise.all(promises)
 }
 
+/**
+ * Set the visual stacking order of products on the map.
+ *
+ * @param {string[]} topToBottom - Products ordered from topmost (index 0) to bottommost (last).
+ *
+ * Leaflet stacks layers by DOM insertion order (last child = rendered on top).
+ * bringToFront() moves a layer's DOM elements to the end of the container pane,
+ * making it appear above all others at that point.
+ *
+ * Strategy: iterate from BOTTOM to TOP, calling bringToFront on every frame of each
+ * product in that order. The topmost product is called last, so it wins the "front"
+ * position. All frames are reordered (not just the active one) so that navigating the
+ * timeline always respects the chosen stacking order.
+ */
+function setProductOrder(topToBottom) {
+  if (!map) return
+  // Iterate from last (bottommost) to first (topmost)
+  for (let i = topToBottom.length - 1; i >= 0; i--) {
+    const entry = productLayerMap[topToBottom[i]]
+    if (!entry) continue
+    for (const layer of entry.layers) {
+      if (layer) layer.bringToFront()
+    }
+  }
+}
+
 // Expose methods for the parent component to call
 defineExpose({
   // Single-product (backward compat — used by RealTimeView)
   preloadFrames, showFrame, setOverlayOpacity,
   // Multi-product (used by DataExplorerView and LiveView)
   loadProductFrames, appendProductFrames, trimProductFrames, showAllAtFrame, setProductOpacity,
-  removeProduct, clearAllProducts,
+  removeProduct, clearAllProducts, setProductOrder,
   // Utility
   invalidateSize,
 })

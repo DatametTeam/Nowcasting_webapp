@@ -261,7 +261,7 @@
             :key="product"
             class="bg-gray-800 rounded-lg p-3 space-y-2"
           >
-            <!-- Header: checkbox + short name + unit -->
+            <!-- Header: checkbox + short name + unit + order arrows -->
             <div class="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -272,7 +272,26 @@
               <label :for="`layer-${product}`" class="text-white text-sm font-bold cursor-pointer flex-1">
                 {{ SHORT_NAMES[product] }}
               </label>
-              <span class="text-gray-400 text-xs">{{ radarProducts[product]?.unit || '' }}</span>
+              <span class="text-gray-400 text-xs mr-1">{{ radarProducts[product]?.unit || '' }}</span>
+              <!-- Layer order arrows -->
+              <div class="flex flex-col gap-0.5">
+                <button
+                  @click="moveProductUp(product)"
+                  :disabled="productOrder.indexOf(product) === 0"
+                  class="w-5 h-4 flex items-center justify-center rounded text-gray-400
+                         hover:text-white hover:bg-white/10 disabled:opacity-25 disabled:cursor-not-allowed
+                         transition-colors leading-none text-[10px]"
+                  title="Move layer up (toward top)"
+                >▲</button>
+                <button
+                  @click="moveProductDown(product)"
+                  :disabled="productOrder.indexOf(product) === productOrder.length - 1"
+                  class="w-5 h-4 flex items-center justify-center rounded text-gray-400
+                         hover:text-white hover:bg-white/10 disabled:opacity-25 disabled:cursor-not-allowed
+                         transition-colors leading-none text-[10px]"
+                  title="Move layer down (toward bottom)"
+                >▼</button>
+              </div>
             </div>
 
             <!-- Opacity slider (fix #11: min=0) -->
@@ -355,7 +374,8 @@ const sidebarOpen = ref(false)
 
 // ---- Short display names (fix #1) ----
 const SHORT_NAMES = { SRI_adj: 'SRI', VMI: 'VMI', ETM: 'ETM', VIL: 'VIL', IR_108: 'IR' }
-const productOrder = ['SRI_adj', 'VMI', 'ETM', 'VIL', 'IR_108']
+// Ordered top-to-bottom on the map (index 0 = topmost layer). IR_108 is last = bottommost.
+const productOrder = ref(['SRI_adj', 'VMI', 'ETM', 'VIL', 'IR_108'])
 
 // ---- Speeds (cycle button, fix #6) ----
 const speeds = [0.5, 1, 2, 4]
@@ -448,7 +468,7 @@ const radarProducts = computed(() => configStore.radarProducts)
 
 // Products that have been loaded and are currently enabled (for colorbars)
 const visibleProducts = computed(() =>
-  isLoaded.value ? productOrder.filter(p => layerConfig.value[p].enabled) : []
+  isLoaded.value ? productOrder.value.filter(p => layerConfig.value[p].enabled) : []
 )
 
 const rangeWarning = computed(() => {
@@ -508,7 +528,7 @@ function goToFrame(idx) {
   if (!radarMap.value || !isLoaded.value) return
   // Build opacity map: 0 for disabled products (fix #5)
   const opacities = {}
-  for (const product of productOrder) {
+  for (const product of productOrder.value) {
     opacities[product] = layerConfig.value[product].enabled
       ? layerConfig.value[product].opacity
       : 0
@@ -542,7 +562,7 @@ async function loadData() {
   try {
     // Fetch timestamps for ALL 4 products in parallel (fix #3)
     const results = await Promise.all(
-      productOrder.map(product =>
+      productOrder.value.map(product =>
         api.explorerTimestamps(start, end, product).catch(() => ({
           timestamps: [], missing: [], total_expected: 0, total_found: 0, product,
         }))
@@ -557,7 +577,7 @@ async function loadData() {
 
     // Store per-product stats
     results.forEach((r, i) => {
-      const product = productOrder[i]
+      const product = productOrder.value[i]
       const missingSet = new Set(r.missing)
       productStats.value[product] = {
         found:     r.total_found,
@@ -570,8 +590,8 @@ async function loadData() {
     if (sortedTs.length === 0) { isLoading.value = false; return }
 
     // Load all 4 products in parallel (fix #4: per-product generation in RadarMap)
-    loadProgress.value.total = productOrder.length * sortedTs.length
-    await Promise.all(productOrder.map(async (product) => {
+    loadProgress.value.total = productOrder.value.length * sortedTs.length
+    await Promise.all(productOrder.value.map(async (product) => {
       const stats = productStats.value[product]
       const urls = sortedTs.map(ts =>
         stats?.missingSet?.has(ts) ? null : api.explorerOverlayUrl(product, ts)
@@ -583,6 +603,8 @@ async function loadData() {
     isLoaded.value = true
     frameIndex.value = 0
     goToFrame(0)
+    // Apply stacking order: IR_108 is last in productOrder → bottommost on map
+    radarMap.value?.setProductOrder(productOrder.value)
 
   } catch (e) {
     console.error('Failed to load explorer data:', e)
@@ -590,6 +612,32 @@ async function loadData() {
     isLoading.value = false
   }
 }
+
+// ---- Layer reordering ----
+function moveProductUp(product) {
+  const arr = [...productOrder.value]
+  const i = arr.indexOf(product)
+  if (i <= 0) return
+  arr.splice(i, 1)
+  arr.splice(i - 1, 0, product)
+  productOrder.value = arr
+}
+
+function moveProductDown(product) {
+  const arr = [...productOrder.value]
+  const i = arr.indexOf(product)
+  if (i >= arr.length - 1) return
+  arr.splice(i, 1)
+  arr.splice(i + 1, 0, product)
+  productOrder.value = arr
+}
+
+watch(productOrder, () => {
+  if (radarMap.value && isLoaded.value) {
+    radarMap.value.setProductOrder(productOrder.value)
+    goToFrame(frameIndex.value)
+  }
+})
 
 // ---- Slider ----
 function onSliderInput(e) {

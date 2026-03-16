@@ -249,7 +249,26 @@
               <label :for="`layer-${product}`" class="text-white text-sm font-bold cursor-pointer flex-1">
                 {{ SHORT_NAMES[product] }}
               </label>
-              <span class="text-gray-400 text-xs">{{ radarProducts[product]?.unit || '' }}</span>
+              <span class="text-gray-400 text-xs mr-1">{{ radarProducts[product]?.unit || '' }}</span>
+              <!-- Layer order arrows -->
+              <div class="flex flex-col gap-0.5">
+                <button
+                  @click="moveProductUp(product)"
+                  :disabled="productOrder.indexOf(product) === 0"
+                  class="w-5 h-4 flex items-center justify-center rounded text-gray-400
+                         hover:text-white hover:bg-white/10 disabled:opacity-25 disabled:cursor-not-allowed
+                         transition-colors leading-none text-[10px]"
+                  title="Move layer up (toward top)"
+                >▲</button>
+                <button
+                  @click="moveProductDown(product)"
+                  :disabled="productOrder.indexOf(product) === productOrder.length - 1"
+                  class="w-5 h-4 flex items-center justify-center rounded text-gray-400
+                         hover:text-white hover:bg-white/10 disabled:opacity-25 disabled:cursor-not-allowed
+                         transition-colors leading-none text-[10px]"
+                  title="Move layer down (toward bottom)"
+                >▼</button>
+              </div>
             </div>
 
             <div class="flex items-center gap-2">
@@ -319,7 +338,8 @@ const radarMap = ref(null)
 const sidebarOpen = ref(false)
 
 const SHORT_NAMES = { SRI_adj: 'SRI', VMI: 'VMI', ETM: 'ETM', VIL: 'VIL', IR_108: 'IR' }
-const productOrder = ['SRI_adj', 'VMI', 'ETM', 'VIL', 'IR_108']
+// Ordered top-to-bottom on the map (index 0 = topmost layer). IR_108 is last = bottommost.
+const productOrder = ref(['SRI_adj', 'VMI', 'ETM', 'VIL', 'IR_108'])
 const lookbackOptions = [1, 2, 4, 6, 12]
 const POLL_MS = 5 * 60 * 1000  // 5-minute polling
 
@@ -367,7 +387,7 @@ let countdownTimer  = null
 const radarProducts = computed(() => configStore.radarProducts)
 
 const visibleProducts = computed(() =>
-  isLoaded.value ? productOrder.filter(p => layerConfig.value[p].enabled) : []
+  isLoaded.value ? productOrder.value.filter(p => layerConfig.value[p].enabled) : []
 )
 
 // Rome timezone formatter — data timestamps are UTC, display in local (Rome) time
@@ -446,7 +466,7 @@ function goToFrame(idx) {
   frameIndex.value = idx
   if (!radarMap.value || !isLoaded.value) return
   const opacities = {}
-  for (const product of productOrder) {
+  for (const product of productOrder.value) {
     opacities[product] = layerConfig.value[product].enabled
       ? layerConfig.value[product].opacity
       : 0
@@ -483,7 +503,7 @@ async function loadData({ preserve = false } = {}) {
 
   try {
     const results = await Promise.all(
-      productOrder.map(product =>
+      productOrder.value.map(product =>
         api.explorerTimestamps(start, end, product).catch((err) => {
           console.error(`[LiveView] explorerTimestamps failed for ${product}:`, err)
           loadError.value = `API error (${product}): ${err.message}`
@@ -513,7 +533,7 @@ async function loadData({ preserve = false } = {}) {
     timestamps.value = sortedTs
 
     results.forEach((r, i) => {
-      productStats.value[productOrder[i]] = {
+      productStats.value[productOrder.value[i]] = {
         found:      r.total_found,
         expected:   r.total_expected,
         missingTs:  r.missing,
@@ -521,10 +541,10 @@ async function loadData({ preserve = false } = {}) {
       }
     })
 
-    loadProgress.value = { loaded: 0, total: productOrder.length * sortedTs.length }
+    loadProgress.value = { loaded: 0, total: productOrder.value.length * sortedTs.length }
 
     radarMap.value?.clearAllProducts()
-    await Promise.all(productOrder.map(async (product) => {
+    await Promise.all(productOrder.value.map(async (product) => {
       const stats = productStats.value[product]
       const urls  = sortedTs.map(ts =>
         stats?.missingSet?.has(ts) ? null : api.explorerOverlayUrl(product, ts)
@@ -547,6 +567,9 @@ async function loadData({ preserve = false } = {}) {
     } else {
       goToFrame(0)
     }
+
+    // Apply stacking order: IR_108 is last in productOrder → bottommost on map
+    radarMap.value?.setProductOrder(productOrder.value)
 
   } catch (e) {
     console.error('LiveView: failed to load data:', e)
@@ -575,7 +598,7 @@ async function pollForNewData() {
     const { start, end } = computeRange()
 
     const results = await Promise.all(
-      productOrder.map(product =>
+      productOrder.value.map(product =>
         api.explorerTimestamps(start, end, product).catch(() => ({
           timestamps: [], missing: [], total_expected: 0, total_found: 0,
         }))
@@ -606,7 +629,7 @@ async function pollForNewData() {
 
     // Update per-product stats
     results.forEach((r, i) => {
-      productStats.value[productOrder[i]] = {
+      productStats.value[productOrder.value[i]] = {
         found:      r.total_found,
         expected:   r.total_expected,
         missingTs:  r.missing,
@@ -616,7 +639,7 @@ async function pollForNewData() {
 
     // 1. Append new frames to the end (fast: typically 1 PNG per product)
     if (addedTs.length > 0) {
-      await Promise.all(productOrder.map(async (product) => {
+      await Promise.all(productOrder.value.map(async (product) => {
         const stats = productStats.value[product]
         const newUrls = addedTs.map(ts =>
           stats?.missingSet?.has(ts) ? null : api.explorerOverlayUrl(product, ts)
@@ -627,7 +650,7 @@ async function pollForNewData() {
 
     // 2. Drop old frames from the front (instant — just remove Leaflet layers)
     if (droppedCount > 0) {
-      for (const product of productOrder) {
+      for (const product of productOrder.value) {
         radarMap.value?.trimProductFrames(product, droppedCount)
       }
     }
@@ -643,6 +666,9 @@ async function pollForNewData() {
       // Stay on the same frame (shifted by the number of dropped frames)
       goToFrame(Math.min(adjustedIndex, newRangeTs.length - 1))
     }
+
+    // Reapply stacking order — new layers from appendProductFrames are added on top
+    radarMap.value?.setProductOrder(productOrder.value)
 
   } catch (e) {
     console.error('LiveView poll error:', e)
@@ -708,6 +734,33 @@ function stopAnimation() {
   isPlaying.value = false
   if (playInterval) { clearInterval(playInterval); playInterval = null }
 }
+
+// ---- Layer reordering ----
+function moveProductUp(product) {
+  const arr = [...productOrder.value]
+  const i = arr.indexOf(product)
+  if (i <= 0) return
+  arr.splice(i, 1)
+  arr.splice(i - 1, 0, product)
+  productOrder.value = arr
+}
+
+function moveProductDown(product) {
+  const arr = [...productOrder.value]
+  const i = arr.indexOf(product)
+  if (i >= arr.length - 1) return
+  arr.splice(i, 1)
+  arr.splice(i + 1, 0, product)
+  productOrder.value = arr
+}
+
+// Apply z-order whenever the layer order changes
+watch(productOrder, () => {
+  if (radarMap.value && isLoaded.value) {
+    radarMap.value.setProductOrder(productOrder.value)
+    goToFrame(frameIndex.value)
+  }
+})
 
 // ---- Missing frames ----
 function toggleMissing(product) {

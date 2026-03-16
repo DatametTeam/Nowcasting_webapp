@@ -31,8 +31,8 @@
         </span>
       </div>
     </div>
-    <!-- Unit label below (only when no productName) -->
-    <div v-if="!productName" class="colorbar-unit">{{ unit }}</div>
+    <!-- Unit label below -->
+    <div class="colorbar-unit">{{ unit }}</div>
   </div>
 </template>
 
