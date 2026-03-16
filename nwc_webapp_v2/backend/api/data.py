@@ -332,6 +332,11 @@ async def explorer_timestamps(
             "product": product,
         }
 
+n    # Determine file extension based on product format
+    product_cfg = products[product]
+    file_format = product_cfg.get("file_format", "hdf")
+    file_ext = ".tif" if file_format == "tiff" else ".hdf"
+
     # Generate all expected 5-minute timestamps
     expected = []
     current = start_dt
@@ -342,8 +347,11 @@ async def explorer_timestamps(
     found = []
     missing = []
     for dt in expected:
-        filename = dt.strftime("%d-%m-%Y-%H-%M") + ".hdf"
-        if (product_folder / filename).exists():
+        stem = dt.strftime("%d-%m-%Y-%H-%M")
+        if (product_folder / (stem + file_ext)).exists():
+            found.append(dt.isoformat())
+        elif file_format == "tiff" and (product_folder / (stem + ".tiff")).exists():
+            # Also accept .tiff extension for TIFF products
             found.append(dt.isoformat())
         else:
             missing.append(dt.isoformat())

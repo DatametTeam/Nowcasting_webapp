@@ -185,7 +185,7 @@ def _get_product_cmap_norm(legend_name: str):
     return product_cmap, product_norm
 
 
-def _frame_to_png_bytes(frame, frame_cmap=None, frame_norm=None):
+def _frame_to_png_bytes(frame, frame_cmap=None, frame_norm=None, transparent_zero=True):
     """
     Convert a 2D numpy array to RGBA PNG bytes using the radar colormap.
 
@@ -198,6 +198,11 @@ def _frame_to_png_bytes(frame, frame_cmap=None, frame_norm=None):
     frame_cmap / frame_norm: optional colormap/norm overrides.
     If None, uses the default SRI 'R' colormap.
 
+    transparent_zero: if True (default, SRI/radar), also make frame <= 0 transparent.
+    Set to False for products like IR_108 where 0 and negative values are valid data
+    (cold cloud tops have negative temperatures). The legend's own alpha channel
+    (e.g. alpha=0 for warm/clear areas) handles product-specific transparency.
+
     Returns bytes (not a buffer), suitable for Response(content=...).
     """
     if frame_cmap is None:
@@ -207,8 +212,13 @@ def _frame_to_png_bytes(frame, frame_cmap=None, frame_norm=None):
 
     normalized = frame_norm(frame)
     rgba = frame_cmap(normalized)  # Float RGBA array (0-1)
-    # Transparent where no precipitation or outside the radar domain (NaN from warp)
-    rgba[~np.isfinite(frame) | (frame <= 0)] = [0, 0, 0, 0]
+    if transparent_zero:
+        # Transparent where no precipitation or outside the radar domain (NaN from warp)
+        rgba[~np.isfinite(frame) | (frame <= 0)] = [0, 0, 0, 0]
+    else:
+        # Transparent only for pixels outside the domain (NaN from warp).
+        # The colormap's own alpha channel handles product-specific transparency.
+        rgba[~np.isfinite(frame)] = [0, 0, 0, 0]
 
     img = Image.fromarray((rgba * 255).astype(np.uint8))
 
@@ -247,7 +257,6 @@ async def get_groundtruth_overlay(
         raise HTTPException(status_code=400, detail=f"Invalid datetime: {e}")
 
     config = get_config()
-    filename = dt.strftime("%d-%m-%Y-%H-%M") + ".hdf"
 
     # Resolve product folder and legend
     products = config.radar_products
@@ -259,35 +268,63 @@ async def get_groundtruth_overlay(
     if not product_folder:
         raise HTTPException(status_code=404, detail=f"No data folder configured for {product} in this environment")
 
-    file_path = Path(str(product_folder)) / filename
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail=f"File not found: {filename}")
-
-    with h5py.File(file_path, "r") as f:
-        if "dataset1/data1/data" in f:
-            frame = f["dataset1/data1/data"][()].astype(float)
-        else:
-            raise HTTPException(status_code=500, detail="Unknown HDF5 structure")
-
-    # Apply radar mask (cached in memory)
-    mask = _get_radar_mask()
-    if mask is not None:
-        frame = frame * mask
-
-    frame[frame < 0] = 0
-
-    # Use per-product colormap — must be done BEFORE clipping so we know
-    # the legend's actual max threshold (e.g. ETM: 12000 m, SRI: 100 mm/h).
-    # Hardcoding 200 destroyed ETM/VIL values which are in completely
-    # different value ranges.
     legend_name = product_cfg.get("legend", "R")
     p_cmap, p_norm = _get_product_cmap_norm(legend_name)
-    clip_max = p_norm.thresh[-1] if hasattr(p_norm, "thresh") else 200
-    frame = np.clip(frame, 0, clip_max)
+    file_format = product_cfg.get("file_format", "hdf")
 
-    # Reproject from Transverse Mercator to Web Mercator
-    frame = _warp_frame(frame)
-    png_bytes = _frame_to_png_bytes(frame, p_cmap, p_norm)
+    if file_format == "tiff":
+        # IR_108 and other TIFF satellite products
+        # Try .tif first, fall back to .tiff
+        filename_tif = dt.strftime("%d-%m-%Y-%H-%M") + ".tif"
+        filename_tiff = dt.strftime("%d-%m-%Y-%H-%M") + ".tiff"
+        file_path = Path(str(product_folder)) / filename_tif
+        if not file_path.exists():
+            file_path = Path(str(product_folder)) / filename_tiff
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {filename_tif}")
+
+        # Load TIFF — PIL handles all common TIFF variants
+        pil_img = Image.open(file_path)
+        frame = np.array(pil_img, dtype=float)
+
+        # TIFF is (height=1400, width=1200), same spatial extent as HDF5 radar data.
+        # No radar mask — satellite has wider coverage than the radar composite.
+        clip_min = p_norm.thresh[0] if hasattr(p_norm, "thresh") else -100
+        clip_max = p_norm.thresh[-1] if hasattr(p_norm, "thresh") else 100
+        frame = np.clip(frame, clip_min, clip_max)
+
+        frame = _warp_frame(frame)
+        # transparent_zero=False: temperatures ≤ 0 are valid cold cloud tops,
+        # the legend's own alpha=0 for warm values handles clear-sky transparency.
+        png_bytes = _frame_to_png_bytes(frame, p_cmap, p_norm, transparent_zero=False)
+    else:
+        # Default: HDF5 radar products (SRI_adj, VMI, ETM, VIL)
+        filename = dt.strftime("%d-%m-%Y-%H-%M") + ".hdf"
+        file_path = Path(str(product_folder)) / filename
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+
+        with h5py.File(file_path, "r") as f:
+            if "dataset1/data1/data" in f:
+                frame = f["dataset1/data1/data"][()].astype(float)
+            else:
+                raise HTTPException(status_code=500, detail="Unknown HDF5 structure")
+
+        # Apply radar mask (cached in memory)
+        mask = _get_radar_mask()
+        if mask is not None:
+            frame = frame * mask
+
+        frame[frame < 0] = 0
+
+        # Use per-product colormap — must be done BEFORE clipping so we know
+        # the legend's actual max threshold (e.g. ETM: 12000 m, SRI: 100 mm/h).
+        clip_max = p_norm.thresh[-1] if hasattr(p_norm, "thresh") else 200
+        frame = np.clip(frame, 0, clip_max)
+
+        frame = _warp_frame(frame)
+        png_bytes = _frame_to_png_bytes(frame, p_cmap, p_norm)
+
     return Response(content=png_bytes, media_type="image/png", headers=_CACHE_HEADERS)
 
 

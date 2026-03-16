@@ -1,0 +1,2 @@
+mode    = legend
+legendfile    = legend.txt

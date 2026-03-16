@@ -354,8 +354,8 @@ const radarMap = ref(null)
 const sidebarOpen = ref(false)
 
 // ---- Short display names (fix #1) ----
-const SHORT_NAMES = { SRI_adj: 'SRI', VMI: 'VMI', ETM: 'ETM', VIL: 'VIL' }
-const productOrder = ['SRI_adj', 'VMI', 'ETM', 'VIL']
+const SHORT_NAMES = { SRI_adj: 'SRI', VMI: 'VMI', ETM: 'ETM', VIL: 'VIL', IR_108: 'IR' }
+const productOrder = ['SRI_adj', 'VMI', 'ETM', 'VIL', 'IR_108']
 
 // ---- Speeds (cycle button, fix #6) ----
 const speeds = [0.5, 1, 2, 4]
@@ -428,6 +428,7 @@ const layerConfig = ref({
   VMI:     { enabled: true, opacity: 0.7 },
   ETM:     { enabled: true, opacity: 0.7 },
   VIL:     { enabled: true, opacity: 0.7 },
+  IR_108:  { enabled: true, opacity: 0.75 },
 })
 
 // ---- Animation state ----

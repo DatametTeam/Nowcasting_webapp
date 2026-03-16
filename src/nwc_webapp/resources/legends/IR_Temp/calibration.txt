@@ -1,0 +1,6 @@
+parname = IR_Temp
+unit    = C
+offset  = -80
+slope   = 0.5
+nullInd = -1
+voidInd = -1

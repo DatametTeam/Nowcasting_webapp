@@ -132,11 +132,12 @@ export default {
 
   // --- Rendering ---
   /**
-   * Returns the URL for a groundtruth (SRI) overlay image.
+   * Returns the URL for a groundtruth overlay image.
    * Used for the past portion of the timeline (-60 to 0 minutes).
+   * product defaults to 'SRI_adj'. Pass 'IR_108' for the satellite overlay.
    */
-  groundtruthOverlayUrl: (timestamp) =>
-    `${API_BASE}/render/overlay/groundtruth/${timestamp}`,
+  groundtruthOverlayUrl: (timestamp, product = 'SRI_adj') =>
+    `${API_BASE}/render/overlay/groundtruth/${encodeURIComponent(timestamp)}?product=${product}`,
 
   overlayUrl: (model, timestamp, leadTime = 0, frameType = 'prediction') =>
     `${API_BASE}/render/overlay/${model}/${timestamp}?lead_time=${leadTime}&frame_type=${frameType}`,

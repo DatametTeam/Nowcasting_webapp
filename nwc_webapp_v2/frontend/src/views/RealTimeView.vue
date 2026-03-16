@@ -312,6 +312,38 @@
         </div>
       </div>
 
+      <!-- IR Satellite Overlay -->
+      <div class="p-4 border-b border-gray-100">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            Satellite IR
+          </h3>
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="checkbox"
+              v-model="irEnabled"
+              class="w-4 h-4 rounded accent-blue-500"
+            />
+            <span class="text-xs text-gray-600">Show</span>
+          </label>
+        </div>
+        <p class="text-[10px] text-gray-400 mb-2">IR 10.8 µm cloud cover overlay</p>
+        <div v-if="irEnabled" class="flex items-center gap-2">
+          <span class="text-xs text-gray-500 w-12 flex-shrink-0">Opacity</span>
+          <input
+            type="range"
+            v-model.number="irOpacity"
+            min="0"
+            max="1"
+            step="0.05"
+            class="flex-1 h-1.5 accent-blue-400 cursor-pointer"
+          />
+          <span class="text-xs text-gray-500 w-8 text-right tabular-nums">
+            {{ Math.round(irOpacity * 100) }}%
+          </span>
+        </div>
+      </div>
+
       <!-- Info -->
       <div class="p-4">
         <p v-if="lastRefresh" class="text-[10px] text-gray-400">
@@ -358,6 +390,10 @@ const speed = ref(1)
 const latestSRI = ref(null)
 const overlayOpacity = ref(0.7)
 const lastRefresh = ref('')
+
+// IR satellite overlay
+const irEnabled = ref(false)
+const irOpacity = ref(0.75)
 
 // Real-time state (driven by backend)
 const realTimeActive = ref(false)
@@ -493,6 +529,20 @@ async function preloadAllFrames() {
 
   await radarMap.value.preloadFrames(safeUrls)
   radarMap.value.showFrame(frameIndex.value)
+
+  // Load IR satellite overlay if enabled.
+  // Past frames: actual IR timestamp. Future frames: clamp to t=0 (current IR).
+  if (irEnabled.value) {
+    const irUrls = Array.from({ length: TOTAL_FRAMES }, (_, i) => {
+      const minuteOffset = frameToMinutes(i)
+      // For future frames, show the current IR image (no satellite forecast)
+      const effectiveOffset = Math.min(minuteOffset, 0)
+      const frameDt = new Date(baseDt.getTime() + effectiveOffset * 60000)
+      return api.groundtruthOverlayUrl(formatIsoTimestamp(frameDt), 'IR_108')
+    })
+    await radarMap.value.loadProductFrames('IR_108', irUrls, irOpacity.value)
+    radarMap.value.showAllAtFrame(frameIndex.value)
+  }
 }
 
 /**
@@ -519,12 +569,32 @@ watch(latestTimestamp, () => {
 
 // When frame index changes (slider drag) → instantly show that frame
 watch(frameIndex, (newIdx) => {
-  if (radarMap.value) radarMap.value.showFrame(newIdx)
+  if (radarMap.value) {
+    radarMap.value.showFrame(newIdx)
+    if (irEnabled.value) radarMap.value.showAllAtFrame(newIdx)
+  }
 })
 
 // When opacity slider changes → update the currently visible frame
 watch(overlayOpacity, (newOpacity) => {
   if (radarMap.value) radarMap.value.setOverlayOpacity(newOpacity)
+})
+
+// IR overlay: toggle on/off
+watch(irEnabled, async (enabled) => {
+  if (enabled) {
+    await preloadAllFrames()
+  } else {
+    radarMap.value?.removeProduct('IR_108')
+  }
+})
+
+// IR opacity: update the currently visible IR frame
+watch(irOpacity, (opacity) => {
+  if (radarMap.value && irEnabled.value) {
+    radarMap.value.setProductOpacity('IR_108', opacity)
+    radarMap.value.showAllAtFrame(frameIndex.value)
+  }
 })
 
 // ---- Animation controls ----

@@ -187,3 +187,10 @@ radar_products:
     unit: "kg/m²"
     folder_local: ""
     folder_hpc: "/davinci-1/work/protezionecivile/data1/VIL"
+  IR_108:
+    legend: "IR_Temp"
+    label: "IR Temperature"
+    unit: "°C"
+    file_format: "tiff"
+    folder_local: "data/mock_ir"
+    folder_hpc: "/davinci-1/work/protezionecivile/data1/IR_108"
