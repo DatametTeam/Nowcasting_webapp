@@ -599,7 +599,8 @@ async function setLookback(hours) {
 // ---- Polling: sliding window ----
 // Each poll: append new frames at the end, drop old frames from the front.
 // Typically 1 new frame per product (4 PNG requests total) — stays fast.
-// Returns true if new data was found and displayed, false otherwise.
+// Returns true if actual new image data was loaded (not just new-but-still-missing timestamps).
+// Returning false keeps the search window alive so we retry until the file arrives.
 async function pollForNewData() {
   if (isLoading.value) return false
   isUpdating.value = true
@@ -622,20 +623,22 @@ async function pollForNewData() {
     const newRangeTs = Array.from(tsSet).sort()
     if (newRangeTs.length === 0) return false
 
-    // If nothing is loaded yet (e.g. initial load found no files), do a full
-    // load now that data has arrived — append requires an existing product entry.
+    // If nothing is loaded yet (e.g. initial load found no files), do a full load.
     if (!isLoaded.value) {
       await loadData({ preserve: false })
       return true
     }
+
+    // Build a unified "still missing" set across all products
+    const newMissingAll = new Set()
+    results.forEach(r => r.missing.forEach(ts => newMissingAll.add(ts)))
 
     const newRangeSet  = new Set(newRangeTs)
     const currentSet   = new Set(timestamps.value)
     const addedTs      = newRangeTs.filter(ts => !currentSet.has(ts))
     const droppedCount = timestamps.value.filter(ts => !newRangeSet.has(ts)).length
 
-    // Check if any timestamp that was previously missing is now found for any product.
-    // This happens when a file arrives after the initial load already marked it as missing.
+    // Any previously-missing timestamp now found for at least one product?
     const resolvedForAnyProduct = productOrder.value.some((product, i) => {
       const prevMissing = productStats.value[product]?.missingSet
       if (!prevMissing || prevMissing.size === 0) return false
@@ -645,15 +648,14 @@ async function pollForNewData() {
 
     if (addedTs.length === 0 && droppedCount === 0 && !resolvedForAnyProduct) return false
 
-    // If previously-missing frames are now available, reload all frames in place.
-    // (We can't patch individual Leaflet layers in the existing timeline cheaply,
-    //  so a preserve-reload re-fetches only what changed and keeps the frame position.)
-    if (resolvedForAnyProduct && addedTs.length === 0 && droppedCount === 0) {
+    // If any previously-missing frames are now available, do a full preserve-reload.
+    // This also handles the case where new+resolved timestamps arrive together.
+    if (resolvedForAnyProduct) {
       await loadData({ preserve: true })
       return true
     }
 
-    // Update per-product stats
+    // New timestamps entered the range — update stats first so missingSet is current.
     results.forEach((r, i) => {
       productStats.value[productOrder.value[i]] = {
         found:      r.total_found,
@@ -663,7 +665,7 @@ async function pollForNewData() {
       }
     })
 
-    // 1. Append new frames to the end (fast: typically 1 PNG per product)
+    // 1. Append new frames (may be null if file not ready yet)
     if (addedTs.length > 0) {
       await Promise.all(productOrder.value.map(async (product) => {
         const stats = productStats.value[product]
@@ -674,7 +676,7 @@ async function pollForNewData() {
       }))
     }
 
-    // 2. Drop old frames from the front (instant — just remove Leaflet layers)
+    // 2. Drop old frames from the front
     if (droppedCount > 0) {
       for (const product of productOrder.value) {
         radarMap.value?.trimProductFrames(product, droppedCount)
@@ -689,14 +691,16 @@ async function pollForNewData() {
     if (followLive.value) {
       goToFrame(newRangeTs.length - 1)
     } else {
-      // Stay on the same frame (shifted by the number of dropped frames)
       goToFrame(Math.min(adjustedIndex, newRangeTs.length - 1))
     }
 
-    // Reapply stacking order — new layers from appendProductFrames are added on top
     radarMap.value?.setProductOrder(productOrder.value)
 
-    return true
+    // Return true only if at least one newly-added timestamp has real data.
+    // If all added timestamps are still missing, return false so the search
+    // window keeps retrying until the files actually arrive.
+    const addedAnyFound = addedTs.some(ts => !newMissingAll.has(ts))
+    return addedAnyFound
 
   } catch (e) {
     console.error('LiveView poll error:', e)
