@@ -634,7 +634,24 @@ async function pollForNewData() {
     const addedTs      = newRangeTs.filter(ts => !currentSet.has(ts))
     const droppedCount = timestamps.value.filter(ts => !newRangeSet.has(ts)).length
 
-    if (addedTs.length === 0 && droppedCount === 0) return false  // nothing changed
+    // Check if any timestamp that was previously missing is now found for any product.
+    // This happens when a file arrives after the initial load already marked it as missing.
+    const resolvedForAnyProduct = productOrder.value.some((product, i) => {
+      const prevMissing = productStats.value[product]?.missingSet
+      if (!prevMissing || prevMissing.size === 0) return false
+      const newMissingSet = new Set(results[i].missing)
+      return [...prevMissing].some(ts => !newMissingSet.has(ts))
+    })
+
+    if (addedTs.length === 0 && droppedCount === 0 && !resolvedForAnyProduct) return false
+
+    // If previously-missing frames are now available, reload all frames in place.
+    // (We can't patch individual Leaflet layers in the existing timeline cheaply,
+    //  so a preserve-reload re-fetches only what changed and keeps the frame position.)
+    if (resolvedForAnyProduct && addedTs.length === 0 && droppedCount === 0) {
+      await loadData({ preserve: true })
+      return true
+    }
 
     // Update per-product stats
     results.forEach((r, i) => {
