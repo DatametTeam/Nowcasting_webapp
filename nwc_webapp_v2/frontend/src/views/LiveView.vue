@@ -602,7 +602,7 @@ async function setLookback(hours) {
 // Returns true if actual new image data was loaded.
 // Returns false to keep the search window alive (file not ready yet).
 async function pollForNewData() {
-  if (isLoading.value) return false
+  if (isLoading.value || isUpdating.value) return false
   isUpdating.value = true
   try {
     const { start, end } = computeRange()
@@ -744,30 +744,33 @@ function msUntilNextFiveMinMark() {
 
 // Stop the within-minute retry loop.
 function stopSearching() {
-  if (searchTimer) { clearInterval(searchTimer); searchTimer = null }
+  if (searchTimer) { clearTimeout(searchTimer); searchTimer = null }
   isSearching.value = false
 }
 
-// Start a search window: poll immediately, then retry every SEARCH_INTERVAL_MS
-// for up to SEARCH_MAX_MS. Stops as soon as new data is found or the window expires.
-async function startDataSearch() {
-  stopSearching()
-  isSearching.value = true
-  searchStart = Date.now()
+// One search attempt: poll, then schedule the next one only after this one completes.
+// Using recursive setTimeout (not setInterval) guarantees no concurrent polls —
+// the next check starts exactly SEARCH_INTERVAL_MS after the previous one finishes.
+async function runSearch() {
+  if (!isSearching.value) return
+  if (Date.now() - searchStart >= SEARCH_MAX_MS) { stopSearching(); return }
 
-  // First attempt right away
   const found = await pollForNewData()
   if (found) { stopSearching(); return }
 
-  // Retry every 10s until data arrives or 1 minute passes
-  searchTimer = setInterval(async () => {
-    if (Date.now() - searchStart >= SEARCH_MAX_MS) {
-      stopSearching()
-      return
-    }
-    const found = await pollForNewData()
-    if (found) stopSearching()
-  }, SEARCH_INTERVAL_MS)
+  // Still searching — schedule next attempt after the interval
+  if (isSearching.value) {
+    searchTimer = setTimeout(runSearch, SEARCH_INTERVAL_MS)
+  }
+}
+
+// Start a search window: kick off the first attempt immediately, then retry
+// every SEARCH_INTERVAL_MS (sequentially) for up to SEARCH_MAX_MS.
+function startDataSearch() {
+  stopSearching()
+  isSearching.value = true
+  searchStart = Date.now()
+  runSearch()   // fire first attempt immediately (no await needed — runs in background)
 }
 
 function startPolling() {
