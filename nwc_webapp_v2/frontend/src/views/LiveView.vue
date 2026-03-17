@@ -156,7 +156,7 @@
           <div class="flex items-center gap-2">
             <div
               class="w-2 h-2 rounded-full flex-shrink-0"
-              :class="isUpdating ? 'bg-yellow-400 animate-pulse' : isLoaded ? 'bg-green-400' : 'bg-gray-500'"
+              :class="(isUpdating || isSearching) ? 'bg-yellow-400 animate-pulse' : isLoaded ? 'bg-green-400' : 'bg-gray-500'"
             />
             <span class="text-xs text-gray-300">{{ liveStatusText }}</span>
             <span v-if="isLoaded && !isUpdating" class="ml-auto text-[10px] text-gray-500 tabular-nums">
@@ -382,6 +382,13 @@ let playInterval    = null
 let initialTimer    = null   // setTimeout — fires at the next 5-min clock mark
 let pollTimer       = null   // setInterval — fires every 5 min after alignment
 let countdownTimer  = null
+let searchTimer     = null   // setInterval — retries every 10s within the 1-min search window
+
+const SEARCH_INTERVAL_MS = 10 * 1000   // retry every 10s after the 5-min mark
+const SEARCH_MAX_MS      = 60 * 1000   // give up searching after 1 minute
+
+const isSearching    = ref(false)       // true while retrying within the search window
+let   searchStart    = 0               // Date.now() when the current search began
 
 // ---- Computed ----
 const radarProducts = computed(() => configStore.radarProducts)
@@ -432,6 +439,7 @@ const hourTicks = computed(() => {
 const liveStatusText = computed(() => {
   if (isLoading.value && !isUpdating.value) return 'Loading data…'
   if (isUpdating.value) return 'Checking for new data…'
+  if (isSearching.value) return 'Waiting for new data…'
   if (!isLoaded.value) return 'Not loaded'
   return 'Live'
 })
@@ -591,8 +599,9 @@ async function setLookback(hours) {
 // ---- Polling: sliding window ----
 // Each poll: append new frames at the end, drop old frames from the front.
 // Typically 1 new frame per product (4 PNG requests total) — stays fast.
+// Returns true if new data was found and displayed, false otherwise.
 async function pollForNewData() {
-  if (isLoading.value) return
+  if (isLoading.value) return false
   isUpdating.value = true
   try {
     const { start, end } = computeRange()
@@ -611,13 +620,13 @@ async function pollForNewData() {
       r.missing.forEach(ts => tsSet.add(ts))
     })
     const newRangeTs = Array.from(tsSet).sort()
-    if (newRangeTs.length === 0) return
+    if (newRangeTs.length === 0) return false
 
     // If nothing is loaded yet (e.g. initial load found no files), do a full
     // load now that data has arrived — append requires an existing product entry.
     if (!isLoaded.value) {
       await loadData({ preserve: false })
-      return
+      return true
     }
 
     const newRangeSet  = new Set(newRangeTs)
@@ -625,7 +634,7 @@ async function pollForNewData() {
     const addedTs      = newRangeTs.filter(ts => !currentSet.has(ts))
     const droppedCount = timestamps.value.filter(ts => !newRangeSet.has(ts)).length
 
-    if (addedTs.length === 0 && droppedCount === 0) return  // nothing changed
+    if (addedTs.length === 0 && droppedCount === 0) return false  // nothing changed
 
     // Update per-product stats
     results.forEach((r, i) => {
@@ -670,8 +679,11 @@ async function pollForNewData() {
     // Reapply stacking order — new layers from appendProductFrames are added on top
     radarMap.value?.setProductOrder(productOrder.value)
 
+    return true
+
   } catch (e) {
     console.error('LiveView poll error:', e)
+    return false
   } finally {
     isUpdating.value = false
   }
@@ -685,6 +697,34 @@ function msUntilNextFiveMinMark() {
   return POLL_MS - ms
 }
 
+// Stop the within-minute retry loop.
+function stopSearching() {
+  if (searchTimer) { clearInterval(searchTimer); searchTimer = null }
+  isSearching.value = false
+}
+
+// Start a search window: poll immediately, then retry every SEARCH_INTERVAL_MS
+// for up to SEARCH_MAX_MS. Stops as soon as new data is found or the window expires.
+async function startDataSearch() {
+  stopSearching()
+  isSearching.value = true
+  searchStart = Date.now()
+
+  // First attempt right away
+  const found = await pollForNewData()
+  if (found) { stopSearching(); return }
+
+  // Retry every 10s until data arrives or 1 minute passes
+  searchTimer = setInterval(async () => {
+    if (Date.now() - searchStart >= SEARCH_MAX_MS) {
+      stopSearching()
+      return
+    }
+    const found = await pollForNewData()
+    if (found) stopSearching()
+  }, SEARCH_INTERVAL_MS)
+}
+
 function startPolling() {
   stopPolling()
 
@@ -694,12 +734,12 @@ function startPolling() {
   // Step 1: fire at the exact next 5-minute clock mark
   initialTimer = setTimeout(() => {
     initialTimer = null
-    pollForNewData()
+    startDataSearch()
     nextUpdateSecs.value = POLL_MS / 1000
 
     // Step 2: then repeat every 5 minutes exactly on the mark
     pollTimer = setInterval(() => {
-      pollForNewData()
+      startDataSearch()
       nextUpdateSecs.value = POLL_MS / 1000
     }, POLL_MS)
   }, delay)
@@ -710,6 +750,7 @@ function startPolling() {
 }
 
 function stopPolling() {
+  stopSearching()
   if (initialTimer)   { clearTimeout(initialTimer);   initialTimer   = null }
   if (pollTimer)      { clearInterval(pollTimer);      pollTimer      = null }
   if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
