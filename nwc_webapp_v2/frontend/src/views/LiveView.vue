@@ -249,9 +249,11 @@
               <label :for="`layer-${product}`" class="text-white text-sm font-bold cursor-pointer flex-1">
                 {{ SHORT_NAMES[product] }}
               </label>
-              <!-- Spinner while this product's latest frame is still being fetched -->
+              <!-- Spinner while this product's latest frame is still being fetched.
+                   During phase 1 (searchWindowTs empty) show for all products;
+                   in phase 2 show only for products still pending. -->
               <svg
-                v-if="searchingProducts.has(product)"
+                v-if="isSearching && (!searchWindowTs.length || searchingProducts.has(product))"
                 class="animate-spin h-3 w-3 text-blue-400 flex-shrink-0"
                 viewBox="0 0 24 24"
               >
@@ -297,7 +299,7 @@
               <span class="text-gray-500">/{{ productStats[product].expected }} frames</span>
               <!-- Hide "N missing" while actively searching for this product's data -->
               <button
-                v-if="productStats[product].missingTs.length > 0 && !searchingProducts.has(product)"
+                v-if="productStats[product].missingTs.length > 0 && !(isSearching && (!searchWindowTs.length || searchingProducts.has(product)))"
                 @click="toggleMissing(product)"
                 class="text-amber-400 hover:text-amber-300 ml-1.5 underline underline-offset-2"
               >
