@@ -382,10 +382,16 @@ let playInterval    = null
 let initialTimer    = null   // setTimeout — fires at the next 5-min clock mark
 let pollTimer       = null   // setInterval — fires every 5 min after alignment
 let countdownTimer  = null
-let searchTimer     = null   // setInterval — retries every 10s within the 1-min search window
+let searchTimer     = null   // setTimeout — drives the sequential search loop
 
-const SEARCH_INTERVAL_MS = 1 * 1000    // retry every 1s after the 5-min mark
-const SEARCH_MAX_MS      = 60 * 1000   // give up searching after 1 minute
+// Phase 1 (first 10s): poll every 1s, hold back empty frames so the user doesn't
+// see a blank frame before any product has loaded.
+// Phase 2 (10s – 3min): poll every 3s, commit the frame with whatever is available
+// (missing products show as empty), and keep resolving late arrivals in place.
+const SEARCH_PHASE1_MS       = 10 * 1000       // hold-back window
+const SEARCH_PHASE1_INTERVAL = 1  * 1000       // 1s during phase 1
+const SEARCH_PHASE2_INTERVAL = 3  * 1000       // 3s during phase 2
+const SEARCH_MAX_MS          = 3  * 60 * 1000  // total search window (3 minutes)
 
 const isSearching    = ref(false)       // true while retrying within the search window
 let   searchStart    = 0               // Date.now() when the current search began
@@ -660,12 +666,13 @@ async function pollForNewData() {
     const addedFoundTs   = addedTs.filter(ts => !newMissingAll.has(ts))
     const addedMissingTs = addedTs.filter(ts =>  newMissingAll.has(ts))
 
-    // Delay empty frames: hold back missing timestamps for up to 90s so the user
-    // doesn't see a blank frame the instant the 5-min mark hits. The search keeps
-    // retrying; if the file arrives it will appear in addedFoundTs on the next tick.
+    // Phase 1 hold-back: during the first SEARCH_PHASE1_MS don't commit any empty
+    // frames — give all products a chance to arrive before showing blank slots.
+    // After phase 1, commit whatever is available; late products get resolved in
+    // place via resolveProductFrame when their files eventually arrive.
     const elapsed      = searchStart > 0 ? Date.now() - searchStart : Infinity
     const delayMissing = addedFoundTs.length === 0 && addedMissingTs.length > 0
-                         && !hasResolved && elapsed < 90000
+                         && !hasResolved && elapsed < SEARCH_PHASE1_MS
 
     if (addedTs.length === 0 && droppedCount === 0 && !hasResolved) return false
 
@@ -751,28 +758,28 @@ function stopSearching() {
 }
 
 // One search attempt: poll, then schedule the next one only after this one completes.
-// Using recursive setTimeout (not setInterval) guarantees no concurrent polls —
-// the next check starts exactly SEARCH_INTERVAL_MS after the previous one finishes.
+// Recursive setTimeout guarantees no concurrent polls.
+// Never stops early on "found" — keeps running until SEARCH_MAX_MS so that late
+// products (e.g. IR arriving 90s after the 5-min mark) still get resolved in place.
 async function runSearch() {
   if (!isSearching.value) return
   if (Date.now() - searchStart >= SEARCH_MAX_MS) { stopSearching(); return }
 
-  const found = await pollForNewData()
-  if (found) { stopSearching(); return }
+  await pollForNewData()
 
-  // Still searching — schedule next attempt after the interval
-  if (isSearching.value) {
-    searchTimer = setTimeout(runSearch, SEARCH_INTERVAL_MS)
-  }
+  if (!isSearching.value) return
+  const elapsed  = Date.now() - searchStart
+  const interval = elapsed < SEARCH_PHASE1_MS ? SEARCH_PHASE1_INTERVAL : SEARCH_PHASE2_INTERVAL
+  searchTimer = setTimeout(runSearch, interval)
 }
 
 // Start a search window: kick off the first attempt immediately, then retry
-// every SEARCH_INTERVAL_MS (sequentially) for up to SEARCH_MAX_MS.
+// at 1s intervals (phase 1) then 3s intervals (phase 2) for up to 3 minutes.
 function startDataSearch() {
   stopSearching()
   isSearching.value = true
   searchStart = Date.now()
-  runSearch()   // fire first attempt immediately (no await needed — runs in background)
+  runSearch()
 }
 
 function startPolling() {
