@@ -249,6 +249,15 @@
               <label :for="`layer-${product}`" class="text-white text-sm font-bold cursor-pointer flex-1">
                 {{ SHORT_NAMES[product] }}
               </label>
+              <!-- Spinner while this product's latest frame is still being fetched -->
+              <svg
+                v-if="searchingProducts.has(product)"
+                class="animate-spin h-3 w-3 text-blue-400 flex-shrink-0"
+                viewBox="0 0 24 24"
+              >
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" />
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
               <span class="text-gray-400 text-xs mr-1">{{ radarProducts[product]?.unit || '' }}</span>
               <!-- Layer order arrows -->
               <div class="flex flex-col gap-0.5">
@@ -286,8 +295,9 @@
             <div v-if="productStats[product]" class="text-xs">
               <span class="text-green-400 font-medium">{{ productStats[product].found }}</span>
               <span class="text-gray-500">/{{ productStats[product].expected }} frames</span>
+              <!-- Hide "N missing" while actively searching for this product's data -->
               <button
-                v-if="productStats[product].missingTs.length > 0"
+                v-if="productStats[product].missingTs.length > 0 && !searchingProducts.has(product)"
                 @click="toggleMissing(product)"
                 class="text-amber-400 hover:text-amber-300 ml-1.5 underline underline-offset-2"
               >
@@ -388,13 +398,18 @@ let searchTimer     = null   // setTimeout — drives the sequential search loop
 // see a blank frame before any product has loaded.
 // Phase 2 (10s – 3min): poll every 3s, commit the frame with whatever is available
 // (missing products show as empty), and keep resolving late arrivals in place.
-const SEARCH_PHASE1_MS       = 10 * 1000       // hold-back window
-const SEARCH_PHASE1_INTERVAL = 1  * 1000       // 1s during phase 1
-const SEARCH_PHASE2_INTERVAL = 3  * 1000       // 3s during phase 2
-const SEARCH_MAX_MS          = 3  * 60 * 1000  // total search window (3 minutes)
+const SEARCH_PHASE1_MS       = 10  * 1000      // hold-back window
+const SEARCH_PHASE1_INTERVAL = 1   * 1000      // 1s during phase 1
+const SEARCH_PHASE2_INTERVAL = 3   * 1000      // 3s during phase 2
+const SEARCH_MAX_MS          = 2.5 * 60 * 1000 // give up after 2.5 minutes
 
-const isSearching    = ref(false)       // true while retrying within the search window
-let   searchStart    = 0               // Date.now() when the current search began
+const isSearching    = ref(false)  // true while the search window is active
+let   searchStart    = 0           // Date.now() when the current search began
+
+// Timestamps committed to the timeline in this search window.
+// Used to detect when all newly-added frames are fully resolved so we can
+// stop early instead of running the full 2.5 minutes.
+const searchWindowTs = ref([])
 
 // ---- Computed ----
 const radarProducts = computed(() => configStore.radarProducts)
@@ -440,6 +455,19 @@ const hourTicks = computed(() => {
     }
   })
   return ticks
+})
+
+// Products that still have unresolved frames in the current search window.
+// Used to show a per-product spinner and hide the "N missing" count while polling.
+const searchingProducts = computed(() => {
+  if (!isSearching.value || searchWindowTs.value.length === 0) return new Set()
+  const pending = new Set()
+  for (const product of productOrder.value) {
+    const missing = productStats.value[product]?.missingSet
+    if (!missing) continue
+    if (searchWindowTs.value.some(ts => missing.has(ts))) pending.add(product)
+  }
+  return pending
 })
 
 const liveStatusText = computed(() => {
@@ -696,6 +724,14 @@ async function pollForNewData() {
       await Promise.all(resolvedInTimeline.map(({ product, ts, idx }) =>
         radarMap.value?.resolveProductFrame(product, idx, api.explorerOverlayUrl(product, ts))
       ))
+      // Remove fully-resolved timestamps from the search window tracker
+      const resolvedTsSet = new Set(resolvedInTimeline.map(r => r.ts))
+      const stillPending = productOrder.value.some(p =>
+        [...resolvedTsSet].some(ts => productStats.value[p]?.missingSet?.has(ts))
+      )
+      if (!stillPending) {
+        searchWindowTs.value = searchWindowTs.value.filter(ts => !resolvedTsSet.has(ts))
+      }
     }
 
     // ---- Append new timestamps to RadarMap ----
@@ -733,6 +769,12 @@ async function pollForNewData() {
     // Refresh current frame so resolved images become visible
     if (hasResolved) goToFrame(frameIndex.value)
 
+    // Track newly-committed timestamps so runSearch can stop early when resolved
+    if (toAppend.length > 0) {
+      const merged = new Set([...searchWindowTs.value, ...toAppend])
+      searchWindowTs.value = [...merged]
+    }
+
     return addedFoundTs.length > 0 || hasResolved
 
   } catch (e) {
@@ -763,22 +805,32 @@ function stopSearching() {
 // products (e.g. IR arriving 90s after the 5-min mark) still get resolved in place.
 async function runSearch() {
   if (!isSearching.value) return
-  if (Date.now() - searchStart >= SEARCH_MAX_MS) { stopSearching(); return }
+  const elapsed = Date.now() - searchStart
+  if (elapsed >= SEARCH_MAX_MS) { stopSearching(); return }
 
   await pollForNewData()
 
   if (!isSearching.value) return
-  const elapsed  = Date.now() - searchStart
-  const interval = elapsed < SEARCH_PHASE1_MS ? SEARCH_PHASE1_INTERVAL : SEARCH_PHASE2_INTERVAL
-  searchTimer = setTimeout(runSearch, interval)
+
+  // Stop early if all search-window timestamps are resolved across all products
+  if (elapsed >= SEARCH_PHASE1_MS && searchWindowTs.value.length > 0) {
+    const allResolved = searchWindowTs.value.every(ts =>
+      productOrder.value.every(p => !productStats.value[p]?.missingSet?.has(ts))
+    )
+    if (allResolved) { stopSearching(); return }
+  }
+
+  const nextInterval = elapsed < SEARCH_PHASE1_MS ? SEARCH_PHASE1_INTERVAL : SEARCH_PHASE2_INTERVAL
+  searchTimer = setTimeout(runSearch, nextInterval)
 }
 
 // Start a search window: kick off the first attempt immediately, then retry
-// at 1s intervals (phase 1) then 3s intervals (phase 2) for up to 3 minutes.
+// at 1s (phase 1) then 3s (phase 2) for up to 2.5 minutes.
 function startDataSearch() {
   stopSearching()
   isSearching.value = true
   searchStart = Date.now()
+  searchWindowTs.value = []
   runSearch()
 }
 
