@@ -599,8 +599,8 @@ async function setLookback(hours) {
 // ---- Polling: sliding window ----
 // Each poll: append new frames at the end, drop old frames from the front.
 // Typically 1 new frame per product (4 PNG requests total) — stays fast.
-// Returns true if actual new image data was loaded (not just new-but-still-missing timestamps).
-// Returning false keeps the search window alive so we retry until the file arrives.
+// Returns true if actual new image data was loaded.
+// Returns false to keep the search window alive (file not ready yet).
 async function pollForNewData() {
   if (isLoading.value) return false
   isUpdating.value = true
@@ -623,13 +623,11 @@ async function pollForNewData() {
     const newRangeTs = Array.from(tsSet).sort()
     if (newRangeTs.length === 0) return false
 
-    // If nothing is loaded yet (e.g. initial load found no files), do a full load.
     if (!isLoaded.value) {
       await loadData({ preserve: false })
       return true
     }
 
-    // Build a unified "still missing" set across all products
     const newMissingAll = new Set()
     results.forEach(r => r.missing.forEach(ts => newMissingAll.add(ts)))
 
@@ -638,24 +636,42 @@ async function pollForNewData() {
     const addedTs      = newRangeTs.filter(ts => !currentSet.has(ts))
     const droppedCount = timestamps.value.filter(ts => !newRangeSet.has(ts)).length
 
-    // Any previously-missing timestamp now found for at least one product?
-    const resolvedForAnyProduct = productOrder.value.some((product, i) => {
+    // ---- Resolved frames: previously missing, now found ----
+    // Compute BEFORE updating productStats so we compare old vs new missing sets.
+    // Separate into: already in the timeline (null slot to patch) vs not yet added.
+    const resolvedInTimeline    = []  // { product, ts, idx }
+    const resolvedNotInTimeline = []  // ts (not yet a slot in the map)
+    productOrder.value.forEach((product, i) => {
       const prevMissing = productStats.value[product]?.missingSet
-      if (!prevMissing || prevMissing.size === 0) return false
+      if (!prevMissing || prevMissing.size === 0) return
       const newMissingSet = new Set(results[i].missing)
-      return [...prevMissing].some(ts => !newMissingSet.has(ts))
+      for (const ts of prevMissing) {
+        if (newMissingSet.has(ts)) continue  // still missing
+        const idx = timestamps.value.indexOf(ts)
+        if (idx !== -1) {
+          resolvedInTimeline.push({ product, ts, idx })
+        } else if (!resolvedNotInTimeline.includes(ts)) {
+          resolvedNotInTimeline.push(ts)  // was delayed (never added), now found
+        }
+      }
     })
+    const hasResolved = resolvedInTimeline.length > 0 || resolvedNotInTimeline.length > 0
 
-    if (addedTs.length === 0 && droppedCount === 0 && !resolvedForAnyProduct) return false
+    // ---- New timestamps: split into found vs still-missing ----
+    const addedFoundTs   = addedTs.filter(ts => !newMissingAll.has(ts))
+    const addedMissingTs = addedTs.filter(ts =>  newMissingAll.has(ts))
 
-    // If any previously-missing frames are now available, do a full preserve-reload.
-    // This also handles the case where new+resolved timestamps arrive together.
-    if (resolvedForAnyProduct) {
-      await loadData({ preserve: true })
-      return true
-    }
+    // Delay empty frames: if the only new items are missing files and we're still
+    // within the first 90s of the search window, hold back the empty slot.
+    // The search will keep retrying; if the file arrives it'll be in addedFoundTs.
+    // After 90s we accept the empty frame (data genuinely late / unavailable).
+    const elapsed      = searchStart > 0 ? Date.now() - searchStart : Infinity
+    const delayMissing = addedFoundTs.length === 0 && addedMissingTs.length > 0
+                         && !hasResolved && elapsed < 90000
 
-    // New timestamps entered the range — update stats first so missingSet is current.
+    if (addedTs.length === 0 && droppedCount === 0 && !hasResolved) return false
+
+    // ---- Update productStats (after resolved computation) ----
     results.forEach((r, i) => {
       productStats.value[productOrder.value[i]] = {
         found:      r.total_found,
@@ -665,42 +681,67 @@ async function pollForNewData() {
       }
     })
 
-    // 1. Append new frames (may be null if file not ready yet)
-    if (addedTs.length > 0) {
+    // ---- Fix null slots in-timeline that are now resolved ----
+    if (resolvedInTimeline.length > 0) {
+      await Promise.all(resolvedInTimeline.map(({ product, ts, idx }) =>
+        radarMap.value?.resolveProductFrame(product, idx, api.explorerOverlayUrl(product, ts))
+      ))
+    }
+
+    // ---- Append timestamps that were delayed (held back) but are now found ----
+    const uniqueDelayedFound = [...new Set(resolvedNotInTimeline)].sort()
+    if (uniqueDelayedFound.length > 0) {
       await Promise.all(productOrder.value.map(async (product) => {
-        const stats = productStats.value[product]
-        const newUrls = addedTs.map(ts =>
-          stats?.missingSet?.has(ts) ? null : api.explorerOverlayUrl(product, ts)
-        )
-        await radarMap.value?.appendProductFrames(product, newUrls)
+        const urls = uniqueDelayedFound.map(ts => api.explorerOverlayUrl(product, ts))
+        await radarMap.value?.appendProductFrames(product, urls)
       }))
     }
 
-    // 2. Drop old frames from the front
+    // ---- Determine which new timestamps we're committing to the timeline ----
+    const toAppend = delayMissing
+      ? [...addedFoundTs, ...uniqueDelayedFound]                       // hold back missing
+      : [...addedFoundTs, ...addedMissingTs, ...uniqueDelayedFound]    // include missing after 90s
+
+    // ---- Append new frames to RadarMap ----
+    // (uniqueDelayedFound already appended above; only append the truly-new ones here)
+    const newToAppend = toAppend.filter(ts => !uniqueDelayedFound.includes(ts))
+    if (newToAppend.length > 0) {
+      await Promise.all(productOrder.value.map(async (product) => {
+        const stats = productStats.value[product]
+        const urls  = newToAppend.map(ts =>
+          stats?.missingSet?.has(ts) ? null : api.explorerOverlayUrl(product, ts)
+        )
+        await radarMap.value?.appendProductFrames(product, urls)
+      }))
+    }
+
+    // ---- Drop old frames from the front ----
     if (droppedCount > 0) {
       for (const product of productOrder.value) {
         radarMap.value?.trimProductFrames(product, droppedCount)
       }
     }
 
-    // 3. Update timestamp list and frame pointer
+    // ---- Update timeline and frame pointer ----
     const prevFrameIndex = frameIndex.value
-    timestamps.value = newRangeTs
+    // New timeline = (old timestamps minus dropped) + newly committed timestamps
+    const retained = timestamps.value.filter(ts => newRangeSet.has(ts))
+    timestamps.value = [...retained, ...toAppend].sort()
     const adjustedIndex = Math.max(0, prevFrameIndex - droppedCount)
 
     if (followLive.value) {
-      goToFrame(newRangeTs.length - 1)
+      goToFrame(timestamps.value.length - 1)
     } else {
-      goToFrame(Math.min(adjustedIndex, newRangeTs.length - 1))
+      goToFrame(Math.min(adjustedIndex, timestamps.value.length - 1))
     }
 
     radarMap.value?.setProductOrder(productOrder.value)
 
-    // Return true only if at least one newly-added timestamp has real data.
-    // If all added timestamps are still missing, return false so the search
-    // window keeps retrying until the files actually arrive.
-    const addedAnyFound = addedTs.some(ts => !newMissingAll.has(ts))
-    return addedAnyFound
+    // Refresh the current frame so resolved images become visible
+    if (resolvedInTimeline.length > 0) goToFrame(frameIndex.value)
+
+    // Return true only if we actually got real image data
+    return addedFoundTs.length > 0 || hasResolved
 
   } catch (e) {
     console.error('LiveView poll error:', e)

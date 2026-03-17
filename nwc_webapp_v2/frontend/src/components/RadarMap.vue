@@ -488,6 +488,40 @@ async function appendProductFrames(product, urls) {
 }
 
 /**
+ * Resolve a previously-missing frame: load a real image into an existing null slot.
+ * Called when a file that was initially absent is later found by the poll.
+ *
+ * @param {string} product - Product key
+ * @param {number} index   - Frame index in the product's layer array
+ * @param {string} url     - Image URL to load into that slot
+ */
+async function resolveProductFrame(product, index, url) {
+  if (!map || !productLayerMap[product] || !url) return
+  const entry = productLayerMap[product]
+  if (index < 0 || index >= entry.layers.length) return
+  // Remove any existing layer at this slot (safety)
+  if (entry.layers[index]) {
+    map.removeLayer(entry.layers[index])
+    entry.layers[index] = null
+  }
+  await new Promise((resolve) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      if (productLayerMap[product]) {
+        entry.layers[index] = L.imageOverlay(url, RADAR_BOUNDS, {
+          opacity: 0,
+          interactive: false,
+        }).addTo(map)
+      }
+      resolve()
+    }
+    img.onerror = () => resolve()
+    img.src = url
+  })
+}
+
+/**
  * Set the visual stacking order of products on the map.
  *
  * @param {string[]} topToBottom - Products ordered from topmost (index 0) to bottommost (last).
@@ -518,8 +552,8 @@ defineExpose({
   // Single-product (backward compat — used by RealTimeView)
   preloadFrames, showFrame, setOverlayOpacity,
   // Multi-product (used by DataExplorerView and LiveView)
-  loadProductFrames, appendProductFrames, trimProductFrames, showAllAtFrame, setProductOpacity,
-  removeProduct, clearAllProducts, setProductOrder,
+  loadProductFrames, appendProductFrames, trimProductFrames, resolveProductFrame,
+  showAllAtFrame, setProductOpacity, removeProduct, clearAllProducts, setProductOrder,
   // Utility
   invalidateSize,
 })
