@@ -680,7 +680,9 @@ async function pollForNewData() {
     })
 
     // ---- Timestamps we're committing to the timeline this tick ----
-    const toAppend = delayMissing ? addedFoundTs : [...addedFoundTs, ...addedMissingTs]
+    // Must be sorted chronologically so RadarMap layer indices match timestamps.value.
+    // Without sort, found-first concat ([16:05, 16:10, 16:00]) would misalign layers.
+    const toAppend = (delayMissing ? addedFoundTs : [...addedFoundTs, ...addedMissingTs]).sort()
 
     // ---- Fix null slots already in the timeline ----
     if (resolvedInTimeline.length > 0) {
