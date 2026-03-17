@@ -384,7 +384,7 @@ let pollTimer       = null   // setInterval — fires every 5 min after alignmen
 let countdownTimer  = null
 let searchTimer     = null   // setInterval — retries every 10s within the 1-min search window
 
-const SEARCH_INTERVAL_MS = 10 * 1000   // retry every 10s after the 5-min mark
+const SEARCH_INTERVAL_MS = 1 * 1000    // retry every 1s after the 5-min mark
 const SEARCH_MAX_MS      = 60 * 1000   // give up searching after 1 minute
 
 const isSearching    = ref(false)       // true while retrying within the search window
