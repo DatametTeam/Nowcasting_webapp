@@ -265,7 +265,7 @@ async def get_groundtruth_overlay(
 
     product_cfg = products[product]
     product_folder = config.get_product_folder(product)
-    if not product_folder:
+    if not product_folder and not config.data_archive_folder:
         raise HTTPException(status_code=404, detail=f"No data folder configured for {product} in this environment")
 
     legend_name = product_cfg.get("legend", "R")
@@ -274,14 +274,13 @@ async def get_groundtruth_overlay(
 
     if file_format == "tiff":
         # IR_108 and other TIFF satellite products
-        # Try .tif first, fall back to .tiff
-        filename_tif = dt.strftime("%d-%m-%Y-%H-%M") + ".tif"
-        filename_tiff = dt.strftime("%d-%m-%Y-%H-%M") + ".tiff"
-        file_path = Path(str(product_folder)) / filename_tif
-        if not file_path.exists():
-            file_path = Path(str(product_folder)) / filename_tiff
-        if not file_path.exists():
-            raise HTTPException(status_code=404, detail=f"File not found: {filename_tif}")
+        # Try .tif first (recent flat folder + archive), then .tiff variant
+        stem = dt.strftime("%d-%m-%Y-%H-%M")
+        file_path = config.find_product_file(product, dt, stem + ".tif")
+        if file_path is None:
+            file_path = config.find_product_file(product, dt, stem + ".tiff")
+        if file_path is None:
+            raise HTTPException(status_code=404, detail=f"File not found: {stem}.tif")
 
         # Load TIFF — PIL handles all common TIFF variants
         pil_img = Image.open(file_path)
@@ -300,8 +299,9 @@ async def get_groundtruth_overlay(
     else:
         # Default: HDF5 radar products (SRI_adj, VMI, ETM, VIL)
         filename = dt.strftime("%d-%m-%Y-%H-%M") + ".hdf"
-        file_path = Path(str(product_folder)) / filename
-        if not file_path.exists():
+        # Check both recent flat folder and archive YYYY/MM/DD/product/ structure
+        file_path = config.find_product_file(product, dt, filename)
+        if file_path is None:
             raise HTTPException(status_code=404, detail=f"File not found: {filename}")
 
         with h5py.File(file_path, "r") as f:

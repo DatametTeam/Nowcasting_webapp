@@ -161,6 +161,12 @@ logging:
   log_to_file: false
   log_to_console: true
 
+# Archive data folder for radar products older than ~3 days.
+# Structure: {archive_folder}/YYYY/MM/DD/{product}/{filename}
+# Recent data (last ~3 days) stays in folder_hpc / folder_local defined per-product.
+data_archive_folder_hpc: "/davinci-1/work/protezionecivile/data"
+data_archive_folder_local: ""
+
 # Radar products for the Data Explorer tab
 radar_products:
   SRI_adj:

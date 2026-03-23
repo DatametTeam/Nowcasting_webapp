@@ -4,6 +4,7 @@ Loads settings from YAML and provides easy access with type hints.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -222,6 +223,49 @@ class Config:
         product = products[product_name]
         folder = product.get("folder_hpc", "") if is_hpc() else product.get("folder_local", "")
         return Path(folder) if folder else None
+
+    @property
+    def data_archive_folder(self) -> Optional[Path]:
+        """
+        Get the archive base folder for radar products older than ~3 days.
+
+        Files in the archive are organised as:
+            {archive_folder}/YYYY/MM/DD/{product}/{filename}
+        """
+        key = "data_archive_folder_hpc" if is_hpc() else "data_archive_folder_local"
+        folder = self._config.get(key, "")
+        return Path(folder) if folder else None
+
+    def find_product_file(self, product_name: str, dt: datetime, filename: str) -> Optional[Path]:
+        """
+        Resolve the correct path for a radar product file at a given datetime.
+
+        Checks the recent flat folder first, then falls back to the archive
+        directory structure (YYYY/MM/DD/product/).
+
+        Args:
+            product_name: Product key (e.g. 'SRI_adj', 'VMI')
+            dt: Datetime of the file
+            filename: Filename including extension (e.g. '22-03-2026-15-30.hdf')
+
+        Returns:
+            Path to the existing file, or None if not found in either location.
+        """
+        # 1. Try recent flat folder
+        flat_folder = self.get_product_folder(product_name)
+        if flat_folder:
+            path = flat_folder / filename
+            if path.exists():
+                return path
+
+        # 2. Try archive directory: {archive_base}/YYYY/MM/DD/{product}/{filename}
+        archive_base = self.data_archive_folder
+        if archive_base:
+            path = archive_base / dt.strftime("%Y") / dt.strftime("%m") / dt.strftime("%d") / product_name / filename
+            if path.exists():
+                return path
+
+        return None
 
     # Structured configs
     @property

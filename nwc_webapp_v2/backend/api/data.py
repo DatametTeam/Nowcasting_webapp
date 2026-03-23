@@ -348,10 +348,16 @@ async def explorer_timestamps(
     missing = []
     for dt in expected:
         stem = dt.strftime("%d-%m-%Y-%H-%M")
-        if (product_folder / (stem + file_ext)).exists():
-            found.append(dt.isoformat())
-        elif file_format == "tiff" and (product_folder / (stem + ".tiff")).exists():
-            # Also accept .tiff extension for TIFF products
+        primary_filename = stem + file_ext
+        alt_filename = (stem + ".tiff") if file_format == "tiff" else None
+
+        # Use find_product_file so both the recent flat folder and the archive
+        # YYYY/MM/DD/product/ structure are checked transparently.
+        resolved = config.find_product_file(product, dt, primary_filename)
+        if resolved is None and alt_filename:
+            resolved = config.find_product_file(product, dt, alt_filename)
+
+        if resolved is not None:
             found.append(dt.isoformat())
         else:
             missing.append(dt.isoformat())
