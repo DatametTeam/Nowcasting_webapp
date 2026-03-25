@@ -6,8 +6,8 @@
  * re-runs the entire script.
  *
  * In Vue Router, each "tab" is a URL route:
- *   /realtime    → RealTimeView component
- *   /nowcasting  → NowcastingView component
+ *   /realtime    → RealTimeView component (live multi-product radar)
+ *   /nowcasting  → NowcastingView component (model predictions)
  *   /prediction  → PredictionByDateView component
  *   etc.
  *
@@ -19,8 +19,8 @@
  */
 import { createRouter, createWebHistory } from 'vue-router'
 
-import LiveView from './views/LiveView.vue'
 import RealTimeView from './views/RealTimeView.vue'
+import NowcastingView from './views/NowcastingView.vue'
 import DataExplorerView from './views/DataExplorerView.vue'
 import ModelComparisonView from './views/ModelComparisonView.vue'
 import MetricsView from './views/MetricsView.vue'
@@ -31,12 +31,12 @@ const routes = [
   {
     path: '/realtime',
     name: 'Real Time',
-    component: LiveView,
+    component: RealTimeView,
   },
   {
     path: '/nowcasting',
     name: 'Nowcasting',
-    component: RealTimeView,
+    component: NowcastingView,
   },
   {
     path: '/explorer',

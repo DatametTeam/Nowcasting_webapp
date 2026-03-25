@@ -1,952 +1,968 @@
 <!--
-  RealTimeView.vue — Real-time prediction monitoring (main page).
+  LiveView.vue — Real-time multi-product radar monitor.
 
-  This is the heart of the app. It shows:
-  - An interactive Leaflet map with radar overlay (past + future)
-  - Animation controls: play/pause + timeline slider (-60 to +60 min)
-  - Model selector to switch predictions
-  - Start/Pause Real Time button for backend-driven prediction cycle
-  - Precipitation colorbar legend
-  - Status polling from the backend every 3s
-
-  TIMELINE STRUCTURE (25 frames total):
-  - Frames 0-12:  Past groundtruth (SRI data) — -60 to 0 minutes
-  - Frames 13-24: Future predictions (model)  — +5 to +60 minutes
-
-  The frame index maps to minutes via: (index - 12) * 5
-    index 0  → -60 min (past SRI)
-    index 12 →   0 min (current SRI)
-    index 13 →  +5 min (prediction lead_time=0)
-    index 24 → +60 min (prediction lead_time=11)
-
-  BACKEND-DRIVEN CYCLE:
-  The backend runs the prediction loop (HPC or mock). The frontend simply
-  polls GET /api/realtime/status every 3s to stay in sync. This means:
-  - The cycle survives browser close (backend keeps running)
-  - Multiple browser tabs see the same state
-  - Any tab can start or stop the service
+  Shows all 4 radar products (SRI, VMI, ETM, VIL) for a rolling lookback window
+  (default 1h, up to 12h). Auto-loads on mount and polls every 5 minutes for
+  new data. "Follow Live" toggle auto-jumps to the latest frame on new data;
+  when off, the user's current frame position is preserved across updates.
 -->
 <template>
-  <div class="h-[calc(100vh-3.5rem)] flex">
+  <div class="h-[calc(100vh-3.5rem)] flex overflow-hidden">
 
     <!-- ================================================================ -->
-    <!-- LEFT: Map area (takes all available width)                       -->
+    <!-- LEFT: Map area                                                    -->
     <!-- ================================================================ -->
-    <div class="flex-1 flex flex-col relative">
-      <RadarMap
-        ref="radarMap"
-        class="flex-1"
-        :overlay-opacity="overlayOpacity"
-      />
+    <div class="flex-1 flex flex-col relative min-w-0">
+      <RadarMap ref="radarMap" class="flex-1" />
 
-      <!-- Notification toast — floating at top center of map -->
-      <Transition name="toast">
-        <div
-          v-if="notification"
-          class="absolute top-4 left-1/2 -translate-x-1/2 z-[1002]
-                 bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-lg
-                 flex items-center gap-3 text-sm font-medium"
-        >
-          <!-- Radar icon -->
-          <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M5.636 18.364a9 9 0 010-12.728m12.728 0a9 9 0 010 12.728M9.172 14.828a4 4 0 010-5.656m5.656 0a4 4 0 010 5.656M12 12h.01" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-          {{ notification }}
-        </div>
-      </Transition>
-
-      <!-- Colorbar — floating on the map, bottom right (above the timeline bar) -->
-      <div class="absolute bottom-[110px] right-[10px] z-[1001]">
-        <ColorBar />
-      </div>
-
-      <!-- ============================================================ -->
-      <!-- BOTTOM BAR: Timeline controls (floating over the map)        -->
-      <!-- ============================================================ -->
-      <!-- Sidebar toggle button (visible on small screens when sidebar is hidden) -->
+      <!-- Mobile sidebar toggle -->
       <button
         v-if="!sidebarOpen"
         @click="sidebarOpen = true"
         class="absolute top-3 right-3 z-[1001] lg:hidden
                w-10 h-10 flex items-center justify-center rounded-full
-               bg-white shadow-lg border border-gray-200 text-gray-600
-               hover:bg-gray-50 transition-colors"
-        title="Open panel"
+               bg-white shadow-lg border border-gray-200 text-gray-600"
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" stroke-linecap="round" stroke-linejoin="round" />
-          <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
       </button>
 
-      <div class="absolute bottom-0 left-0 right-0 z-[1000]
-                  bg-gradient-to-t from-black/80 via-black/60 to-transparent
-                  px-3 sm:px-6 pt-10 pb-4">
+      <!-- Stacked colorbars — bottom right, above timeline -->
+      <div
+        class="absolute bottom-[110px] right-[10px] z-[1001]
+               flex flex-col gap-1.5 items-end
+               max-h-[calc(100vh-18rem)] overflow-y-auto"
+      >
+        <ColorBar
+          v-for="product in visibleProducts"
+          :key="product"
+          :legend="radarProducts[product]"
+          :product-name="SHORT_NAMES[product]"
+        />
+      </div>
 
-        <!-- Current time display -->
+      <!-- ============================================================ -->
+      <!-- BOTTOM: Timeline controls                                     -->
+      <!-- ============================================================ -->
+      <div
+        class="absolute bottom-0 left-0 right-0 z-[1000]
+               bg-gradient-to-t from-black/80 via-black/60 to-transparent
+               px-3 sm:px-6 pt-10 pb-4"
+        :class="{ 'pointer-events-none opacity-40': !isLoaded }"
+      >
+        <!-- Top row: layer names | datetime | speed -->
         <div class="flex items-center justify-between text-white mb-2">
-          <div class="text-sm font-medium hidden sm:block">
-            <span class="text-gray-300">Model:</span>
-            <span class="ml-1 font-bold">{{ selectedModel || 'None' }}</span>
+          <div class="text-xs font-medium text-gray-300 hidden sm:block truncate max-w-[160px]">
+            {{ visibleProducts.map(p => SHORT_NAMES[p]).join(' + ') || '—' }}
           </div>
           <div class="text-center">
-            <span class="text-lg sm:text-2xl font-bold tabular-nums">
-              {{ frameMinutesDisplay }}
-            </span>
-            <span
-              class="ml-2 text-xs font-medium px-2 py-0.5 rounded-full"
-              :class="frameIndex <= 12
-                ? 'bg-emerald-500/30 text-emerald-300'
-                : 'bg-blue-500/30 text-blue-300'"
-            >
-              {{ frameIndex <= 12 ? 'Observed' : 'Forecast' }}
+            <span class="text-base sm:text-xl font-bold tabular-nums tracking-tight">
+              {{ currentTimestampDisplay }}
             </span>
           </div>
-          <div class="text-sm text-gray-300 hidden sm:block">
-            {{ latestTimestampDisplay || 'No data' }}
-          </div>
+          <button
+            @click="cycleSpeed"
+            class="text-sm bg-white/15 hover:bg-white/25 border border-white/25 text-white
+                   rounded-md px-3 py-1 transition-colors font-semibold tabular-nums min-w-[48px]"
+          >
+            {{ playSpeed }}×
+          </button>
         </div>
 
-        <!-- Timeline slider -->
-        <div class="flex items-center gap-2 sm:gap-4">
-          <!-- Play/Pause button -->
+        <!-- Slider row -->
+        <div class="flex items-center gap-3">
           <button
             @click="togglePlay"
-            class="w-10 h-10 flex items-center justify-center rounded-full
-                   bg-white/20 hover:bg-white/30 text-white transition-colors
-                   backdrop-blur-sm"
-            :title="playing ? 'Pause' : 'Play'"
+            :disabled="!isLoaded || timestamps.length === 0"
+            class="w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0
+                   bg-white/10 hover:bg-white/20 border border-white/20 text-white transition-colors
+                   disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <!-- Pause icon -->
-            <svg v-if="playing" class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-              <rect x="6" y="4" width="4" height="16" rx="1" />
-              <rect x="14" y="4" width="4" height="16" rx="1" />
-            </svg>
-            <!-- Play icon -->
-            <svg v-else class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+            <svg v-if="!isPlaying" class="w-4 h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
               <path d="M8 5v14l11-7z" />
+            </svg>
+            <svg v-else class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
             </svg>
           </button>
 
-          <!-- Timeline slider (0-24, representing -60 to +60 min) -->
           <div class="flex-1 relative">
             <input
               type="range"
-              v-model.number="frameIndex"
-              min="0"
-              max="24"
-              step="1"
-              class="w-full h-2 appearance-none cursor-pointer rounded-full
-                     bg-white/20 accent-blue-400
-                     [&::-webkit-slider-thumb]:appearance-none
-                     [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
-                     [&::-webkit-slider-thumb]:rounded-full
-                     [&::-webkit-slider-thumb]:bg-blue-400
-                     [&::-webkit-slider-thumb]:shadow-lg
-                     [&::-webkit-slider-thumb]:shadow-blue-400/50"
+              :min="0"
+              :max="Math.max(0, timestamps.length - 1)"
+              :value="frameIndex"
+              @input="onSliderInput"
+              :disabled="!isLoaded || timestamps.length === 0"
+              class="w-full h-1.5 rounded-full appearance-none cursor-pointer timeline-slider
+                     disabled:opacity-40 disabled:cursor-not-allowed"
             />
-            <!-- Tick marks — show every 15 minutes for readability -->
-            <div class="flex justify-between mt-1 px-0.5">
+            <div v-if="hourTicks.length" class="relative mt-1 h-4">
               <span
-                v-for="i in 25"
-                :key="i"
-                class="text-[10px] tabular-nums w-0 text-center"
-                :class="tickClass(i - 1)"
-              >
-                {{ tickLabel(i - 1) }}
-              </span>
+                v-for="tick in hourTicks"
+                :key="tick.label"
+                class="absolute text-[9px] text-gray-400 -translate-x-1/2"
+                :style="{ left: tick.pct + '%' }"
+              >{{ tick.label }}</span>
             </div>
           </div>
 
-          <!-- Speed control -->
-          <button
-            @click="cycleSpeed"
-            class="px-3 py-1.5 rounded-full bg-white/20 hover:bg-white/30
-                   text-white text-xs font-medium transition-colors backdrop-blur-sm"
-            title="Animation speed"
-          >
-            {{ speedLabel }}
-          </button>
-
-          <!-- Opacity slider (hidden on very small screens) -->
-          <div class="hidden sm:flex items-center gap-2" title="Overlay opacity">
-            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-            </svg>
-            <input
-              type="range"
-              v-model.number="overlayOpacity"
-              min="0.1"
-              max="1"
-              step="0.05"
-              class="w-16 h-1.5 appearance-none cursor-pointer rounded-full
-                     bg-white/20 accent-white
-                     [&::-webkit-slider-thumb]:appearance-none
-                     [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3
-                     [&::-webkit-slider-thumb]:rounded-full
-                     [&::-webkit-slider-thumb]:bg-white"
-            />
+          <div class="text-xs text-gray-400 flex-shrink-0 tabular-nums">
+            {{ timestamps.length ? `${frameIndex + 1}/${timestamps.length}` : '0/0' }}
           </div>
         </div>
       </div>
     </div>
 
     <!-- ================================================================ -->
-    <!-- RIGHT: Sidebar panel (drawer on mobile, fixed on desktop)        -->
+    <!-- RIGHT: Sidebar                                                    -->
     <!-- ================================================================ -->
-    <!-- Backdrop (mobile only) -->
     <div
       v-if="sidebarOpen"
       class="fixed inset-0 bg-black/40 z-[1100] lg:hidden"
       @click="sidebarOpen = false"
     />
+
     <div
-      class="bg-white border-l border-gray-200 flex flex-col overflow-y-auto
+      class="bg-gray-900 border-l border-gray-700 flex flex-col
              fixed right-0 top-14 bottom-0 z-[1101] w-72
-             transform transition-transform duration-200 ease-out
+             transform transition-transform duration-200 ease-out overflow-y-auto
              lg:static lg:translate-x-0 lg:z-auto"
       :class="sidebarOpen ? 'translate-x-0' : 'translate-x-full'"
     >
-      <!-- Close button (mobile only) -->
+      <!-- Close (mobile) -->
       <button
         @click="sidebarOpen = false"
         class="lg:hidden absolute top-2 right-2 w-8 h-8 flex items-center justify-center
-               rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+               rounded-full text-gray-400 hover:text-gray-200 hover:bg-white/10 transition-colors"
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path d="M6 18L18 6M6 6l12 12" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
       </button>
 
-      <!-- Start / Pause Real Time Button -->
-      <div class="p-4 border-b border-gray-100">
-        <button
-          @click="toggleRealTime"
-          class="w-full py-3 px-4 rounded-lg font-semibold text-sm transition-all
-                 flex items-center justify-center gap-2"
-          :class="realTimeActive
-            ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
-            : 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm'"
-        >
-          <!-- Pause icon -->
-          <svg v-if="realTimeActive" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <rect x="6" y="4" width="4" height="16" rx="1" />
-            <rect x="14" y="4" width="4" height="16" rx="1" />
-          </svg>
-          <!-- Play icon -->
-          <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M5 3l14 9-14 9V3z" />
-          </svg>
-          {{ realTimeActive ? 'Pause Real Time' : 'Start Real Time' }}
-        </button>
-        <p v-if="realTimeActive" class="text-[10px] text-center text-gray-400 mt-1.5">
-          Polling every 3s
-        </p>
-      </div>
+      <div class="p-4 space-y-5">
 
-      <!-- Model Selector -->
-      <div class="p-4 border-b border-gray-100">
-        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-          Active Model
-        </h3>
-        <select
-          v-model="selectedModel"
-          class="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm
-                 font-medium focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-        >
-          <option value="" disabled>Select model...</option>
-          <option v-for="model in models" :key="model" :value="model">
-            {{ model }}
-          </option>
-        </select>
-      </div>
-
-      <!-- Latest Data -->
-      <div class="p-4 border-b border-gray-100">
-        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-          Latest Data
-        </h3>
-        <div v-if="latestSRI" class="flex items-center gap-2">
-          <div class="w-2 h-2 rounded-full" :class="latestSRI.latest_file ? 'bg-green-400' : 'bg-red-400'" />
-          <span class="text-sm text-gray-700 font-medium">
-            {{ latestSRI.latest_file ? formatSriFilename(latestSRI.latest_file) : 'No data' }}
-          </span>
+        <!-- Title -->
+        <div class="pt-1">
+          <h2 class="text-white font-bold text-base">Real Time</h2>
+          <p class="text-gray-400 text-xs mt-0.5">Live multi-product radar</p>
         </div>
-        <div v-else class="flex items-center gap-2">
-          <div class="w-2 h-2 rounded-full bg-gray-300 animate-pulse" />
-          <span class="text-sm text-gray-400">Loading...</span>
-        </div>
-      </div>
 
-      <!-- Model Status List -->
-      <div class="p-4 border-b border-gray-100 flex-1">
-        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-          Model Status
-        </h3>
-
-        <div class="space-y-1">
-          <div
-            v-for="model in models"
-            :key="model"
-            @click="selectedModel = model"
-            class="flex items-center justify-between py-2.5 px-3 rounded-lg cursor-pointer
-                   transition-colors"
-            :class="selectedModel === model
-              ? 'bg-blue-50 border border-blue-200'
-              : 'hover:bg-gray-50'"
-          >
-            <span
-              class="text-sm"
-              :class="selectedModel === model ? 'font-semibold text-blue-700' : 'text-gray-700'"
-            >
-              {{ model }}
-            </span>
-            <span
-              class="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full"
-              :class="statusClass(model)"
-            >
-              <span class="w-1.5 h-1.5 rounded-full" :class="statusDotClass(model)" />
-              {{ statusText(model) }}
+        <!-- Live status card -->
+        <div class="bg-gray-800 rounded-lg p-3 space-y-2.5">
+          <!-- Status indicator -->
+          <div class="flex items-center gap-2">
+            <div
+              class="w-2 h-2 rounded-full flex-shrink-0"
+              :class="(isUpdating || isSearching) ? 'bg-yellow-400 animate-pulse' : isLoaded ? 'bg-green-400' : 'bg-gray-500'"
+            />
+            <span class="text-xs text-gray-300">{{ liveStatusText }}</span>
+            <span v-if="isLoaded && !isUpdating" class="ml-auto text-[10px] text-gray-500 tabular-nums">
+              next: {{ nextUpdateText }}
             </span>
           </div>
-        </div>
-      </div>
 
-      <!-- IR Satellite Overlay -->
-      <div class="p-4 border-b border-gray-100">
-        <div class="flex items-center justify-between mb-2">
-          <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-            Satellite IR
-          </h3>
-          <label class="flex items-center gap-1.5 cursor-pointer">
-            <input
-              type="checkbox"
-              v-model="irEnabled"
-              class="w-4 h-4 rounded accent-blue-500"
-            />
-            <span class="text-xs text-gray-600">Show</span>
-          </label>
+          <!-- Follow Live toggle -->
+          <button
+            @click="followLive = !followLive"
+            class="w-full py-1.5 rounded text-xs font-semibold transition-colors border"
+            :class="followLive
+              ? 'bg-green-600/20 border-green-500/50 text-green-400 hover:bg-green-600/30'
+              : 'bg-gray-700 border-gray-600 text-gray-400 hover:bg-gray-600'"
+          >
+            {{ followLive ? '● Following Live' : '○ Follow Live' }}
+          </button>
+
+          <!-- Jump to latest -->
+          <button
+            @click="goToLatest"
+            :disabled="!isLoaded || timestamps.length === 0"
+            class="w-full py-1.5 rounded text-xs font-semibold transition-colors
+                   border border-white/10 bg-white/5 hover:bg-white/10 text-gray-300
+                   disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Jump to Latest
+          </button>
         </div>
-        <p class="text-[10px] text-gray-400 mb-2">IR 10.8 µm cloud cover overlay</p>
-        <div v-if="irEnabled" class="flex items-center gap-2">
-          <span class="text-xs text-gray-500 w-12 flex-shrink-0">Opacity</span>
-          <input
-            type="range"
-            v-model.number="irOpacity"
-            min="0"
-            max="1"
-            step="0.05"
-            class="flex-1 h-1.5 accent-blue-400 cursor-pointer"
-          />
-          <span class="text-xs text-gray-500 w-8 text-right tabular-nums">
-            {{ Math.round(irOpacity * 100) }}%
+
+        <!-- Lookback selector -->
+        <div class="space-y-2">
+          <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Lookback Window</h3>
+          <div class="grid grid-cols-5 gap-1">
+            <button
+              v-for="h in lookbackOptions"
+              :key="h"
+              @click="setLookback(h)"
+              :disabled="isLoading"
+              class="py-1.5 rounded text-xs font-semibold transition-colors border
+                     disabled:cursor-not-allowed"
+              :class="lookbackHours === h
+                ? 'bg-blue-600 border-blue-500 text-white'
+                : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'"
+            >
+              {{ h }}h
+            </button>
+          </div>
+        </div>
+
+        <!-- Error message + retry -->
+        <div v-if="loadError && !isLoading" class="bg-red-900/30 border border-red-700/50 rounded-lg p-3 space-y-2">
+          <p class="text-red-400 text-xs leading-snug">{{ loadError }}</p>
+          <button
+            @click="loadData({ preserve: false })"
+            class="w-full py-1.5 rounded text-xs font-semibold
+                   bg-red-700/30 hover:bg-red-700/50 border border-red-600/50 text-red-300"
+          >Retry</button>
+        </div>
+
+        <!-- Loading indicator -->
+        <div v-if="isLoading" class="flex items-center gap-2 text-xs text-gray-400">
+          <svg class="animate-spin h-4 w-4 text-blue-400" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" />
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <span>
+            {{ loadProgress.total > 0
+              ? `Loading ${loadProgress.loaded}/${loadProgress.total} frames…`
+              : 'Fetching timestamps…' }}
           </span>
         </div>
-      </div>
 
-      <!-- Info -->
-      <div class="p-4">
-        <p v-if="lastRefresh" class="text-[10px] text-gray-400">
-          Status updated {{ lastRefresh }}
-        </p>
+        <!-- Layers -->
+        <div class="space-y-2">
+          <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Layers</h3>
+
+          <div
+            v-for="product in productOrder"
+            :key="product"
+            class="bg-gray-800 rounded-lg p-3 space-y-2"
+          >
+            <div class="flex items-center gap-2">
+              <input
+                type="checkbox"
+                :id="`layer-${product}`"
+                v-model="layerConfig[product].enabled"
+                class="w-4 h-4 rounded accent-blue-500 cursor-pointer flex-shrink-0"
+              />
+              <label :for="`layer-${product}`" class="text-white text-sm font-bold cursor-pointer flex-1">
+                {{ SHORT_NAMES[product] }}
+              </label>
+              <!-- Spinner while this product's latest frame is still being fetched.
+                   During phase 1 (searchWindowTs empty) show for all products;
+                   in phase 2 show only for products still pending. -->
+              <svg
+                v-if="isSearching && (!searchWindowTs.length || searchingProducts.has(product))"
+                class="animate-spin h-3 w-3 text-blue-400 flex-shrink-0"
+                viewBox="0 0 24 24"
+              >
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" />
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              <span class="text-gray-400 text-xs mr-1">{{ radarProducts[product]?.unit || '' }}</span>
+              <!-- Layer order arrows -->
+              <div class="flex flex-col gap-0.5">
+                <button
+                  @click="moveProductUp(product)"
+                  :disabled="productOrder.indexOf(product) === 0"
+                  class="w-5 h-4 flex items-center justify-center rounded text-gray-400
+                         hover:text-white hover:bg-white/10 disabled:opacity-25 disabled:cursor-not-allowed
+                         transition-colors leading-none text-[10px]"
+                  title="Move layer up (toward top)"
+                >▲</button>
+                <button
+                  @click="moveProductDown(product)"
+                  :disabled="productOrder.indexOf(product) === productOrder.length - 1"
+                  class="w-5 h-4 flex items-center justify-center rounded text-gray-400
+                         hover:text-white hover:bg-white/10 disabled:opacity-25 disabled:cursor-not-allowed
+                         transition-colors leading-none text-[10px]"
+                  title="Move layer down (toward bottom)"
+                >▼</button>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <span class="text-gray-400 text-xs w-12 flex-shrink-0">Opacity</span>
+              <input
+                type="range" min="0" max="1" step="0.05"
+                v-model.number="layerConfig[product].opacity"
+                class="flex-1 h-1 accent-blue-400 cursor-pointer"
+              />
+              <span class="text-gray-400 text-xs w-8 text-right tabular-nums">
+                {{ Math.round(layerConfig[product].opacity * 100) }}%
+              </span>
+            </div>
+
+            <div v-if="productStats[product]" class="text-xs">
+              <span class="text-green-400 font-medium">{{ productStats[product].found }}</span>
+              <span class="text-gray-500">/{{ productStats[product].expected }} frames</span>
+              <!-- Hide "N missing" while actively searching for this product's data -->
+              <button
+                v-if="productStats[product].missingTs.length > 0 && !(isSearching && (!searchWindowTs.length || searchingProducts.has(product)))"
+                @click="toggleMissing(product)"
+                class="text-amber-400 hover:text-amber-300 ml-1.5 underline underline-offset-2"
+              >
+                {{ productStats[product].missingTs.length }} missing
+                {{ showMissingFor === product ? '▲' : '▼' }}
+              </button>
+            </div>
+
+            <div
+              v-if="showMissingFor === product && productStats[product]?.missingTs.length"
+              class="mt-1 space-y-0.5 max-h-36 overflow-y-auto rounded bg-black/30 px-2 py-1.5"
+            >
+              <div
+                v-for="ts in productStats[product].missingTs"
+                :key="ts"
+                class="font-mono text-[10px] text-amber-300/80"
+              >{{ formatMissingTs(ts) }}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Summary -->
+        <div v-if="isLoaded" class="bg-gray-800 rounded-lg p-3 text-xs text-gray-400 space-y-1">
+          <div class="flex justify-between">
+            <span>Frames</span>
+            <span class="text-white font-medium">{{ timestamps.length }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span>Window</span>
+            <span class="text-white font-medium">{{ lookbackHours }}h</span>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import api from '../api.js'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useConfigStore } from '../stores/config.js'
+import api from '../api.js'
 import RadarMap from '../components/RadarMap.vue'
 import ColorBar from '../components/ColorBar.vue'
 
 const configStore = useConfigStore()
-const models = computed(() => configStore.models)
-
-// ---- Timezone helpers (display only — all data stays UTC) ----
-const TIMEZONE = 'Europe/Rome'
-
-function formatTimeInRome(date) {
-  return date.toLocaleTimeString('it-IT', {
-    timeZone: TIMEZONE, hour: '2-digit', minute: '2-digit', hour12: false
-  })
-}
-
-function formatDateTimeInRome(date) {
-  return date.toLocaleString('it-IT', {
-    timeZone: TIMEZONE, day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: false
-  })
-}
-
-// ---- State ----
 const radarMap = ref(null)
-const sidebarOpen = ref(false)  // Mobile sidebar drawer
-const selectedModel = ref('')
-const frameIndex = ref(12)  // Start at index 12 = "0 min" (current time)
-const playing = ref(false)
-const speed = ref(1)
-const latestSRI = ref(null)
-const overlayOpacity = ref(0.7)
-const lastRefresh = ref('')
+const sidebarOpen = ref(false)
 
-// IR satellite overlay
-const irEnabled = ref(false)
-const irOpacity = ref(0.75)
+const SHORT_NAMES = { SRI_adj: 'SRI', VMI: 'VMI', ETM: 'ETM', VIL: 'VIL', IR_108: 'IR' }
+// Ordered top-to-bottom on the map (index 0 = topmost layer). IR_108 is last = bottommost.
+const productOrder = ref(['SRI_adj', 'VMI', 'ETM', 'VIL', 'IR_108'])
+const lookbackOptions = [1, 2, 4, 6, 12]
+const POLL_MS = 5 * 60 * 1000  // 5-minute polling
 
-// Real-time state (driven by backend)
-const realTimeActive = ref(false)
-const backendState = ref(null)   // Full state from GET /api/realtime/status
-const notification = ref('')     // Toast message string (empty = hidden)
-
-let playInterval = null
-let statusPollInterval = null
-let sriPollInterval = null      // Periodic SRI polling (runs even when RT is off)
-let notificationTimer = null
-let lastShownNotification = ''  // Track which notification we already displayed
-
-// ---- Constants ----
-const TOTAL_FRAMES = 25        // 13 past (including current) + 12 future
-const CURRENT_INDEX = 12       // Index of "0 min" in the frame array
-const POLL_INTERVAL_MS = 3000  // How often we poll the backend
-const SRI_POLL_INTERVAL_MS = 60000  // How often we poll for new SRI data (1 min)
-
-// ---- Speed control ----
-const speeds = [0.5, 1, 2]
-const speedLabel = computed(() => `${speed.value}x`)
-
+// ---- Speed ----
+const speeds = [0.5, 1, 2, 4]
+const playSpeed = ref(1)
 function cycleSpeed() {
-  const idx = speeds.indexOf(speed.value)
-  speed.value = speeds[(idx + 1) % speeds.length]
-  if (playing.value) {
-    stopPlay()
-    startPlay()
-  }
+  const idx = speeds.indexOf(playSpeed.value)
+  playSpeed.value = speeds[(idx + 1) % speeds.length]
+  if (isPlaying.value) { stopAnimation(); startAnimation() }
 }
 
-// ---- Frame display helpers ----
+// ---- Live state ----
+const lookbackHours = ref(1)
+const followLive    = ref(true)
+const isUpdating    = ref(false)    // true during a background poll reload
+const nextUpdateSecs = ref(POLL_MS / 1000)
 
-/**
- * Convert frame index to minute offset.
- * Index 0 → -60, Index 12 → 0, Index 24 → +60
- */
-function frameToMinutes(index) {
-  return (index - CURRENT_INDEX) * 5
-}
-
-/**
- * Display the actual time of the current frame + offset in parentheses.
- * Example: "14:30 (-5 min)" or "14:35 (0 min)" or "14:40 (+5 min)"
- */
-const frameMinutesDisplay = computed(() => {
-  const mins = frameToMinutes(frameIndex.value)
-  const offsetStr = mins === 0 ? '0 min' : `${mins > 0 ? '+' : ''}${mins} min`
-
-  if (!latestTimestamp.value) return `(${offsetStr})`
-
-  // Compute the actual time for this frame
-  const baseDt = new Date(latestTimestamp.value)
-  const frameDt = new Date(baseDt.getTime() + mins * 60000)
-
-  return `${formatTimeInRome(frameDt)} (${offsetStr})`
+// ---- Layer config ----
+const layerConfig = ref({
+  SRI_adj: { enabled: true, opacity: 0.8 },
+  VMI:     { enabled: true, opacity: 0.7 },
+  ETM:     { enabled: true, opacity: 0.7 },
+  VIL:     { enabled: true, opacity: 0.7 },
+  IR_108:  { enabled: true, opacity: 0.75 },
 })
 
-/**
- * Tick label for the slider. Show a label every 15 minutes for readability.
- */
-function tickLabel(index) {
-  const mins = frameToMinutes(index)
-  // Show labels at -60, -45, -30, -15, 0, +15, +30, +45, +60
-  if (mins % 15 === 0) return mins === 0 ? '0' : `${mins > 0 ? '+' : ''}${mins}`
-  return ''
-}
+// ---- Timeline state ----
+const timestamps   = ref([])
+const frameIndex   = ref(0)
+const isPlaying    = ref(false)
+const isLoading    = ref(false)
+const isLoaded     = ref(false)
+const loadProgress = ref({ loaded: 0, total: 0 })
+const productStats = ref({})
+const showMissingFor = ref(null)
+const loadError    = ref('')    // last error message, shown in UI
 
-function tickClass(index) {
-  if (index === frameIndex.value) return 'text-blue-400 font-bold'
-  const mins = frameToMinutes(index)
-  if (mins % 15 !== 0) return 'invisible'
-  if (mins === 0) return 'text-white/80 font-semibold'
-  return 'text-gray-400'
-}
+let playInterval    = null
+let initialTimer    = null   // setTimeout — fires at the next 5-min clock mark
+let pollTimer       = null   // setInterval — fires every 5 min after alignment
+let countdownTimer  = null
+let searchTimer     = null   // setTimeout — drives the sequential search loop
 
-// ---- Computed: latest timestamp from SRI filename ----
-const latestTimestamp = computed(() => {
-  if (!latestSRI.value?.latest_file) return null
-  const filename = latestSRI.value.latest_file.replace('.hdf', '')
-  const parts = filename.split('-')
-  if (parts.length !== 5) return null
-  const [day, month, year, hour, minute] = parts
-  return `${year}-${month}-${day}T${hour}:${minute}:00Z`
+// Phase 1 (first 10s): poll every 1s, hold back empty frames so the user doesn't
+// see a blank frame before any product has loaded.
+// Phase 2 (10s – 3min): poll every 3s, commit the frame with whatever is available
+// (missing products show as empty), and keep resolving late arrivals in place.
+const SEARCH_PHASE1_MS       = 10  * 1000      // hold-back window
+const SEARCH_PHASE1_INTERVAL = 1   * 1000      // 1s during phase 1
+const SEARCH_PHASE2_INTERVAL = 3   * 1000      // 3s during phase 2
+const SEARCH_MAX_MS          = 2.5 * 60 * 1000 // give up after 2.5 minutes
+
+const isSearching    = ref(false)  // true while the search window is active
+let   searchStart    = 0           // Date.now() when the current search began
+
+// Timestamps committed to the timeline in this search window.
+// Used to detect when all newly-added frames are fully resolved so we can
+// stop early instead of running the full 2.5 minutes.
+const searchWindowTs = ref([])
+
+// ---- Computed ----
+const radarProducts = computed(() => configStore.radarProducts)
+
+const visibleProducts = computed(() =>
+  isLoaded.value ? productOrder.value.filter(p => layerConfig.value[p].enabled) : []
+)
+
+// Rome timezone formatter — data timestamps are UTC, display in local (Rome) time
+const romeFormatter = new Intl.DateTimeFormat('it-IT', {
+  timeZone: 'Europe/Rome',
+  day: '2-digit', month: '2-digit', year: 'numeric',
+  hour: '2-digit', minute: '2-digit', hour12: false,
 })
 
-const latestTimestampDisplay = computed(() => {
-  if (!latestSRI.value?.latest_file) return null
-  return formatSriFilename(latestSRI.value.latest_file)
+const currentTimestampDisplay = computed(() => {
+  if (!timestamps.value.length) return '--/--/---- - --:--'
+  const ts = timestamps.value[frameIndex.value]
+  if (!ts) return '--/--/---- - --:--'
+  // Append 'Z' so the browser parses the backend's naive UTC string as UTC,
+  // then Intl converts to Rome time (UTC+1 winter, UTC+2 summer).
+  const dt = new Date(ts + 'Z')
+  const parts = romeFormatter.formatToParts(dt)
+  const get = type => parts.find(p => p.type === type)?.value ?? '00'
+  return `${get('day')}/${get('month')}/${get('year')} - ${get('hour')}:${get('minute')}`
 })
 
-// ---- Preload all 25 frames when model or timestamp changes ----
-
-async function preloadAllFrames() {
-  if (!radarMap.value) return
-  // Need at least a timestamp to show groundtruth, OR the Test model
-  const isTest = selectedModel.value?.toUpperCase() === 'TEST'
-  if (!isTest && !latestTimestamp.value) return
-
-  const baseDt = latestTimestamp.value ? new Date(latestTimestamp.value) : new Date()
-  const hasModel = !!selectedModel.value
-
-  // Build 25 URLs: 13 past/current (groundtruth) + 12 future (predictions)
-  //
-  // NO MODEL SELECTED: Only groundtruth frames (0-12) are loaded from SRI.
-  //   Future frames (13-24) return null → RadarMap shows blank (no overlay).
-  //
-  // TEST MODEL: All 25 frames from the static predictions.npy file.
-  //
-  // OTHER MODELS: Past from SRI files, future from per-timestamp .npy files.
-  const urls = Array.from({ length: TOTAL_FRAMES }, (_, i) => {
-    const minuteOffset = frameToMinutes(i)
-
-    if (minuteOffset <= 0) {
-      if (isTest) {
-        const gtIndex = Math.min(i, 11)
-        return api.overlayUrl('Test', latestTimestamp.value, gtIndex, 'groundtruth')
+const hourTicks = computed(() => {
+  if (timestamps.value.length < 2) return []
+  const ticks = []
+  const seen = new Set()
+  timestamps.value.forEach((ts, i) => {
+    // Parse as UTC, display in Rome time
+    const dt = new Date(ts + 'Z')
+    const romeMinute = Number(new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', minute: 'numeric' }).format(dt))
+    const romeHour   = new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', hour: '2-digit', hour12: false }).format(dt)
+    if (romeMinute === 0) {
+      const label = `${romeHour}:00`
+      if (!seen.has(label)) {
+        seen.add(label)
+        ticks.push({ label, pct: (i / (timestamps.value.length - 1)) * 100 })
       }
-      // Groundtruth from SRI files (works with or without a model selected)
-      const pastDt = new Date(baseDt.getTime() + minuteOffset * 60000)
-      const ts = formatIsoTimestamp(pastDt)
-      return api.groundtruthOverlayUrl(ts)
-    } else {
-      // Future: need a selected model for predictions
-      if (!hasModel) return null
-      const leadTimeIndex = Math.round(minuteOffset / 5) - 1
-      return api.overlayUrl(selectedModel.value, latestTimestamp.value, leadTimeIndex)
     }
   })
+  return ticks
+})
 
-  // Filter out nulls for RadarMap — pass empty string so frame slots still line up
-  const safeUrls = urls.map(u => u || '')
+// Products that still have unresolved frames in the current search window.
+// Used to show a per-product spinner and hide the "N missing" count while polling.
+const searchingProducts = computed(() => {
+  if (!isSearching.value || searchWindowTs.value.length === 0) return new Set()
+  const pending = new Set()
+  for (const product of productOrder.value) {
+    const missing = productStats.value[product]?.missingSet
+    if (!missing) continue
+    if (searchWindowTs.value.some(ts => missing.has(ts))) pending.add(product)
+  }
+  return pending
+})
 
-  await radarMap.value.preloadFrames(safeUrls)
-  radarMap.value.showFrame(frameIndex.value)
+const liveStatusText = computed(() => {
+  if (isLoading.value && !isUpdating.value) return 'Loading data…'
+  if (isUpdating.value) return 'Checking for new data…'
+  if (isSearching.value) return 'Waiting for new data…'
+  if (!isLoaded.value) return 'Not loaded'
+  return 'Live'
+})
 
-  // Load IR satellite overlay if enabled.
-  // Past frames: actual IR timestamp. Future frames: clamp to t=0 (current IR).
-  if (irEnabled.value) {
-    const irUrls = Array.from({ length: TOTAL_FRAMES }, (_, i) => {
-      const minuteOffset = frameToMinutes(i)
-      // For future frames, show the current IR image (no satellite forecast)
-      const effectiveOffset = Math.min(minuteOffset, 0)
-      const frameDt = new Date(baseDt.getTime() + effectiveOffset * 60000)
-      return api.groundtruthOverlayUrl(formatIsoTimestamp(frameDt), 'IR_108')
+const nextUpdateText = computed(() => {
+  const s = nextUpdateSecs.value
+  return s >= 60 ? `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s` : `${s}s`
+})
+
+// ---- Helpers ----
+
+// Data delay: files arrive ~10 minutes after the nominal timestamp
+const DATA_DELAY_MS = 10 * 60 * 1000
+
+function computeRange() {
+  // Data is stored in UTC. Use UTC throughout so file lookups match.
+  // Subtract DATA_DELAY_MS then floor to the nearest 5-minute mark so that
+  // the backend's expected timestamps (which step at 5-min intervals) align
+  // with actual filenames (DD-MM-YYYY-HH-MM.hdf on 5-min boundaries).
+  const endUtc = new Date(Date.now() - DATA_DELAY_MS)
+  endUtc.setUTCMinutes(Math.floor(endUtc.getUTCMinutes() / 5) * 5, 0, 0)
+  const startUtc = new Date(endUtc - lookbackHours.value * 3600 * 1000)
+  const fmt = dt => {
+    const p = n => String(n).padStart(2, '0')
+    return `${dt.getUTCFullYear()}-${p(dt.getUTCMonth()+1)}-${p(dt.getUTCDate())}T${p(dt.getUTCHours())}:${p(dt.getUTCMinutes())}`
+  }
+  return { start: fmt(startUtc), end: fmt(endUtc) }
+}
+
+// ---- Frame navigation ----
+function goToFrame(idx) {
+  frameIndex.value = idx
+  if (!radarMap.value || !isLoaded.value) return
+  const opacities = {}
+  for (const product of productOrder.value) {
+    opacities[product] = layerConfig.value[product].enabled
+      ? layerConfig.value[product].opacity
+      : 0
+  }
+  radarMap.value.showAllAtFrame(idx, opacities)
+}
+
+function goToLatest() {
+  if (timestamps.value.length > 0) goToFrame(timestamps.value.length - 1)
+}
+
+// Re-render current frame when layer enabled/opacity changes
+watch(layerConfig, () => {
+  if (!isLoaded.value || timestamps.value.length === 0) return
+  goToFrame(frameIndex.value)
+}, { deep: true })
+
+// ---- Core load ----
+async function loadData({ preserve = false } = {}) {
+  const { start, end } = computeRange()
+
+  isLoading.value = true
+  loadError.value = ''
+
+  if (!preserve) {
+    // Full reset
+    isLoaded.value = false
+    timestamps.value = []
+    productStats.value = {}
+    showMissingFor.value = null
+    loadProgress.value = { loaded: 0, total: 0 }
+    radarMap.value?.clearAllProducts()
+  }
+
+  try {
+    const results = await Promise.all(
+      productOrder.value.map(product =>
+        api.explorerTimestamps(start, end, product).catch((err) => {
+          console.error(`[LiveView] explorerTimestamps failed for ${product}:`, err)
+          loadError.value = `API error (${product}): ${err.message}`
+          return { timestamps: [], missing: [], total_expected: 0, total_found: 0 }
+        })
+      )
+    )
+
+    const tsSet = new Set()
+    results.forEach(r => {
+      r.timestamps.forEach(ts => tsSet.add(ts))
+      r.missing.forEach(ts => tsSet.add(ts))
     })
-    await radarMap.value.loadProductFrames('IR_108', irUrls, irOpacity.value)
-    radarMap.value.showAllAtFrame(frameIndex.value)
-  }
-}
+    const sortedTs = Array.from(tsSet).sort()
 
-/**
- * Format a Date object as ISO timestamp string (YYYY-MM-DDTHH:MM) in UTC.
- * Used for building API URLs that match UTC filenames on disk.
- */
-function formatIsoTimestamp(dt) {
-  const year = dt.getUTCFullYear()
-  const month = String(dt.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(dt.getUTCDate()).padStart(2, '0')
-  const hours = String(dt.getUTCHours()).padStart(2, '0')
-  const minutes = String(dt.getUTCMinutes()).padStart(2, '0')
-  return `${year}-${month}-${day}T${hours}:${minutes}`
-}
-
-// When model changes → preload all frames for that model
-watch(selectedModel, () => { preloadAllFrames() })
-
-// When latest timestamp changes (new SRI data) → preload new frames.
-// This runs regardless of real-time mode so groundtruth always updates.
-watch(latestTimestamp, () => {
-  preloadAllFrames()
-})
-
-// When frame index changes (slider drag) → instantly show that frame
-watch(frameIndex, (newIdx) => {
-  if (radarMap.value) {
-    radarMap.value.showFrame(newIdx)
-    if (irEnabled.value) radarMap.value.showAllAtFrame(newIdx)
-  }
-})
-
-// When opacity slider changes → update the currently visible frame
-watch(overlayOpacity, (newOpacity) => {
-  if (radarMap.value) radarMap.value.setOverlayOpacity(newOpacity)
-})
-
-// IR overlay: toggle on/off
-watch(irEnabled, async (enabled) => {
-  if (enabled) {
-    await preloadAllFrames()
-  } else {
-    radarMap.value?.removeProduct('IR_108')
-  }
-})
-
-// IR opacity: update the currently visible IR frame
-watch(irOpacity, (opacity) => {
-  if (radarMap.value && irEnabled.value) {
-    radarMap.value.setProductOpacity('IR_108', opacity)
-    radarMap.value.showAllAtFrame(frameIndex.value)
-  }
-})
-
-// ---- Animation controls ----
-function togglePlay() {
-  if (playing.value) stopPlay()
-  else startPlay()
-}
-
-function startPlay() {
-  playing.value = true
-  const intervalMs = 800 / speed.value
-  playInterval = setInterval(() => {
-    frameIndex.value = (frameIndex.value + 1) % TOTAL_FRAMES
-  }, intervalMs)
-}
-
-function stopPlay() {
-  playing.value = false
-  if (playInterval) {
-    clearInterval(playInterval)
-    playInterval = null
-  }
-}
-
-// ---- Real-Time: Backend-driven ----
-
-/**
- * Toggle real-time prediction on/off.
- * Start: POST to backend, then start polling.
- * Stop: POST to backend, then stop polling and reset UI.
- */
-async function toggleRealTime() {
-  if (realTimeActive.value) {
-    // --- Stop ---
-    try {
-      await api.stopRealTime()
-    } catch (e) {
-      console.error('Failed to stop real-time:', e)
-    }
-    stopStatusPolling()
-    realTimeActive.value = false
-    backendState.value = null
-    notification.value = ''
-    lastShownNotification = ''
-  } else {
-    // --- Start ---
-    try {
-      const result = await api.startRealTime()
-
-      if (!result.ok && result.reason === 'already_running') {
-        // Service was already running (e.g. started from another tab).
-        // That's fine — just start polling.
-        console.log('Real-time already running, joining existing session')
-      }
-    } catch (e) {
-      console.error('Failed to start real-time:', e)
+    if (sortedTs.length === 0) {
+      if (!loadError.value)
+        loadError.value = `No files found for ${start} → ${end} (UTC). Check backend logs.`
       return
     }
+    loadError.value = ''
 
-    realTimeActive.value = true
+    // Decide where to land after reload
+    const prevLen      = timestamps.value.length
+    const prevFraction = prevLen > 1 ? frameIndex.value / (prevLen - 1) : 1
 
-    // Quick check: which models already have predictions for the latest timestamp?
-    // This gives instant "Ready" feedback instead of waiting for the first poll cycle.
-    if (latestTimestamp.value) {
-      const initialModels = {}
-      const checks = await Promise.allSettled(
-        models.value
-          .filter(m => m.toUpperCase() !== 'TEST')
-          .map(async (model) => {
-            const check = await api.checkSinglePrediction(model, latestTimestamp.value)
-            return { model, exists: check.exists }
-          })
+    timestamps.value = sortedTs
+
+    results.forEach((r, i) => {
+      productStats.value[productOrder.value[i]] = {
+        found:      r.total_found,
+        expected:   r.total_expected,
+        missingTs:  r.missing,
+        missingSet: new Set(r.missing),
+      }
+    })
+
+    loadProgress.value = { loaded: 0, total: productOrder.value.length * sortedTs.length }
+
+    radarMap.value?.clearAllProducts()
+    await Promise.all(productOrder.value.map(async (product) => {
+      const stats = productStats.value[product]
+      const urls  = sortedTs.map(ts =>
+        stats?.missingSet?.has(ts) ? null : api.explorerOverlayUrl(product, ts)
       )
-      for (const result of checks) {
-        if (result.status === 'fulfilled') {
-          initialModels[result.value.model] = {
-            status: result.value.exists ? 'ready' : 'queued'
-          }
+      await radarMap.value?.loadProductFrames(product, urls, layerConfig.value[product].opacity)
+      loadProgress.value.loaded += sortedTs.length
+    }))
+
+    isLoaded.value = true
+
+    if (followLive.value) {
+      goToFrame(sortedTs.length - 1)
+    } else if (preserve && prevLen > 0) {
+      // Keep approximate fractional position through the timeline
+      const targetIdx = Math.min(
+        Math.round(prevFraction * (sortedTs.length - 1)),
+        sortedTs.length - 1
+      )
+      goToFrame(targetIdx)
+    } else {
+      goToFrame(0)
+    }
+
+    // Apply stacking order: IR_108 is last in productOrder → bottommost on map
+    radarMap.value?.setProductOrder(productOrder.value)
+
+  } catch (e) {
+    console.error('LiveView: failed to load data:', e)
+  } finally {
+    isLoading.value = false
+  }
+}
+
+// ---- Lookback change ----
+async function setLookback(hours) {
+  if (isLoading.value) return
+  // Allow re-clicking the same button if the previous load failed (isLoaded=false)
+  if (hours === lookbackHours.value && isLoaded.value) return
+  lookbackHours.value = hours
+  stopAnimation()
+  await loadData({ preserve: false })
+}
+
+// ---- Polling: sliding window ----
+// Each poll: append new frames at the end, drop old frames from the front.
+// Typically 1 new frame per product (4 PNG requests total) — stays fast.
+// Returns true if actual new image data was loaded.
+// Returns false to keep the search window alive (file not ready yet).
+async function pollForNewData() {
+  if (isLoading.value || isUpdating.value) return false
+  isUpdating.value = true
+  try {
+    const { start, end } = computeRange()
+
+    const results = await Promise.all(
+      productOrder.value.map(product =>
+        api.explorerTimestamps(start, end, product).catch(() => ({
+          timestamps: [], missing: [], total_expected: 0, total_found: 0,
+        }))
+      )
+    )
+
+    const tsSet = new Set()
+    results.forEach(r => {
+      r.timestamps.forEach(ts => tsSet.add(ts))
+      r.missing.forEach(ts => tsSet.add(ts))
+    })
+    const newRangeTs = Array.from(tsSet).sort()
+    if (newRangeTs.length === 0) return false
+
+    if (!isLoaded.value) {
+      await loadData({ preserve: false })
+      return true
+    }
+
+    const newMissingAll = new Set()
+    results.forEach(r => r.missing.forEach(ts => newMissingAll.add(ts)))
+
+    const newRangeSet  = new Set(newRangeTs)
+    const currentSet   = new Set(timestamps.value)
+    const addedTs      = newRangeTs.filter(ts => !currentSet.has(ts))
+    const droppedCount = timestamps.value.filter(ts => !newRangeSet.has(ts)).length
+
+    // ---- Resolved frames: previously missing, now found, already in the timeline ----
+    // Only care about in-timeline null slots (added after 90s timeout) — these need
+    // resolveProductFrame to patch the slot in place.
+    // Timestamps held back by the 90s delay are NOT in timestamps.value, so they
+    // appear in addedTs as new entries and are handled by the addedFoundTs path below.
+    // Compute BEFORE updating productStats (need to compare old vs new missing sets).
+    const resolvedInTimeline = []   // { product, ts, idx }
+    productOrder.value.forEach((product, i) => {
+      const prevMissing = productStats.value[product]?.missingSet
+      if (!prevMissing || prevMissing.size === 0) return
+      const newMissingSet = new Set(results[i].missing)
+      for (const ts of prevMissing) {
+        if (!newMissingSet.has(ts) && currentSet.has(ts)) {
+          const idx = timestamps.value.indexOf(ts)
+          if (idx !== -1) resolvedInTimeline.push({ product, ts, idx })
         }
       }
-      backendState.value = {
-        active: true,
-        models: initialModels,
-        latest_sri: latestSRI.value?.latest_file
+    })
+    const hasResolved = resolvedInTimeline.length > 0
+
+    // ---- New timestamps: split into found vs still-missing ----
+    const addedFoundTs   = addedTs.filter(ts => !newMissingAll.has(ts))
+    const addedMissingTs = addedTs.filter(ts =>  newMissingAll.has(ts))
+
+    // Phase 1 hold-back: during the first SEARCH_PHASE1_MS don't commit any empty
+    // frames — give all products a chance to arrive before showing blank slots.
+    // After phase 1, commit whatever is available; late products get resolved in
+    // place via resolveProductFrame when their files eventually arrive.
+    const elapsed      = searchStart > 0 ? Date.now() - searchStart : Infinity
+    const delayMissing = addedFoundTs.length === 0 && addedMissingTs.length > 0
+                         && !hasResolved && elapsed < SEARCH_PHASE1_MS
+
+    if (addedTs.length === 0 && droppedCount === 0 && !hasResolved) return false
+
+    // ---- Update productStats (after resolved computation) ----
+    results.forEach((r, i) => {
+      productStats.value[productOrder.value[i]] = {
+        found:      r.total_found,
+        expected:   r.total_expected,
+        missingTs:  r.missing,
+        missingSet: new Set(r.missing),
       }
-      // Preload immediately if we have a selected model with predictions
-      await preloadAllFrames()
-    }
+    })
 
-    startStatusPolling()
-  }
-}
+    // ---- Timestamps we're committing to the timeline this tick ----
+    // Must be sorted chronologically so RadarMap layer indices match timestamps.value.
+    // Without sort, found-first concat ([16:05, 16:10, 16:00]) would misalign layers.
+    const toAppend = (delayMissing ? addedFoundTs : [...addedFoundTs, ...addedMissingTs]).sort()
 
-/**
- * Start polling the backend status every 3 seconds.
- */
-function startStatusPolling() {
-  stopStatusPolling()
-  // Do an immediate poll, then schedule regular ones
-  pollRealtimeStatus()
-  statusPollInterval = setInterval(pollRealtimeStatus, POLL_INTERVAL_MS)
-}
-
-/**
- * Stop polling.
- */
-function stopStatusPolling() {
-  if (statusPollInterval) {
-    clearInterval(statusPollInterval)
-    statusPollInterval = null
-  }
-}
-
-/**
- * Fetch the latest state from the backend and sync local UI.
- *
- * This is the core of the backend-driven approach: every 3 seconds we
- * ask "what's happening?" and update our refs accordingly. If the backend
- * reports active: false (e.g. it crashed or was stopped from another tab),
- * we stop polling and reset the UI.
- */
-async function pollRealtimeStatus() {
-  try {
-    const state = await api.getRealTimeStatus()
-    const prevState = backendState.value
-    backendState.value = state
-
-    // If the backend is no longer active, stop everything
-    if (!state.active) {
-      realTimeActive.value = false
-      stopStatusPolling()
-      notification.value = ''
-      return
-    }
-
-    // Sync latest SRI info from backend state
-    if (state.latest_sri) {
-      latestSRI.value = { latest_file: state.latest_sri }
-    }
-
-    // Show notification toast when the backend sends a NEW one
-    // (compare against lastShownNotification, not the display ref which auto-clears)
-    if (state.notification && state.notification !== lastShownNotification) {
-      lastShownNotification = state.notification
-      showNotification(state.notification)
-    }
-
-    // Preload frames when:
-    // 1. New SRI data arrives — always preload so groundtruth (frames 0-12)
-    //    updates immediately, even if no model predictions are ready yet.
-    //    Prediction frames (13-24) will show blank until a model is ready.
-    // 2. Selected model transitions to "ready" — preload again so the
-    //    prediction frames (13-24) now have data to show.
-    const sriChanged = state.latest_sri && state.latest_sri !== prevState?.latest_sri
-
-    if (sriChanged) {
-      await preloadAllFrames()
-    } else if (selectedModel.value && state.models[selectedModel.value]) {
-      const prevModelStatus = prevState?.models?.[selectedModel.value]?.status
-      const newModelStatus = state.models[selectedModel.value].status
-      if (newModelStatus === 'ready' && prevModelStatus !== 'ready') {
-        await preloadAllFrames()
+    // ---- Fix null slots already in the timeline ----
+    if (resolvedInTimeline.length > 0) {
+      await Promise.all(resolvedInTimeline.map(({ product, ts, idx }) =>
+        radarMap.value?.resolveProductFrame(product, idx, api.explorerOverlayUrl(product, ts))
+      ))
+      // Remove fully-resolved timestamps from the search window tracker
+      const resolvedTsSet = new Set(resolvedInTimeline.map(r => r.ts))
+      const stillPending = productOrder.value.some(p =>
+        [...resolvedTsSet].some(ts => productStats.value[p]?.missingSet?.has(ts))
+      )
+      if (!stillPending) {
+        searchWindowTs.value = searchWindowTs.value.filter(ts => !resolvedTsSet.has(ts))
       }
     }
 
-    lastRefresh.value = new Date().toLocaleTimeString()
-  } catch (e) {
-    console.error('Failed to poll real-time status:', e)
-  }
-}
-
-/**
- * Show a notification toast that auto-dismisses after 4 seconds.
- */
-function showNotification(message) {
-  notification.value = message
-  if (notificationTimer) clearTimeout(notificationTimer)
-  notificationTimer = setTimeout(() => {
-    notification.value = ''
-    notificationTimer = null
-  }, 4000)
-}
-
-// ---- Status display helpers ----
-
-/**
- * Get the display text for a model's status.
- * Reads from backendState when real-time is active.
- */
-function statusText(model) {
-  // Test model is always "Ready" — it uses static pre-existing data
-  if (model.toUpperCase() === 'TEST') return 'Ready'
-
-  if (!realTimeActive.value || !backendState.value) return 'Idle'
-
-  const modelInfo = backendState.value.models[model]
-  if (!modelInfo) return 'Idle'
-
-  const s = modelInfo.status
-  if (s === 'queued') return 'In Queue'
-  if (s === 'computing') return 'Computing'
-  if (s === 'ready') return 'Ready'
-  if (s === 'failed') return 'Failed'
-
-  return 'Idle'
-}
-
-function statusClass(model) {
-  if (model.toUpperCase() === 'TEST') return 'bg-emerald-100 text-emerald-700'
-
-  if (!realTimeActive.value || !backendState.value) return 'bg-gray-100 text-gray-500'
-
-  const modelInfo = backendState.value.models[model]
-  if (!modelInfo) return 'bg-gray-100 text-gray-500'
-
-  const s = modelInfo.status
-  if (s === 'queued') return 'bg-yellow-100 text-yellow-700'
-  if (s === 'computing') return 'bg-blue-100 text-blue-700'
-  if (s === 'ready') return 'bg-emerald-100 text-emerald-700'
-  if (s === 'failed') return 'bg-red-100 text-red-700'
-
-  return 'bg-gray-100 text-gray-500'
-}
-
-function statusDotClass(model) {
-  if (model.toUpperCase() === 'TEST') return 'bg-emerald-500'
-
-  if (!realTimeActive.value || !backendState.value) return 'bg-gray-400'
-
-  const modelInfo = backendState.value.models[model]
-  if (!modelInfo) return 'bg-gray-400'
-
-  const s = modelInfo.status
-  if (s === 'queued') return 'bg-yellow-500 animate-pulse'
-  if (s === 'computing') return 'bg-blue-500 animate-spin-slow'
-  if (s === 'ready') return 'bg-emerald-500'
-  if (s === 'failed') return 'bg-red-500'
-
-  return 'bg-gray-400'
-}
-
-function formatSriFilename(filename) {
-  // "22-11-2025-20-00.hdf" → "22/11/2025 21:00" (UTC → Europe/Rome)
-  const name = filename.replace('.hdf', '')
-  const parts = name.split('-')
-  if (parts.length !== 5) return filename
-  const [day, month, year, hour, minute] = parts
-  const utcDate = new Date(`${year}-${month}-${day}T${hour}:${minute}:00Z`)
-  return formatDateTimeInRome(utcDate)
-}
-
-// ---- Data fetching ----
-async function fetchLatestSRI() {
-  try {
-    latestSRI.value = await api.getLatestSRI()
-  } catch (e) {
-    console.error('Failed to fetch SRI:', e)
-  }
-}
-
-/**
- * Periodic SRI polling — runs always (even when real-time is off).
- * This ensures the map always shows the latest groundtruth data and the
- * "Latest Data" indicator in the sidebar stays up-to-date.
- *
- * When real-time IS active, pollRealtimeStatus already syncs SRI data
- * every 3s, so we skip the independent fetch to avoid redundant calls.
- */
-function startSriPolling() {
-  stopSriPolling()
-  sriPollInterval = setInterval(async () => {
-    if (!realTimeActive.value) {
-      await fetchLatestSRI()
+    // ---- Append new timestamps to RadarMap ----
+    if (toAppend.length > 0) {
+      await Promise.all(productOrder.value.map(async (product) => {
+        const stats = productStats.value[product]
+        const urls  = toAppend.map(ts =>
+          stats?.missingSet?.has(ts) ? null : api.explorerOverlayUrl(product, ts)
+        )
+        await radarMap.value?.appendProductFrames(product, urls)
+      }))
     }
-  }, SRI_POLL_INTERVAL_MS)
+
+    // ---- Drop old frames from the front ----
+    if (droppedCount > 0) {
+      for (const product of productOrder.value) {
+        radarMap.value?.trimProductFrames(product, droppedCount)
+      }
+    }
+
+    // ---- Update timeline and frame pointer ----
+    const prevFrameIndex = frameIndex.value
+    const retained = timestamps.value.filter(ts => newRangeSet.has(ts))
+    timestamps.value = [...retained, ...toAppend].sort()
+    const adjustedIndex = Math.max(0, prevFrameIndex - droppedCount)
+
+    if (followLive.value) {
+      goToFrame(timestamps.value.length - 1)
+    } else {
+      goToFrame(Math.min(adjustedIndex, timestamps.value.length - 1))
+    }
+
+    radarMap.value?.setProductOrder(productOrder.value)
+
+    // Refresh current frame so resolved images become visible
+    if (hasResolved) goToFrame(frameIndex.value)
+
+    // Track newly-committed timestamps so runSearch can stop early when resolved
+    if (toAppend.length > 0) {
+      const merged = new Set([...searchWindowTs.value, ...toAppend])
+      searchWindowTs.value = [...merged]
+    }
+
+    return addedFoundTs.length > 0 || hasResolved
+
+  } catch (e) {
+    console.error('LiveView poll error:', e)
+    return false
+  } finally {
+    isUpdating.value = false
+  }
 }
 
-function stopSriPolling() {
-  if (sriPollInterval) {
-    clearInterval(sriPollInterval)
-    sriPollInterval = null
+// Returns milliseconds until the next 5-minute clock boundary (00:05, 00:10, ...).
+// Aligning polls to clock marks ensures we check right when new files should arrive,
+// instead of drifting relative to whenever the page was loaded.
+function msUntilNextFiveMinMark() {
+  const ms = Date.now() % POLL_MS
+  return POLL_MS - ms
+}
+
+// Stop the within-minute retry loop.
+function stopSearching() {
+  if (searchTimer) { clearTimeout(searchTimer); searchTimer = null }
+  isSearching.value = false
+}
+
+// One search attempt: poll, then schedule the next one only after this one completes.
+// Recursive setTimeout guarantees no concurrent polls.
+// Never stops early on "found" — keeps running until SEARCH_MAX_MS so that late
+// products (e.g. IR arriving 90s after the 5-min mark) still get resolved in place.
+async function runSearch() {
+  if (!isSearching.value) return
+  const elapsed = Date.now() - searchStart
+  if (elapsed >= SEARCH_MAX_MS) { stopSearching(); return }
+
+  await pollForNewData()
+
+  if (!isSearching.value) return
+
+  // Stop early if all search-window timestamps are resolved across all products
+  if (elapsed >= SEARCH_PHASE1_MS && searchWindowTs.value.length > 0) {
+    const allResolved = searchWindowTs.value.every(ts =>
+      productOrder.value.every(p => !productStats.value[p]?.missingSet?.has(ts))
+    )
+    if (allResolved) { stopSearching(); return }
   }
+
+  const nextInterval = elapsed < SEARCH_PHASE1_MS ? SEARCH_PHASE1_INTERVAL : SEARCH_PHASE2_INTERVAL
+  searchTimer = setTimeout(runSearch, nextInterval)
+}
+
+// Start a search window: kick off the first attempt immediately, then retry
+// at 1s (phase 1) then 3s (phase 2) for up to 2.5 minutes.
+function startDataSearch() {
+  stopSearching()
+  isSearching.value = true
+  searchStart = Date.now()
+  searchWindowTs.value = []
+  runSearch()
+}
+
+function startPolling() {
+  stopPolling()
+
+  const delay = msUntilNextFiveMinMark()
+  nextUpdateSecs.value = Math.round(delay / 1000)
+
+  // Step 1: fire at the exact next 5-minute clock mark
+  initialTimer = setTimeout(() => {
+    initialTimer = null
+    startDataSearch()
+    nextUpdateSecs.value = POLL_MS / 1000
+
+    // Step 2: then repeat every 5 minutes exactly on the mark
+    pollTimer = setInterval(() => {
+      startDataSearch()
+      nextUpdateSecs.value = POLL_MS / 1000
+    }, POLL_MS)
+  }, delay)
+
+  countdownTimer = setInterval(() => {
+    if (nextUpdateSecs.value > 0) nextUpdateSecs.value--
+  }, 1000)
+}
+
+function stopPolling() {
+  stopSearching()
+  if (initialTimer)   { clearTimeout(initialTimer);   initialTimer   = null }
+  if (pollTimer)      { clearInterval(pollTimer);      pollTimer      = null }
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
+}
+
+// ---- Slider + animation ----
+function onSliderInput(e) {
+  goToFrame(Number(e.target.value))
+}
+
+function togglePlay() {
+  if (isPlaying.value) stopAnimation(); else startAnimation()
+}
+function startAnimation() {
+  if (!timestamps.value.length) return
+  isPlaying.value = true
+  playInterval = setInterval(() => {
+    goToFrame((frameIndex.value + 1) % timestamps.value.length)
+  }, 1000 / (playSpeed.value * 3))
+}
+function stopAnimation() {
+  isPlaying.value = false
+  if (playInterval) { clearInterval(playInterval); playInterval = null }
+}
+
+// ---- Layer reordering ----
+function moveProductUp(product) {
+  const arr = [...productOrder.value]
+  const i = arr.indexOf(product)
+  if (i <= 0) return
+  arr.splice(i, 1)
+  arr.splice(i - 1, 0, product)
+  productOrder.value = arr
+}
+
+function moveProductDown(product) {
+  const arr = [...productOrder.value]
+  const i = arr.indexOf(product)
+  if (i >= arr.length - 1) return
+  arr.splice(i, 1)
+  arr.splice(i + 1, 0, product)
+  productOrder.value = arr
+}
+
+// Apply z-order whenever the layer order changes
+watch(productOrder, () => {
+  if (radarMap.value && isLoaded.value) {
+    radarMap.value.setProductOrder(productOrder.value)
+    goToFrame(frameIndex.value)
+  }
+})
+
+// ---- Missing frames ----
+function toggleMissing(product) {
+  showMissingFor.value = showMissingFor.value === product ? null : product
+}
+function formatMissingTs(isoTs) {
+  const dt  = new Date(isoTs)
+  const pad = n => String(n).padStart(2, '0')
+  return `${pad(dt.getDate())}-${pad(dt.getMonth()+1)}-${dt.getFullYear()}-${pad(dt.getHours())}-${pad(dt.getMinutes())}.hdf`
 }
 
 // ---- Lifecycle ----
 onMounted(async () => {
-  await fetchLatestSRI()
-
-  // Immediately show groundtruth on the map (even before a model is selected)
-  await preloadAllFrames()
-
-  // Start periodic SRI polling so groundtruth updates even when RT is off
-  startSriPolling()
-
-  // Auto-select first model if available (this triggers watch → preload with predictions)
-  if (models.value.length > 0 && !selectedModel.value) {
-    selectedModel.value = models.value[0]
-  }
-
-  // Check if the backend service is already running (e.g. page refresh, second tab)
-  try {
-    const state = await api.getRealTimeStatus()
-    if (state.active) {
-      realTimeActive.value = true
-      backendState.value = state
-      // Sync SRI from backend state
-      if (state.latest_sri) {
-        latestSRI.value = { latest_file: state.latest_sri }
-      }
-      startStatusPolling()
-      // Preload frames for the current data (on page refresh, watchers
-      // skip because realTimeActive is already true by this point)
-      await preloadAllFrames()
-    }
-  } catch (e) {
-    console.error('Failed to check real-time status on mount:', e)
-  }
+  // Wait for the browser to layout and size the Leaflet container before loading.
+  // Without this, Leaflet may have zero-dimension tiles on first paint.
+  await nextTick()
+  await loadData({ preserve: false })
+  startPolling()
 })
 
 onUnmounted(() => {
-  stopPlay()
-  stopStatusPolling()
-  stopSriPolling()
-  if (notificationTimer) {
-    clearTimeout(notificationTimer)
-    notificationTimer = null
-  }
+  stopAnimation()
+  stopPolling()
 })
 </script>
 
 <style scoped>
-/* Toast notification slide-in/out transitions */
-.toast-enter-active {
-  transition: all 0.4s ease-out;
+.timeline-slider {
+  background: linear-gradient(
+    to right,
+    #3b82f6 0%,
+    #3b82f6 calc(var(--pct, 0) * 1%),
+    #4b5563 calc(var(--pct, 0) * 1%),
+    #4b5563 100%
+  );
 }
-.toast-leave-active {
-  transition: all 0.3s ease-in;
+.timeline-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: white;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
 }
-.toast-enter-from {
-  opacity: 0;
-  transform: translate(-50%, -20px);
-}
-.toast-leave-to {
-  opacity: 0;
-  transform: translate(-50%, -20px);
-}
-
-/* Slow spin animation for "computing" status dots */
-@keyframes spin-slow {
-  to { transform: rotate(360deg); }
-}
-.animate-spin-slow {
-  animation: spin-slow 2s linear infinite;
+.timeline-slider::-moz-range-thumb {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: white;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
 }
 </style>
