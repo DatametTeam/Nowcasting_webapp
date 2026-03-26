@@ -303,6 +303,16 @@ function setOverlayOpacity(opacity) {
   }
 }
 
+/**
+ * Bring all single-product (frameLayers) overlays to the front.
+ * Call this after loading any multi-product layers to ensure SRI stays on top.
+ */
+function bringFramesToFront() {
+  for (const layer of frameLayers) {
+    if (layer) layer.bringToFront()
+  }
+}
+
 function invalidateSize() {
   if (map) {
     nextTick(() => map.invalidateSize())
@@ -550,7 +560,7 @@ function setProductOrder(topToBottom) {
 // Expose methods for the parent component to call
 defineExpose({
   // Single-product (backward compat — used by RealTimeView)
-  preloadFrames, showFrame, setOverlayOpacity,
+  preloadFrames, showFrame, setOverlayOpacity, bringFramesToFront,
   // Multi-product (used by DataExplorerView and LiveView)
   loadProductFrames, appendProductFrames, trimProductFrames, resolveProductFrame,
   showAllAtFrame, setProductOpacity, removeProduct, clearAllProducts, setProductOrder,

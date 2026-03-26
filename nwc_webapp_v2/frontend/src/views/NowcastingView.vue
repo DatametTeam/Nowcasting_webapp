@@ -168,25 +168,6 @@
             {{ speedLabel }}
           </button>
 
-          <!-- Opacity slider (hidden on very small screens) -->
-          <div class="hidden sm:flex items-center gap-2" title="Overlay opacity">
-            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-            </svg>
-            <input
-              type="range"
-              v-model.number="overlayOpacity"
-              min="0.1"
-              max="1"
-              step="0.05"
-              class="w-16 h-1.5 appearance-none cursor-pointer rounded-full
-                     bg-white/20 accent-white
-                     [&::-webkit-slider-thumb]:appearance-none
-                     [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3
-                     [&::-webkit-slider-thumb]:rounded-full
-                     [&::-webkit-slider-thumb]:bg-white"
-            />
-          </div>
         </div>
       </div>
     </div>
@@ -312,6 +293,27 @@
         </div>
       </div>
 
+      <!-- Radar SRI Overlay -->
+      <div class="p-4 border-b border-gray-700">
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+          Radar (SRI)
+        </h3>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-gray-400 w-12 flex-shrink-0">Opacity</span>
+          <input
+            type="range"
+            v-model.number="overlayOpacity"
+            min="0.1"
+            max="1"
+            step="0.05"
+            class="flex-1 h-1.5 accent-blue-400 cursor-pointer"
+          />
+          <span class="text-xs text-gray-400 w-8 text-right tabular-nums">
+            {{ Math.round(overlayOpacity * 100) }}%
+          </span>
+        </div>
+      </div>
+
       <!-- IR Satellite Overlay -->
       <div class="p-4 border-b border-gray-700">
         <div class="flex items-center justify-between mb-2">
@@ -388,7 +390,7 @@ const frameIndex = ref(12)  // Start at index 12 = "0 min" (current time)
 const playing = ref(false)
 const speed = ref(1)
 const latestSRI = ref(null)
-const overlayOpacity = ref(0.7)
+const overlayOpacity = ref(1.0)
 const lastRefresh = ref('')
 
 // IR satellite overlay
@@ -542,6 +544,8 @@ async function preloadAllFrames() {
     })
     await radarMap.value.loadProductFrames('IR_108', irUrls, irOpacity.value)
     radarMap.value.showAllAtFrame(frameIndex.value)
+    // Ensure SRI (frameLayers) renders above IR
+    radarMap.value.bringFramesToFront()
   }
 }
 
@@ -581,6 +585,7 @@ watch(overlayOpacity, (newOpacity) => {
 })
 
 // IR overlay: toggle on/off
+// preloadAllFrames already calls bringFramesToFront after loading IR
 watch(irEnabled, async (enabled) => {
   if (enabled) {
     await preloadAllFrames()
