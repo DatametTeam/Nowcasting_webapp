@@ -478,7 +478,7 @@ const rangeWarning = computed(() => {
   const e = new Date(endDateTime.value)
   if (isNaN(s) || isNaN(e)) return 'Invalid date'
   if (e <= s) return 'End must be after start'
-  if ((e - s) / 3600000 > 12) return 'Range cannot exceed 12 hours'
+  if ((e - s) / 3600000 > configStore.explorerMaxHours) return `Range cannot exceed ${configStore.explorerMaxHours} hours`
   return null
 })
 

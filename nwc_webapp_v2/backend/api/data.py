@@ -302,7 +302,7 @@ async def explorer_timestamps(
     Generates expected 5-minute timestamps and checks which files exist
     in the product folder. Returns found + missing lists.
 
-    Maximum range: 12 hours.
+    Maximum range: controlled by explorer_max_hours in cfg.yaml.
     """
     try:
         start_dt = datetime.fromisoformat(start)
@@ -313,8 +313,10 @@ async def explorer_timestamps(
     if end_dt <= start_dt:
         raise HTTPException(status_code=400, detail="End datetime must be after start datetime")
 
-    if (end_dt - start_dt).total_seconds() > 12 * 3600:
-        raise HTTPException(status_code=400, detail="Date range cannot exceed 12 hours")
+    config = get_config()
+    max_hours = config.explorer_max_hours
+    if (end_dt - start_dt).total_seconds() > max_hours * 3600:
+        raise HTTPException(status_code=400, detail=f"Date range cannot exceed {max_hours} hours")
 
     config = get_config()
     products = config.radar_products

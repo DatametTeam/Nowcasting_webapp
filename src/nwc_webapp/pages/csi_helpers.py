@@ -47,8 +47,7 @@ def load_range_prediction_data(
     config = get_config()
 
     # Load radar mask
-    mask_path = Path(__file__).resolve().parent.parent / "resources/mask/mask_correct.hdf"
-    with h5py.File(mask_path, "r") as f:
+    with h5py.File(config.radar_mask_path, "r") as f:
         radar_mask = f["mask"][()]
 
     # Generate all timestamps in range
@@ -168,8 +167,7 @@ def compute_csi_for_single_model(
             window_sizes = config.fss_window_sizes if hasattr(config, 'fss_window_sizes') else [5, 10, 20, 40, 80]
 
         # Load radar mask
-        mask_path = Path(__file__).resolve().parent.parent / "resources/mask/mask_correct.hdf"
-        with h5py.File(mask_path, "r") as f:
+        with h5py.File(config.radar_mask_path, "r") as f:
             radar_mask = f["mask"][()]
 
         # Generate all base timestamps in range

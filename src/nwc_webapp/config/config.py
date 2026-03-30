@@ -116,8 +116,11 @@ class Config:
             config_path: Path to config YAML file. If None, uses default.
         """
         if config_path is None:
-            # config.py is in src/nwc_webapp/config/, cfg.yaml is in the same directory
-            config_path = Path(__file__).parent / "cfg.yaml"
+            # Prefer nwc_webapp_v2/cfg.yaml (single source of truth for v2).
+            # config.py is at src/nwc_webapp/config/config.py, so the project
+            # root is 4 levels up and nwc_webapp_v2/cfg.yaml is relative to that.
+            v2_cfg = Path(__file__).parent.parent.parent.parent / "nwc_webapp_v2" / "cfg.yaml"
+            config_path = v2_cfg if v2_cfg.exists() else Path(__file__).parent / "cfg.yaml"
 
         self.config_path = config_path
         self._config: Dict[str, Any] = {}
@@ -180,6 +183,11 @@ class Config:
     def gif_storage(self) -> Path:
         """Get GIF storage folder path."""
         return Path(self.get_paths().get("gif_storage", "data/predictions/gifs"))
+
+    @property
+    def explorer_max_hours(self) -> int:
+        """Maximum date range in hours allowed for the Data Explorer."""
+        return self._config.get("explorer_max_hours", 48)
 
     @property
     def radar_mask_path(self) -> Path:

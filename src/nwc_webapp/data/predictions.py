@@ -122,8 +122,7 @@ def load_single_prediction_data(model_name: str, prediction_dt: datetime) -> Tup
     config = get_config()
 
     # Load radar mask
-    mask_path = Path(__file__).resolve().parent.parent / "resources/mask/radar_mask.hdf"
-    with h5py.File(mask_path, "r") as f:
+    with h5py.File(config.radar_mask_path, "r") as f:
         radar_mask = f["mask"][()]
 
     # Initialize dictionaries

@@ -30,6 +30,7 @@ export const useConfigStore = defineStore('config', {
     gifStorage: '',
     csiThresholds: [],
     radarProducts: {},
+    explorerMaxHours: 48,
     loaded: false,
     error: null,
   }),
@@ -49,6 +50,7 @@ export const useConfigStore = defineStore('config', {
         this.gifStorage = data.gif_storage
         this.csiThresholds = data.csi_thresholds
         this.radarProducts = data.radar_products || {}
+        this.explorerMaxHours = data.explorer_max_hours ?? 48
         this.loaded = true
         this.error = null
       } catch (e) {

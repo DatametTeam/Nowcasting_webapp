@@ -124,7 +124,11 @@ async def startup_event():
     from nwc_webapp.config.config import get_config
     from nwc_webapp.config.environment import is_hpc
 
-    config = get_config()
+    # Initialise the config singleton with the explicit path before any
+    # route handler calls get_config(). This makes nwc_webapp_v2/cfg.yaml
+    # the single source of truth for the new backend.
+    cfg_path = Path(__file__).parent.parent / "cfg.yaml"
+    config = get_config(config_path=cfg_path)
     env = "HPC" if is_hpc() else "Local"
 
     print("=" * 60)
