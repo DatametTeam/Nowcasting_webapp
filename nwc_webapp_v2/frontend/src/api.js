@@ -130,6 +130,14 @@ export default {
   explorerOverlayUrl: (product, timestamp) =>
     `${API_BASE}/render/overlay/groundtruth/${encodeURIComponent(timestamp)}?product=${product}`,
 
+  /**
+   * Batch-render all frames for one product and return a ZIP blob.
+   * timestamps: array of ISO strings (only the ones that exist on disk).
+   * ZIP contains NNNN.png files indexed by position in the timestamps array.
+   */
+  explorerBatchOverlay: (product, timestamps) =>
+    postBlob('/render/overlay/batch', { product, timestamps }),
+
   // --- Rendering ---
   /**
    * Returns the URL for a groundtruth overlay image.

@@ -22,15 +22,20 @@ PERFORMANCE OPTIMIZATIONS:
 - Cache-Control headers (browser caches images → instant on revisit)
 - Response instead of StreamingResponse (slightly less overhead)
 """
+import asyncio
 import io
+import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import List
 
 import h5py
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from PIL import Image
+from pydantic import BaseModel
 from pyproj import Proj
 
 from nwc_webapp.config.config import get_config
@@ -411,6 +416,112 @@ async def get_radar_overlay(
 
     png_bytes = _frame_to_png_bytes(frame)
     return Response(content=png_bytes, media_type="image/png", headers=_CACHE_HEADERS)
+
+
+# ==========================================================================
+# Batch overlay endpoint
+# ==========================================================================
+
+def _render_single_frame(idx: int, ts_str: str, product_key: str):
+    """
+    Render one radar frame as PNG bytes. Designed to run inside a ThreadPoolExecutor.
+
+    Returns (idx, png_bytes) where png_bytes is None if the file is missing or
+    any error occurs. Reuses all cached helpers (mask, warp lookup, colormaps).
+    """
+    try:
+        config = get_config()
+        dt = datetime.fromisoformat(ts_str)
+        products = config.radar_products
+        product_cfg = products[product_key]
+        legend_name = product_cfg.get("legend", "R")
+        file_format = product_cfg.get("file_format", "hdf")
+        p_cmap, p_norm = _get_product_cmap_norm(legend_name)
+
+        if file_format == "tiff":
+            stem = dt.strftime("%d-%m-%Y-%H-%M")
+            file_path = config.find_product_file(product_key, dt, stem + ".tif")
+            if file_path is None:
+                file_path = config.find_product_file(product_key, dt, stem + ".tiff")
+            if file_path is None:
+                return idx, None
+            pil_img = Image.open(file_path)
+            frame = np.array(pil_img, dtype=float)
+            clip_min = p_norm.thresh[0] if hasattr(p_norm, "thresh") else -100
+            clip_max = p_norm.thresh[-1] if hasattr(p_norm, "thresh") else 100
+            frame = np.clip(frame, clip_min, clip_max)
+            frame = _warp_frame(frame)
+            return idx, _frame_to_png_bytes(frame, p_cmap, p_norm, transparent_zero=False)
+        else:
+            filename = dt.strftime("%d-%m-%Y-%H-%M") + ".hdf"
+            file_path = config.find_product_file(product_key, dt, filename)
+            if file_path is None:
+                return idx, None
+            with h5py.File(file_path, "r") as f:
+                if "dataset1/data1/data" not in f:
+                    return idx, None
+                frame = f["dataset1/data1/data"][()].astype(float)
+            mask = _get_radar_mask()
+            if mask is not None:
+                frame = frame * mask
+            frame[frame < 0] = 0
+            clip_max = p_norm.thresh[-1] if hasattr(p_norm, "thresh") else 200
+            frame = np.clip(frame, 0, clip_max)
+            frame = _warp_frame(frame)
+            return idx, _frame_to_png_bytes(frame, p_cmap, p_norm)
+    except Exception:
+        return idx, None
+
+
+class BatchOverlayRequest(BaseModel):
+    product: str
+    timestamps: List[str]  # ISO format strings, only the ones that exist
+
+
+@router.post("/overlay/batch")
+async def get_batch_overlay(request: BatchOverlayRequest):
+    """
+    Render all frames for one product in parallel and return as a ZIP file.
+
+    WHY: The Data Explorer loads up to 144 frames × 4 products = 576 images.
+    Individual requests are throttled to ~6 concurrent by the browser's
+    per-domain connection limit, so large ranges trickle in slowly.
+    This endpoint collapses 144 round trips into 1 per product.
+
+    ZIP contents: NNNN.png files (zero-padded index matching request.timestamps).
+    Missing files are absent from the ZIP — the frontend maps by index.
+
+    Caches are warmed before spawning threads so threads don't race to
+    initialise the radar mask or warp lookup on first use.
+    """
+    config = get_config()
+    if request.product not in config.radar_products:
+        raise HTTPException(status_code=400, detail=f"Unknown product: {request.product}")
+
+    # Warm up all caches before threads start (avoids redundant work / races)
+    _get_radar_mask()
+    _get_warp_lookup()
+    legend_name = config.radar_products[request.product].get("legend", "R")
+    _get_product_cmap_norm(legend_name)
+
+    loop = asyncio.get_event_loop()
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [
+            loop.run_in_executor(executor, _render_single_frame, idx, ts, request.product)
+            for idx, ts in enumerate(request.timestamps)
+        ]
+        rendered = await asyncio.gather(*futures)
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_STORED) as zf:
+        for idx, png_bytes in rendered:
+            if png_bytes is not None:
+                zf.writestr(f"{idx:04d}.png", png_bytes)
+
+    return Response(
+        content=zip_buffer.getvalue(),
+        media_type="application/zip",
+    )
 
 
 # ==========================================================================

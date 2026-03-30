@@ -361,6 +361,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { VueDatePicker } from '@vuepic/vue-datepicker'
 import '@vuepic/vue-datepicker/dist/main.css'
+import JSZip from 'jszip'
 import { useConfigStore } from '../stores/config.js'
 import api from '../api.js'
 import RadarMap from '../components/RadarMap.vue'
@@ -589,15 +590,47 @@ async function loadData() {
 
     if (sortedTs.length === 0) { isLoading.value = false; return }
 
-    // Load all 4 products in parallel (fix #4: per-product generation in RadarMap)
+    // Build a lookup from timestamp → index in sortedTs (used when mapping ZIP frames)
+    const tsToIdx = new Map(sortedTs.map((ts, i) => [ts, i]))
+
+    // Load all products in parallel via batch endpoint:
+    // One ZIP per product instead of one request per frame.
+    // This collapses ~144 requests (throttled 6 at a time by browser) into 1.
     loadProgress.value.total = productOrder.value.length * sortedTs.length
+
     await Promise.all(productOrder.value.map(async (product) => {
       const stats = productStats.value[product]
-      const urls = sortedTs.map(ts =>
-        stats?.missingSet?.has(ts) ? null : api.explorerOverlayUrl(product, ts)
-      )
+      // Only send timestamps that actually exist for this product
+      const foundTs = sortedTs.filter(ts => !stats?.missingSet?.has(ts))
+
+      // Pre-fill with nulls; found frames will be filled in below
+      const urls = new Array(sortedTs.length).fill(null)
+      const blobUrls = []  // tracked so we can revoke after Leaflet loads them
+
+      if (foundTs.length > 0) {
+        const zipBlob = await api.explorerBatchOverlay(product, foundTs)
+        const zip = await JSZip.loadAsync(zipBlob)
+
+        // Unpack each PNG: create a blob URL and slot it into the right position
+        await Promise.all(foundTs.map(async (ts, foundIdx) => {
+          const file = zip.file(`${String(foundIdx).padStart(4, '0')}.png`)
+          if (file) {
+            const blob = await file.async('blob')
+            const blobUrl = URL.createObjectURL(blob)
+            blobUrls.push(blobUrl)
+            urls[tsToIdx.get(ts)] = blobUrl
+          }
+          loadProgress.value.loaded++
+        }))
+      } else {
+        // All frames missing for this product — still advance the counter
+        loadProgress.value.loaded += sortedTs.length
+      }
+
       await radarMap.value?.loadProductFrames(product, urls, layerConfig.value[product].opacity)
-      loadProgress.value.loaded += sortedTs.length
+
+      // Revoke blob URLs now that Leaflet has decoded the images into DOM elements
+      blobUrls.forEach(url => URL.revokeObjectURL(url))
     }))
 
     isLoaded.value = true
