@@ -5,6 +5,7 @@ This replaces the huge show_csi_analysis_page() in csi_analysis.py.
 The computation logic (in csi_helpers.py) is pure Python and reused directly.
 The UI (tables, charts, buttons) moves to the Vue frontend.
 """
+import json
 from datetime import datetime
 from typing import List, Optional
 
@@ -63,6 +64,10 @@ async def compute_metrics(request: MetricsRequest):
         if csi_results is None:
             raise HTTPException(status_code=500, detail="Failed to compute metrics")
 
+        def safe_dict(df):
+            """Convert DataFrame/Series to dict with NaN replaced by None."""
+            return json.loads(df.to_json())
+
         # Convert DataFrames to JSON-serializable dicts
         # Each result is Dict[model_name, DataFrame]
         # DataFrame has: index=thresholds, columns=lead_times
@@ -70,9 +75,9 @@ async def compute_metrics(request: MetricsRequest):
             "models": request.models,
             "start": request.start,
             "end": request.end,
-            "csi": {model: df.to_dict() for model, df in csi_results.items()},
-            "pod": {model: df.to_dict() for model, df in pod_results.items()},
-            "far": {model: df.to_dict() for model, df in far_results.items()},
+            "csi": {model: safe_dict(df) for model, df in csi_results.items()},
+            "pod": {model: safe_dict(df) for model, df in pod_results.items()},
+            "far": {model: safe_dict(df) for model, df in far_results.items()},
             "fss": {},
             "regression": {},
         }
@@ -81,16 +86,16 @@ async def compute_metrics(request: MetricsRequest):
         # where DataFrame has: index=window_sizes, columns=models
         if fss_results:
             for threshold, df in fss_results.items():
-                response["fss"][str(threshold)] = df.to_dict()
+                response["fss"][str(threshold)] = safe_dict(df)
 
         # NMSE and beta: Dict[model, Series(lead_times)]
         if nmse_results and beta_results:
             for model in request.models:
                 model_reg = {}
                 if model in nmse_results:
-                    model_reg["nmse"] = nmse_results[model].to_dict()
+                    model_reg["nmse"] = safe_dict(nmse_results[model])
                 if model in beta_results:
-                    model_reg["beta"] = beta_results[model].to_dict()
+                    model_reg["beta"] = safe_dict(beta_results[model])
                 if model_reg:
                     response["regression"][model] = model_reg
 
