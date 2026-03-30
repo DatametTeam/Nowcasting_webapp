@@ -237,6 +237,7 @@ def compute_csi_for_single_model(
 
                                 pred_data = pred_array[lead_time_idx]
                                 pred_data = pred_data * radar_mask
+                                pred_data = np.nan_to_num(pred_data, nan=0.0)
                                 pred_data = np.clip(pred_data, 0, 200)
 
                                 # Compute CSI, POD, FAR, FSS for each threshold
