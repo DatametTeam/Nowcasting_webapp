@@ -118,7 +118,7 @@ export default {
 
   // --- Data Explorer ---
   /**
-   * Get available HDF5 timestamps for a radar product in a date range (max 12h).
+   * Get available HDF5 timestamps for a radar product in a date range (max 48h).
    */
   explorerTimestamps: (start, end, product = 'SRI_adj') =>
     get(`/data/explorer/timestamps?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&product=${product}`),
