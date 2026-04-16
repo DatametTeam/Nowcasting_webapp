@@ -332,6 +332,83 @@ async def get_groundtruth_overlay(
     return Response(content=png_bytes, media_type="image/png", headers=_CACHE_HEADERS)
 
 
+# ==========================================================================
+# Ensemble probability overlay
+# IMPORTANT: must be registered BEFORE /overlay/{model}/{timestamp} so that
+# "ensemble" is not captured as the {model} path parameter.
+# ==========================================================================
+
+@router.get("/overlay/ensemble/{timestamp}")
+async def get_ensemble_overlay(
+    timestamp: str,
+    lead_time: int = Query(0, description="Lead time index (0-11)"),
+    threshold: float = Query(2.0, description="Rainfall threshold in mm/h"),
+    models: str = Query(..., description="Comma-separated model names"),
+):
+    """
+    Generate a probabilistic ensemble overlay: P(rain > threshold) per pixel.
+
+    Loads real-time predictions from each requested model, stacks them, and
+    computes the fraction that exceed the threshold at every pixel.
+    Renders as a Blues colormap PNG (transparent at 0%, dark blue at 100%).
+    Missing model predictions are silently skipped — not an error.
+    """
+    try:
+        dt = datetime.fromisoformat(timestamp)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid datetime: {e}")
+
+    config = get_config()
+    model_list = [m.strip() for m in models.split(',') if m.strip()]
+    if not model_list:
+        raise HTTPException(status_code=400, detail="At least one model must be specified")
+
+    from nwc_webapp.data.predictions import load_prediction_array
+    from matplotlib.cm import Blues as blues_cmap
+
+    frames = []
+    for model in model_list:
+        pred_filename = dt.strftime("%d-%m-%Y-%H-%M") + ".npy"
+        pred_path = config.real_time_pred / model / pred_filename
+        if not pred_path.exists():
+            continue
+        pred_array = load_prediction_array(pred_path, model)
+        if pred_array is None or lead_time >= pred_array.shape[0]:
+            continue
+        frames.append(pred_array[lead_time].astype(float))
+
+    if not frames:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No predictions found for any of: {model_list} at {timestamp}",
+        )
+
+    # Apply radar mask to each frame before computing probability
+    mask = _get_radar_mask()
+    if mask is not None:
+        frames = [f * mask for f in frames]
+
+    # Stack → (N_models, H, W), compute fraction exceeding threshold
+    stack = np.stack(frames)
+    prob_map = (stack > threshold).mean(axis=0)   # values 0.0–1.0
+
+    # Reproject to Web Mercator (same lookup table as all other overlays)
+    warped = _warp_frame(prob_map)
+
+    # Blues colormap: 0.0 → almost white, 1.0 → dark navy
+    warped_safe = np.where(np.isfinite(warped), np.clip(warped, 0.0, 1.0), 0.0)
+    rgba = blues_cmap(warped_safe)   # (H, W, 4) float 0–1
+
+    # Transparent where probability == 0 (no model predicts rain) or outside domain
+    rgba[~np.isfinite(warped) | (warped <= 0.0)] = [0.0, 0.0, 0.0, 0.0]
+
+    img = Image.fromarray((rgba * 255).astype(np.uint8))
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG", compress_level=1)
+
+    return Response(content=buffer.getvalue(), media_type="image/png", headers=_CACHE_HEADERS)
+
+
 @router.get("/overlay/{model}/{timestamp}")
 async def get_radar_overlay(
     model: str,
@@ -585,78 +662,3 @@ async def get_prediction_figure(
     buffer.seek(0)
 
     return StreamingResponse(buffer, media_type="image/png")
-
-
-# ==========================================================================
-# Ensemble probability overlay
-# ==========================================================================
-
-@router.get("/overlay/ensemble/{timestamp}")
-async def get_ensemble_overlay(
-    timestamp: str,
-    lead_time: int = Query(0, description="Lead time index (0-11)"),
-    threshold: float = Query(2.0, description="Rainfall threshold in mm/h"),
-    models: str = Query(..., description="Comma-separated model names"),
-):
-    """
-    Generate a probabilistic ensemble overlay: P(rain > threshold) per pixel.
-
-    Loads real-time predictions from each requested model, stacks them, and
-    computes the fraction that exceed the threshold at every pixel.
-    Renders as a Blues colormap PNG (transparent at 0%, dark blue at 100%).
-    Missing model predictions are silently skipped — not an error.
-    """
-    try:
-        dt = datetime.fromisoformat(timestamp)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid datetime: {e}")
-
-    config = get_config()
-    model_list = [m.strip() for m in models.split(',') if m.strip()]
-    if not model_list:
-        raise HTTPException(status_code=400, detail="At least one model must be specified")
-
-    from nwc_webapp.data.predictions import load_prediction_array
-    from matplotlib.cm import Blues as blues_cmap
-
-    frames = []
-    for model in model_list:
-        pred_filename = dt.strftime("%d-%m-%Y-%H-%M") + ".npy"
-        pred_path = config.real_time_pred / model / pred_filename
-        if not pred_path.exists():
-            continue
-        pred_array = load_prediction_array(pred_path, model)
-        if pred_array is None or lead_time >= pred_array.shape[0]:
-            continue
-        frames.append(pred_array[lead_time].astype(float))
-
-    if not frames:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No predictions found for any of: {model_list} at {timestamp}",
-        )
-
-    # Apply radar mask to each frame before computing probability
-    mask = _get_radar_mask()
-    if mask is not None:
-        frames = [f * mask for f in frames]
-
-    # Stack → (N_models, H, W), compute fraction exceeding threshold
-    stack = np.stack(frames)
-    prob_map = (stack > threshold).mean(axis=0)   # values 0.0–1.0
-
-    # Reproject to Web Mercator (same lookup table as all other overlays)
-    warped = _warp_frame(prob_map)
-
-    # Blues colormap: 0.0 → almost white, 1.0 → dark navy
-    warped_safe = np.where(np.isfinite(warped), np.clip(warped, 0.0, 1.0), 0.0)
-    rgba = blues_cmap(warped_safe)   # (H, W, 4) float 0–1
-
-    # Transparent where probability == 0 (no model predicts rain) or outside domain
-    rgba[~np.isfinite(warped) | (warped <= 0.0)] = [0.0, 0.0, 0.0, 0.0]
-
-    img = Image.fromarray((rgba * 255).astype(np.uint8))
-    buffer = io.BytesIO()
-    img.save(buffer, format="PNG", compress_level=1)
-
-    return Response(content=buffer.getvalue(), media_type="image/png", headers=_CACHE_HEADERS)

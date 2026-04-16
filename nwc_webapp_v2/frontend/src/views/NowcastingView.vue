@@ -108,9 +108,11 @@
               class="ml-2 text-xs font-medium px-2 py-0.5 rounded-full"
               :class="frameIndex <= 12
                 ? 'bg-emerald-500/30 text-emerald-300'
-                : 'bg-blue-500/30 text-blue-300'"
+                : ensembleActive
+                  ? 'bg-purple-500/30 text-purple-300'
+                  : 'bg-blue-500/30 text-blue-300'"
             >
-              {{ frameIndex <= 12 ? 'Observed' : 'Forecast' }}
+              {{ frameIndex <= 12 ? 'Observed' : ensembleActive ? 'Probabilistic Forecast' : 'Forecast' }}
             </span>
           </div>
           <div class="text-sm text-gray-300 hidden sm:block">
