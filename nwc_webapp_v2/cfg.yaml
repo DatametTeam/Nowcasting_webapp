@@ -1,5 +1,15 @@
 # Nowcasting Application Configuration
 
+# Tabs shown in the navigation bar.
+# Remove any entry to hide that tab from the UI.
+# Available values: realtime, nowcasting, explorer, comparison, metrics
+enabled_tabs:
+  - realtime
+  - nowcasting
+  - explorer
+  - comparison
+  - metrics
+
 # Available prediction models
 models:
   - ConvLSTM
@@ -22,7 +32,6 @@ hpc_paths:
   prediction_output: "/davinci-1/work/protezionecivile/nwc_webapp/"
   data_root: "/davinci-1/work/protezionecivile"
   real_time_pred: "/davinci-1/work/protezionecivile/nwc_webapp/real_time_results"
-  gif_storage: "/davinci-1/work/protezionecivile/nwc_webapp/prediction_GIFs"
 
 # Local paths (used for development)
 local_paths:
@@ -30,7 +39,6 @@ local_paths:
   prediction_output: "data/predictions"
   data_root: "data"
   real_time_pred: "data/predictions/real_time_pred"
-  gif_storage: "data/predictions/gifs"
 
 # Radar mask (relative to package root)
 radar_mask_path: "resources/mask/mask_correct.hdf"
@@ -38,51 +46,8 @@ radar_mask_path: "resources/mask/mask_correct.hdf"
 # Data Explorer: maximum allowed date range in hours
 explorer_max_hours: 48
 
-# Shapefiles for map visualization (relative to package root)
-shapefiles_folder: "resources/shapefiles"
-
 # Legend definitions for colormaps (relative to package root)
 legends_folder: "resources/legends"
-
-# Visualization settings
-visualization:
-  # Map bounds for Italy [south, west, north, east]
-  italy_bounds:
-    south: 35.0623
-    west: 4.51987
-    north: 47.5730
-    east: 20.4801
-
-  # Map center [lat, lon]
-  map_center: [42.5, 12.5]
-
-  # Default zoom level
-  zoom_start: 5
-
-  # Data dimensions
-  data_shape:
-    height: 1400
-    width: 1200
-
-  # Colormap settings
-  colormap:
-    min_value: 0
-    max_value: 100
-    data_values: [0, 1, 2, 5, 10, 20, 30, 50, 75, 100]
-
-  # Difference plot settings
-  difference:
-    vmin: -20
-    vmax: 20
-    colormap: "RdBu_r"  # Red for positive, Blue for negative
-
-  # Minimum precipitation value threshold (values below this are filtered out)
-  min_value_threshold: 0.2
-
-  # GIF generation
-  gif:
-    fps: 3
-    save_to_disk: true
 
 # Coordinate system and grid navigation parameters
 # Source grid: Transverse Mercator projection (radar data native projection)
@@ -120,21 +85,19 @@ prediction:
   # Time step in minutes
   timestep_minutes: 5
 
-  # Number of sequences to generate
-  num_sequences: 24
-
-  # Forecast times to display (in minutes)
-  display_times: [30, 60]
-
-  # All available forecast times
-  time_options: ["+5min", "+10min", "+15min", "+20min", "+25min",
-                 "+30min", "+35min", "+40min", "+45min", "+50min",
-                 "+55min", "+60min"]
+# Model-specific inference configs (real_time/ and start_end/ subdirectories).
+# Path is relative to cfg.yaml if not absolute.
+model_configs_path: "model_configs"
 
 # PBS/HPC settings
 pbs:
   queue: "fast"
   walltime: "12:00:00"
+
+  # Set to false to disable job submission entirely (watch-folder mode).
+  # Use this when predictions are generated externally (e.g. on HPC) and
+  # delivered to the predictions folder via rsync/NFS.
+  submit_jobs: true
 
   # Path to the inference script in the spatiotemporal-nowcast repository
   inference_script_path: "/davinci-1/home/guidim/spatiotemporal-nowcast_webapp/spatiotemporal-nowcast/spatiotemporal_forecast/scripts/webapp_predictions.py"
@@ -146,17 +109,6 @@ pbs:
   environments:
     ED_ConvLSTM: "protezionecivile"
     default: "nowcasting3.12_webapp"
-
-# Auto-refresh settings
-auto_refresh:
-  # Interval in seconds
-  interval_seconds: 100
-
-  # Check every N seconds for new data
-  check_interval: 2
-
-  # Force refresh when time is multiple of N minutes
-  refresh_on_minute_multiple: 5
 
 # Logging
 logging:

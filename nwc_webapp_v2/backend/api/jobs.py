@@ -83,7 +83,12 @@ async def submit_job(request: JobSubmitRequest):
     # Submit the job (uses PBS on HPC, mock locally - same as Streamlit)
     job_id = submit_date_range_prediction_job(request.model, start_dt, end_dt)
 
-    is_mock = not is_hpc() or bool(job_id and job_id.startswith("mock_"))
+    # is_mock=True tells the frontend to skip PBS status polling and just watch
+    # the predictions folder. This covers three cases:
+    #   - local mock mode (job_id starts with "mock_")
+    #   - watch-folder mode (submit_jobs=false, job_id == "watch_only")
+    #   - anything that isn't a real PBS job
+    is_mock = not is_hpc() or bool(job_id and (job_id.startswith("mock_") or job_id == "watch_only"))
 
     return JobSubmitResponse(
         job_id=job_id,

@@ -100,7 +100,7 @@
  * - onMounted(fn)    → runs when the component first appears (like __init__)
  * - useRoute()       → gives access to the current URL/route
  */
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useConfigStore } from './stores/config.js'
 import api from './api.js'
@@ -108,14 +108,19 @@ import api from './api.js'
 const route = useRoute()
 const configStore = useConfigStore()
 
-// Navigation items (same tabs as the Streamlit app)
-const navItems = [
-  { path: '/realtime',   label: 'Real Time' },
-  { path: '/nowcasting', label: 'Nowcasting' },
-  { path: '/explorer',   label: 'Data Explorer' },
-  { path: '/comparison', label: 'Model Comparison' },
-  { path: '/metrics',    label: 'Metrics Analysis' },
+// All possible tabs — order here controls display order in the navbar
+const ALL_TABS = [
+  { key: 'realtime',   path: '/realtime',   label: 'Real Time' },
+  { key: 'nowcasting', path: '/nowcasting', label: 'Nowcasting' },
+  { key: 'explorer',   path: '/explorer',   label: 'Data Explorer' },
+  { key: 'comparison', path: '/comparison', label: 'Model Comparison' },
+  { key: 'metrics',    path: '/metrics',    label: 'Metrics Analysis' },
 ]
+
+// Filtered by enabled_tabs from cfg.yaml — reactive, updates after config loads
+const navItems = computed(() =>
+  ALL_TABS.filter(tab => configStore.enabledTabs.includes(tab.key))
+)
 
 // Reactive state
 const backendConnected = ref(false)

@@ -153,12 +153,6 @@ export default {
   figureUrl: (model, timestamp, leadTime = 0, figureType = 'prediction') =>
     `${API_BASE}/render/figure/${model}/${timestamp}?lead_time=${leadTime}&figure_type=${figureType}`,
 
-  checkGifs: (model, start, end) =>
-    get(`/render/gifs/check?model=${model}&start=${start}&end=${end}`),
-
-  gifFileUrl: (path) =>
-    `${API_BASE}/render/gifs/file?path=${encodeURIComponent(path)}`,
-
   // --- Real-time ---
   startRealTime: () => post('/realtime/start'),
   stopRealTime: () => post('/realtime/stop'),

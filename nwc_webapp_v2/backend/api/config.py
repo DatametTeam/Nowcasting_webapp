@@ -62,11 +62,11 @@ async def get_app_config():
         "models": config.models,
         "environment": "hpc" if is_hpc() else "local",
         "sri_folder": str(config.sri_folder),
-        "gif_storage": str(config.gif_storage),
         "real_time_pred": str(config.real_time_pred),
         "csi_thresholds": config.csi_threshold,
         "radar_products": radar_products,
         "explorer_max_hours": config.explorer_max_hours,
+        "enabled_tabs": config.enabled_tabs,
     }
 
 

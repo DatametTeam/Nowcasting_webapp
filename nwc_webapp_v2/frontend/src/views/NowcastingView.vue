@@ -55,8 +55,14 @@
         </div>
       </Transition>
 
-      <!-- Colorbar — floating on the map, bottom right (above the timeline bar) -->
-      <div class="absolute bottom-[110px] right-[10px] z-[1001]">
+      <!-- Colorbars — floating on the map, bottom right (above the timeline bar) -->
+      <!-- SRI always shown; IR added when irEnabled -->
+      <div class="absolute bottom-[110px] right-[10px] z-[1001] flex flex-col gap-1.5 items-end">
+        <ColorBar
+          v-if="irEnabled"
+          :legend="configStore.radarProducts['IR_108']"
+          product-name="IR"
+        />
         <ColorBar />
       </div>
 

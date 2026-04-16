@@ -40,7 +40,6 @@ from pyproj import Proj
 
 from nwc_webapp.config.config import get_config
 from nwc_webapp.data.checking import check_single_prediction_exists
-from nwc_webapp.pages.nowcasting.gif_creation import check_gifs_exist, get_gif_paths
 from nwc_webapp.rendering.colormaps import cmap, norm
 
 router = APIRouter(prefix="/api/render", tags=["rendering"])
@@ -586,59 +585,3 @@ async def get_prediction_figure(
     buffer.seek(0)
 
     return StreamingResponse(buffer, media_type="image/png")
-
-
-# ==========================================================================
-# GIF endpoints
-# ==========================================================================
-
-@router.get("/gifs/check")
-async def check_gifs(
-    model: str = Query(...),
-    start: str = Query(...),
-    end: str = Query(...),
-):
-    """
-    Check if GIFs exist for a model and date range.
-
-    In Streamlit (nowcasting.py):
-        gif_paths = get_gif_paths(model_name, start_dt, end_dt)
-        gt_exist, pred_exist, diff_exist = check_gifs_exist(gif_paths)
-    """
-    try:
-        start_dt = datetime.fromisoformat(start)
-        end_dt = datetime.fromisoformat(end)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid datetime: {e}")
-
-    gif_paths = get_gif_paths(model, start_dt, end_dt)
-    gt_exist, pred_exist, diff_exist = check_gifs_exist(gif_paths)
-
-    return {
-        "model": model,
-        "gt_exist": gt_exist,
-        "pred_exist": pred_exist,
-        "diff_exist": diff_exist,
-        "all_exist": gt_exist and pred_exist and diff_exist,
-        "paths": {k: str(v) for k, v in gif_paths.items()},
-    }
-
-
-@router.get("/gifs/file")
-async def get_gif_file(
-    path: str = Query(..., description="Relative path to GIF file"),
-):
-    """
-    Serve a GIF file. The frontend displays it as: <img src="/api/render/gifs/file?path=...">
-    """
-    config = get_config()
-    # Resolve relative to gif_storage
-    gif_path = Path(path)
-
-    if not gif_path.exists():
-        raise HTTPException(status_code=404, detail=f"GIF not found: {path}")
-
-    return StreamingResponse(
-        open(gif_path, "rb"),
-        media_type="image/gif",
-    )

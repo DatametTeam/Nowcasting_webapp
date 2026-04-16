@@ -91,7 +91,7 @@ const gradient = computed(() => {
 .colorbar-body {
   display: flex;
   align-items: stretch;
-  height: 130px;
+  height: 200px;
   gap: 3px;
 }
 

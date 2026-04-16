@@ -82,6 +82,7 @@ class PBSConfig:
     inference_script_path: str
     ed_convlstm_script_path: str
     environments: Dict[str, str]
+    submit_jobs: bool = True
 
 
 @dataclass
@@ -137,6 +138,11 @@ class Config:
 
     # Models
     @property
+    def enabled_tabs(self) -> List[str]:
+        """Get list of tabs to show in the navbar."""
+        return self._config.get("enabled_tabs", ["realtime", "nowcasting", "explorer", "comparison", "metrics"])
+
+    @property
     def models(self) -> List[str]:
         """Get list of available models."""
         return self._config.get("models", [])
@@ -178,11 +184,6 @@ class Config:
     def real_time_pred(self) -> Path:
         """Get real-time prediction folder path."""
         return Path(self.get_paths().get("real_time_pred", "data/predictions/real_time_pred"))
-
-    @property
-    def gif_storage(self) -> Path:
-        """Get GIF storage folder path."""
-        return Path(self.get_paths().get("gif_storage", "data/predictions/gifs"))
 
     @property
     def explorer_max_hours(self) -> int:
@@ -335,6 +336,30 @@ class Config:
         return self._config.get("visualization", {}).get("difference", {}).get("colormap", "RdBu_r")
 
     # Convenience methods
+    @property
+    def model_configs_path(self) -> Path:
+        """
+        Root folder containing model inference configs (real_time/ and start_end/).
+
+        If the path in cfg.yaml is relative, it is resolved relative to cfg.yaml itself
+        so that nwc_webapp_v2/cfg.yaml → nwc_webapp_v2/model_configs/.
+        Falls back to the legacy location inside the package.
+        """
+        raw = self._config.get("model_configs_path", "")
+        if not raw:
+            # Legacy fallback: configs live next to config.py
+            return Path(__file__).parent / "model_configs"
+        p = Path(raw)
+        if p.is_absolute():
+            return p
+        # Resolve relative to the directory that contains cfg.yaml
+        return (self.config_path.parent / p).resolve()
+
+    @property
+    def submit_jobs(self) -> bool:
+        """Whether to submit PBS jobs or run in watch-folder mode."""
+        return self._config.get("pbs", {}).get("submit_jobs", True)
+
     def get_model_pbs_env(self, model_name: str) -> str:
         """
         Get PBS environment for a specific model.

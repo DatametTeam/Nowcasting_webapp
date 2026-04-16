@@ -34,8 +34,9 @@ def modify_yaml_config_for_date_range(model_name: str, start_dt: datetime, end_d
     Returns:
         Path to the modified YAML config file
     """
-    # Source YAML path
-    config_path = Path(__file__).parent.parent / "config" / "model_configs" / "start_end" / f"{model_name}.yaml"
+    # Source YAML path — resolved via config so v2/model_configs/ is used when running v2
+    from nwc_webapp.config.config import get_config as _get_cfg
+    config_path = _get_cfg().model_configs_path / "start_end" / f"{model_name}.yaml"
 
     if not config_path.exists():
         logger.error(f"Config file not found: {config_path}")
@@ -100,6 +101,13 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
     """
     logger.info(f"User requested range: {start_dt} to {end_dt}")
     logger.info(f"First prediction will be at: {start_dt + timedelta(minutes=5)}")
+
+    # Watch-folder mode: predictions are delivered externally (e.g. via rsync from HPC).
+    # Skip submission entirely and let the frontend poll the predictions folder.
+    from nwc_webapp.config.config import get_config
+    if not get_config().submit_jobs:
+        logger.info(f"submit_jobs=false — skipping job submission for {model_name}, watching output folder")
+        return "watch_only"
 
     # Check if running locally
     if not is_hpc():

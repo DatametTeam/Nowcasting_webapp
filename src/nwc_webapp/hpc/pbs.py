@@ -218,7 +218,7 @@ def start_prediction_job(model, latest_data):
         """
     else:
         # Construct path to model config in repository
-        config_path = Path(__file__).resolve().parent.parent / "config" / "model_configs" / "real_time" / f"{model}.yaml"
+        config_path = config.model_configs_path / "real_time" / f"{model}.yaml"
         inference_script = config.pbs.inference_script_path
         cmd_string = f"""
     python "{inference_script}" \

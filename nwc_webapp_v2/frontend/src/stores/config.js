@@ -27,10 +27,10 @@ export const useConfigStore = defineStore('config', {
     environment: 'unknown',
     isHpc: false,
     sriFolder: '',
-    gifStorage: '',
     csiThresholds: [],
     radarProducts: {},
     explorerMaxHours: 48,
+    enabledTabs: ['realtime', 'nowcasting', 'explorer', 'comparison', 'metrics'],
     loaded: false,
     error: null,
   }),
@@ -47,10 +47,10 @@ export const useConfigStore = defineStore('config', {
         this.environment = data.environment
         this.isHpc = data.environment === 'hpc'
         this.sriFolder = data.sri_folder
-        this.gifStorage = data.gif_storage
         this.csiThresholds = data.csi_thresholds
         this.radarProducts = data.radar_products || {}
         this.explorerMaxHours = data.explorer_max_hours ?? 48
+        this.enabledTabs = data.enabled_tabs ?? this.enabledTabs
         this.loaded = true
         this.error = null
       } catch (e) {
