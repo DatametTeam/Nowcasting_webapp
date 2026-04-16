@@ -150,6 +150,9 @@ export default {
   overlayUrl: (model, timestamp, leadTime = 0, frameType = 'prediction') =>
     `${API_BASE}/render/overlay/${model}/${timestamp}?lead_time=${leadTime}&frame_type=${frameType}`,
 
+  ensembleOverlayUrl: (timestamp, leadTime, threshold, modelList) =>
+    `${API_BASE}/render/overlay/ensemble/${encodeURIComponent(timestamp)}?lead_time=${leadTime}&threshold=${threshold}&models=${modelList.join(',')}`,
+
   figureUrl: (model, timestamp, leadTime = 0, figureType = 'prediction') =>
     `${API_BASE}/render/figure/${model}/${timestamp}?lead_time=${leadTime}&figure_type=${figureType}`,
 

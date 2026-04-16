@@ -56,14 +56,19 @@
       </Transition>
 
       <!-- Colorbars — floating on the map, bottom right (above the timeline bar) -->
-      <!-- SRI always shown; IR added when irEnabled -->
+      <!-- Ensemble mode: single probability colorbar. Normal: SRI + optional IR. -->
       <div class="absolute bottom-[110px] right-[10px] z-[1001] flex flex-col gap-1.5 items-end">
-        <ColorBar
-          v-if="irEnabled"
-          :legend="configStore.radarProducts['IR_108']"
-          product-name="IR"
-        />
-        <ColorBar />
+        <template v-if="ensembleActive">
+          <ColorBar :legend="probLegend" product-name="P(%)" />
+        </template>
+        <template v-else>
+          <ColorBar
+            v-if="irEnabled"
+            :legend="configStore.radarProducts['IR_108']"
+            product-name="IR"
+          />
+          <ColorBar />
+        </template>
       </div>
 
       <!-- ============================================================ -->
@@ -275,16 +280,16 @@
           <div
             v-for="model in models"
             :key="model"
-            @click="selectedModel = model"
+            @click="selectModel(model)"
             class="flex items-center justify-between py-2.5 px-3 rounded-lg cursor-pointer
                    transition-colors"
-            :class="selectedModel === model
+            :class="selectedModel === model && !ensembleActive
               ? 'bg-blue-900/50 border border-blue-500/50'
               : 'hover:bg-gray-800'"
           >
             <span
               class="text-sm"
-              :class="selectedModel === model ? 'font-semibold text-blue-300' : 'text-gray-300'"
+              :class="selectedModel === model && !ensembleActive ? 'font-semibold text-blue-300' : 'text-gray-300'"
             >
               {{ model }}
             </span>
@@ -297,6 +302,57 @@
             </span>
           </div>
         </div>
+      </div>
+
+      <!-- Probabilistic Ensemble -->
+      <div class="p-4 border-b border-gray-700">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            Probabilistic Ensemble
+          </h3>
+          <button
+            @click="toggleEnsemble"
+            class="text-xs px-2.5 py-1 rounded-full font-medium transition-colors"
+            :class="ensembleActive
+              ? 'bg-purple-600 text-white'
+              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'"
+          >
+            {{ ensembleActive ? 'Active' : 'Show' }}
+          </button>
+        </div>
+
+        <!-- Model checkboxes -->
+        <div class="grid grid-cols-2 gap-x-2 gap-y-1.5 mb-3">
+          <label
+            v-for="model in models.filter(m => m !== 'Test')"
+            :key="model"
+            class="flex items-center gap-1.5 cursor-pointer group"
+          >
+            <input
+              type="checkbox"
+              :value="model"
+              v-model="ensembleModels"
+              class="w-3.5 h-3.5 rounded accent-purple-500 cursor-pointer"
+            />
+            <span class="text-xs text-gray-300 group-hover:text-gray-100 truncate">{{ model }}</span>
+          </label>
+        </div>
+
+        <!-- Threshold selector -->
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-gray-400 flex-shrink-0">Threshold</span>
+          <select
+            v-model.number="ensembleThreshold"
+            class="flex-1 rounded border border-gray-600 bg-gray-800 text-gray-200
+                   px-2 py-1 text-xs focus:border-purple-500 focus:outline-none"
+          >
+            <option v-for="t in THRESHOLDS" :key="t" :value="t">{{ t }} mm/h</option>
+          </select>
+        </div>
+
+        <p v-if="ensembleActive" class="text-[10px] text-purple-400 mt-2">
+          Using {{ ensembleModels.length }} / {{ models.filter(m => m !== 'Test').length }} models
+        </p>
       </div>
 
       <!-- Radar SRI Overlay -->
@@ -402,6 +458,34 @@ const lastRefresh = ref('')
 // IR satellite overlay
 const irEnabled = ref(false)
 const irOpacity = ref(0.75)
+
+// ---- Probabilistic ensemble ----
+const THRESHOLDS = [0.2, 0.5, 1, 2, 5, 10, 25]
+const ensembleActive = ref(false)
+const ensembleModels = ref([])     // populated in onMounted once model list is loaded
+const ensembleThreshold = ref(2.0) // default: 2 mm/h
+
+// Probability colorbar legend: Blues palette, ticks in percent
+const probLegend = computed(() => ({
+  unit: `P > ${ensembleThreshold.value} mm/h`,
+  thresholds: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
+  colors: [
+    'rgb(247,251,255)', 'rgb(222,235,247)', 'rgb(198,219,239)',
+    'rgb(158,202,225)', 'rgb(107,174,214)', 'rgb(66,146,198)',
+    'rgb(33,113,181)',  'rgb(8,81,156)',    'rgb(8,48,107)',
+    'rgb(8,20,80)',     'rgb(3,10,60)',
+  ],
+}))
+
+function toggleEnsemble() {
+  ensembleActive.value = !ensembleActive.value
+}
+
+/** Select a single model — also deactivates ensemble mode. */
+function selectModel(model) {
+  selectedModel.value = model
+  ensembleActive.value = false
+}
 
 // Real-time state (driven by backend)
 const realTimeActive = ref(false)
@@ -525,9 +609,16 @@ async function preloadAllFrames() {
       const ts = formatIsoTimestamp(pastDt)
       return api.groundtruthOverlayUrl(ts)
     } else {
-      // Future: need a selected model for predictions
-      if (!hasModel) return null
       const leadTimeIndex = Math.round(minuteOffset / 5) - 1
+      // Ensemble mode: use probabilistic overlay
+      if (ensembleActive.value && ensembleModels.value.length > 0) {
+        return api.ensembleOverlayUrl(
+          latestTimestamp.value, leadTimeIndex,
+          ensembleThreshold.value, ensembleModels.value
+        )
+      }
+      // Single model mode
+      if (!hasModel) return null
       return api.overlayUrl(selectedModel.value, latestTimestamp.value, leadTimeIndex)
     }
   })
@@ -599,6 +690,10 @@ watch(irEnabled, async (enabled) => {
     radarMap.value?.removeProduct('IR_108')
   }
 })
+
+// Ensemble: any change to active state, models, or threshold → reload frames
+watch([ensembleActive, ensembleThreshold], () => { preloadAllFrames() })
+watch(ensembleModels, () => { preloadAllFrames() }, { deep: true })
 
 // IR opacity: update the currently visible IR frame
 watch(irOpacity, (opacity) => {
@@ -903,6 +998,11 @@ onMounted(async () => {
   // Auto-select first model if available (this triggers watch → preload with predictions)
   if (models.value.length > 0 && !selectedModel.value) {
     selectedModel.value = models.value[0]
+  }
+
+  // Default: all real models selected for the ensemble (exclude Test)
+  if (ensembleModels.value.length === 0) {
+    ensembleModels.value = models.value.filter(m => m !== 'Test')
   }
 
   // Check if the backend service is already running (e.g. page refresh, second tab)
