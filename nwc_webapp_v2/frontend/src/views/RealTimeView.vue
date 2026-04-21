@@ -339,7 +339,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from 'vue'
 import { useConfigStore } from '../stores/config.js'
 import api from '../api.js'
 import RadarMap from '../components/RadarMap.vue'
@@ -965,6 +965,23 @@ onMounted(async () => {
   // Without this, Leaflet may have zero-dimension tiles on first paint.
   await nextTick()
   await loadData({ preserve: false })
+  startPolling()
+})
+
+// keep-alive hooks: fired when navigating away/back without destroying the component.
+onDeactivated(() => {
+  stopAnimation()
+  stopPolling()
+})
+
+onActivated(async () => {
+  // Leaflet tiles go stale when the container is hidden; invalidateSize forces
+  // a re-render so the map looks correct immediately on return.
+  await nextTick()
+  radarMap.value?.invalidateSize()
+  // Re-draw the current frame (layers may have lost visibility while hidden).
+  if (isLoaded.value) goToFrame(frameIndex.value)
+  // Resume polling — it was stopped in onDeactivated.
   startPolling()
 })
 
