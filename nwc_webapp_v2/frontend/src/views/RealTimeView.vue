@@ -495,11 +495,15 @@ const nextUpdateText = computed(() => {
 //   STABLE (7 min): used for initial/background loads. floor(now-7min, 5min)
 //     is always a boundary whose file is already on the server, so the
 //     timeline loads cleanly with no missing frames.
-//   FRESH (1 min): used by mark-aligned search windows. floor(now-1min, 5min)
-//     asks for the boundary that is about to land; the 1s search loop catches
-//     it within a second of arrival.
+//   FRESH (5 min): used by mark-aligned search windows. floor(now-5min, 5min)
+//     at a mark M equals M-5min (the previous cycle's boundary), whose file
+//     arrives ~1:30 after M and is caught by the 1s search loop.
+//     Using exactly one cycle length (5 min) is important: it prevents the
+//     range end from sliding forward mid-window.  With a smaller delay (e.g.
+//     1 min), 1 minute into the window floor(M+1-1, 5)=M, pulling the NEXT
+//     not-yet-arrived boundary into the range and causing spurious "missing".
 const DATA_DELAY_STABLE_MS = 7 * 60 * 1000
-const DATA_DELAY_FRESH_MS  = 1 * 60 * 1000
+const DATA_DELAY_FRESH_MS  = 5 * 60 * 1000
 
 function computeRange(fresh = false) {
   // Data is stored in UTC. Use UTC throughout so file lookups match.
