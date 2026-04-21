@@ -731,7 +731,17 @@ async function pollForNewData() {
     // ---- Timestamps we're committing to the timeline this tick ----
     // Must be sorted chronologically so RadarMap layer indices match timestamps.value.
     // Without sort, found-first concat ([16:05, 16:10, 16:00]) would misalign layers.
-    const toAppend = (delayMissing ? addedFoundTs : [...addedFoundTs, ...addedMissingTs]).sort()
+    //
+    // Never commit a timestamp that has ZERO products loaded for it — jumping
+    // to an all-null frame hides every layer and leaves the map blank.
+    // A timestamp is safe to commit once at least one product has real data.
+    const hasAnyProduct = ts => productOrder.value.some(
+      p => !productStats.value[p]?.missingSet?.has(ts)
+    )
+    const toAppend = (delayMissing
+      ? addedFoundTs
+      : [...addedFoundTs, ...addedMissingTs.filter(hasAnyProduct)]
+    ).sort()
 
     // ---- Fix null slots already in the timeline ----
     if (resolvedInTimeline.length > 0) {
