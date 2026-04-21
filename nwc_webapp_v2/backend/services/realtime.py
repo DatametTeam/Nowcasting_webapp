@@ -178,15 +178,17 @@ class RealtimeService:
         """
         Real HPC loop with smart two-speed polling.
 
-        SRI data arrives every 5 minutes (at :00, :05, :10, :15, ...).
-        Instead of polling at a fixed rate, we use two speeds:
+        SRI data arrives every 5 minutes (at :00, :05, :10, :15, ...), typically
+        a few seconds after the nominal timestamp. Polling uses two speeds:
 
-          SLOW (every 30s): when we're far from a 5-min boundary
-          FAST (every 1s):  as soon as a 5-min boundary passes, until
-                            new data arrives or 2 minutes elapse
+          FAST (every 1s):  within 2 minutes after a 5-min boundary —
+                            submits prediction jobs the moment new data lands
+          SLOW (every 30s): outside that window, but capped so the loop
+                            wakes up exactly at the next 5-min boundary
+                            and immediately switches to FAST
 
-        If no data arrives within 2 minutes of the expected time,
-        a warning notification is shown and we go back to slow polling.
+        If the current 5-min cycle's file hasn't arrived within 2 minutes of
+        its boundary, a warning notification is set (once per boundary).
 
         On new data:
           1. Check each model — skip if prediction .npy already exists
@@ -203,6 +205,8 @@ class RealtimeService:
         # the existing latest SRI (checks predictions, submits jobs if needed).
         # start() already set self._latest_sri for display.
         last_seen_file = None
+        # Boundary we've already warned about, so we warn at most once per cycle.
+        last_warning_boundary = None
 
         logger.info("HPC loop started. Will process existing SRI on first iteration.")
 
@@ -211,16 +215,12 @@ class RealtimeService:
         DATA_TIMEOUT = 120  # seconds to wait past 5-min boundary before warning
 
         while not self._stop_event.is_set():
-            # --- Determine polling speed based on time ---
             now = datetime.now()
             seconds_past_boundary = (now.minute % 5) * 60 + now.second
-
-            if seconds_past_boundary < DATA_TIMEOUT:
-                # We're within 2 minutes after a 5-min boundary → fast poll
-                poll_interval = FAST_POLL
-            else:
-                # We're far from the boundary → slow poll
-                poll_interval = SLOW_POLL
+            seconds_until_next_boundary = 300 - seconds_past_boundary
+            current_boundary = now.replace(
+                minute=(now.minute // 5) * 5, second=0, microsecond=0
+            )
 
             # --- Check for new SRI file ---
             latest = self._find_latest_sri(sri_folder)
@@ -269,21 +269,41 @@ class RealtimeService:
                 # Monitor all jobs until resolved
                 self._monitor_hpc_jobs(config.models)
 
-            elif seconds_past_boundary >= DATA_TIMEOUT and poll_interval == SLOW_POLL:
-                # We just crossed the 2-min threshold without new data → warn once
-                # (only when transitioning to slow poll to avoid spamming)
-                expected_min = (now.minute // 5) * 5
-                expected_time = now.replace(minute=expected_min, second=0, microsecond=0)
-                with self._lock:
-                    if self._notification == "":
+                # Re-evaluate timing from the top of the loop after monitoring
+                continue
+
+            # --- No new data this tick: decide the wait interval ---
+            if seconds_past_boundary < DATA_TIMEOUT:
+                # Within 2 min after the boundary → fast poll every 1s
+                poll_interval = FAST_POLL
+            else:
+                # Past the 2-min mark with no data for this cycle.
+                # Warn once per boundary, but only if we really don't have
+                # the current cycle's file yet (cheap guard against spurious
+                # warnings right after a successful late arrival).
+                last_seen_dt = (
+                    self._parse_sri_datetime(last_seen_file) if last_seen_file else None
+                )
+                missing_current_cycle = (
+                    last_seen_dt is None or last_seen_dt < current_boundary
+                )
+                if missing_current_cycle and last_warning_boundary != current_boundary:
+                    last_warning_boundary = current_boundary
+                    with self._lock:
                         self._notification = (
-                            f"Warning: no new data since {expected_time.strftime('%H:%M')} "
+                            f"Warning: no new data since "
+                            f"{current_boundary.strftime('%H:%M')} "
                             f"({seconds_past_boundary}s overdue)"
                         )
-                        logger.warning("No new SRI data %ds past %s boundary",
-                                       seconds_past_boundary, expected_time.strftime("%H:%M"))
+                    logger.warning(
+                        "No new SRI data %ds past %s boundary",
+                        seconds_past_boundary,
+                        current_boundary.strftime("%H:%M"),
+                    )
+                # Cap the sleep so we wake at (or just after) the next boundary
+                # and immediately enter the fast-poll window.
+                poll_interval = min(SLOW_POLL, max(1, seconds_until_next_boundary + 1))
 
-            # Wait before next check
             if self._stop_event.wait(timeout=poll_interval):
                 break
 
