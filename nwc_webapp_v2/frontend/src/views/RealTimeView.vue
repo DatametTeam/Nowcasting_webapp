@@ -952,9 +952,6 @@ onMounted(async () => {
   await nextTick()
   await loadData({ preserve: false })
   startPolling()
-  // Immediately probe for data fresher than the stable load range so we
-  // don't have to wait for the next 5-min mark to get the latest file.
-  startDataSearch()
 })
 
 onUnmounted(() => {
