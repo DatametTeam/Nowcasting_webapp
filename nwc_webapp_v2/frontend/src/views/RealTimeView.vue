@@ -396,21 +396,23 @@ let pollTimer       = null   // setInterval — fires every 5 min after alignmen
 let countdownTimer  = null
 let searchTimer     = null   // setTimeout — drives the sequential search loop
 
-// Phase 1 (first 10s): poll every 1s, hold back empty frames so the user doesn't
-// see a blank frame before any product has loaded.
-// Phase 2 (10s – 3min): poll every 3s, commit the frame with whatever is available
-// (missing products show as empty), and keep resolving late arrivals in place.
-const SEARCH_PHASE1_MS       = 10  * 1000      // hold-back window
-const SEARCH_PHASE1_INTERVAL = 1   * 1000      // 1s during phase 1
-const SEARCH_PHASE2_INTERVAL = 3   * 1000      // 3s during phase 2
-const SEARCH_MAX_MS          = 2.5 * 60 * 1000 // give up after 2.5 minutes
+// Poll every 1s for up to 3 min past each 5-min mark. A listdir on the server
+// is cheap and data typically lands ~1:30 past the mark, so 1s gets us the
+// file within a second of arrival.
+// Hold-back window (first 10s): don't commit a frame with any missing products
+// — wait until all products have arrived or the window expires.
+// After 10s: commit whatever is available; late products get resolved in place
+// via resolveProductFrame when their files eventually arrive.
+const SEARCH_HOLDBACK_MS = 10  * 1000       // no-commit window at start
+const SEARCH_INTERVAL    = 1   * 1000       // 1s throughout
+const SEARCH_MAX_MS      = 3   * 60 * 1000  // raise error after 3 minutes
 
 const isSearching    = ref(false)  // true while the search window is active
 let   searchStart    = 0           // Date.now() when the current search began
 
 // Timestamps committed to the timeline in this search window.
 // Used to detect when all newly-added frames are fully resolved so we can
-// stop early instead of running the full 2.5 minutes.
+// stop early instead of running the full 3 minutes.
 const searchWindowTs = ref([])
 
 // ---- Computed ----
@@ -487,8 +489,12 @@ const nextUpdateText = computed(() => {
 
 // ---- Helpers ----
 
-// Data delay: files arrive ~10 minutes after the nominal timestamp
-const DATA_DELAY_MS = 10 * 60 * 1000
+// Offset subtracted from `now` before flooring to a 5-min mark to pick the
+// upper bound of the range we ask the backend for. Files land ~1:30 past each
+// 5-min mark (so on a mark at HH:30 the HH:25 file shows up around HH:31:30).
+// Using 1 min means at each mark we request the boundary that's about to land,
+// and the 3-min search window catches its arrival within a second.
+const DATA_DELAY_MS = 1 * 60 * 1000
 
 function computeRange() {
   // Data is stored in UTC. Use UTC throughout so file lookups match.
@@ -696,13 +702,13 @@ async function pollForNewData() {
     const addedFoundTs   = addedTs.filter(ts => !newMissingAll.has(ts))
     const addedMissingTs = addedTs.filter(ts =>  newMissingAll.has(ts))
 
-    // Phase 1 hold-back: during the first SEARCH_PHASE1_MS don't commit any empty
+    // Hold-back: during the first SEARCH_HOLDBACK_MS don't commit any empty
     // frames — give all products a chance to arrive before showing blank slots.
-    // After phase 1, commit whatever is available; late products get resolved in
+    // After that, commit whatever is available; late products get resolved in
     // place via resolveProductFrame when their files eventually arrive.
     const elapsed      = searchStart > 0 ? Date.now() - searchStart : Infinity
     const delayMissing = addedFoundTs.length === 0 && addedMissingTs.length > 0
-                         && !hasResolved && elapsed < SEARCH_PHASE1_MS
+                         && !hasResolved && elapsed < SEARCH_HOLDBACK_MS
 
     if (addedTs.length === 0 && droppedCount === 0 && !hasResolved) return false
 
@@ -803,33 +809,42 @@ function stopSearching() {
 
 // One search attempt: poll, then schedule the next one only after this one completes.
 // Recursive setTimeout guarantees no concurrent polls.
-// Never stops early on "found" — keeps running until SEARCH_MAX_MS so that late
-// products (e.g. IR arriving 90s after the 5-min mark) still get resolved in place.
+// Keeps running until SEARCH_MAX_MS so late products still get resolved in place;
+// raises a visible error if nothing new arrived by the timeout.
 async function runSearch() {
   if (!isSearching.value) return
   const elapsed = Date.now() - searchStart
-  if (elapsed >= SEARCH_MAX_MS) { stopSearching(); return }
+  if (elapsed >= SEARCH_MAX_MS) {
+    if (searchWindowTs.value.length === 0) {
+      const mark = new Date(searchStart).toLocaleTimeString('it-IT', {
+        hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome',
+      })
+      loadError.value = `No new data arrived within 3 minutes past the ${mark} mark — the server may be having issues.`
+    }
+    stopSearching()
+    return
+  }
 
   await pollForNewData()
 
   if (!isSearching.value) return
 
   // Stop early if all search-window timestamps are resolved across all products
-  if (elapsed >= SEARCH_PHASE1_MS && searchWindowTs.value.length > 0) {
+  if (elapsed >= SEARCH_HOLDBACK_MS && searchWindowTs.value.length > 0) {
     const allResolved = searchWindowTs.value.every(ts =>
       productOrder.value.every(p => !productStats.value[p]?.missingSet?.has(ts))
     )
     if (allResolved) { stopSearching(); return }
   }
 
-  const nextInterval = elapsed < SEARCH_PHASE1_MS ? SEARCH_PHASE1_INTERVAL : SEARCH_PHASE2_INTERVAL
-  searchTimer = setTimeout(runSearch, nextInterval)
+  searchTimer = setTimeout(runSearch, SEARCH_INTERVAL)
 }
 
 // Start a search window: kick off the first attempt immediately, then retry
-// at 1s (phase 1) then 3s (phase 2) for up to 2.5 minutes.
+// every 1s for up to 3 minutes.
 function startDataSearch() {
   stopSearching()
+  loadError.value = ''
   isSearching.value = true
   searchStart = Date.now()
   searchWindowTs.value = []

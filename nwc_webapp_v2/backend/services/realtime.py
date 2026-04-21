@@ -176,25 +176,21 @@ class RealtimeService:
 
     def _hpc_loop(self):
         """
-        Real HPC loop with smart two-speed polling.
+        Real HPC loop — polls the SRI folder every 1 s continuously.
 
-        SRI data arrives every 5 minutes (at :00, :05, :10, :15, ...), typically
-        a few seconds after the nominal timestamp. Polling uses two speeds:
+        SRI files arrive every 5 minutes with a ~6-min server delay, so the
+        file timestamped HH:25 typically lands around HH:31:30.  1-second
+        polling is cheap (a single listdir) and gets us the file within 1 s
+        of arrival.
 
-          FAST (every 1s):  within 2 minutes after a 5-min boundary —
-                            submits prediction jobs the moment new data lands
-          SLOW (every 30s): outside that window, but capped so the loop
-                            wakes up exactly at the next 5-min boundary
-                            and immediately switches to FAST
-
-        If the current 5-min cycle's file hasn't arrived within 2 minutes of
-        its boundary, a warning notification is set (once per boundary).
+        If the previous boundary's file still hasn't appeared 3 minutes into
+        the current boundary, a warning notification is set (once per boundary).
 
         On new data:
           1. Check each model — skip if prediction .npy already exists
           2. Submit PBS jobs for remaining models
           3. Monitor job statuses until all resolve
-          4. Resume polling for the next 5-min boundary
+          4. Resume polling for the next arrival
         """
         from nwc_webapp.hpc.pbs import start_prediction_job
 
@@ -210,14 +206,12 @@ class RealtimeService:
 
         logger.info("HPC loop started. Will process existing SRI on first iteration.")
 
-        SLOW_POLL = 30   # seconds between checks in slow mode
-        FAST_POLL = 1    # seconds between checks in fast mode
-        DATA_TIMEOUT = 120  # seconds to wait past 5-min boundary before warning
+        POLL_INTERVAL = 1    # always poll every 1s — a listdir is cheap
+        DATA_TIMEOUT  = 180  # seconds past boundary before warning (3 min)
 
         while not self._stop_event.is_set():
             now = datetime.now()
             seconds_past_boundary = (now.minute % 5) * 60 + now.second
-            seconds_until_next_boundary = 300 - seconds_past_boundary
             current_boundary = now.replace(
                 minute=(now.minute // 5) * 5, second=0, microsecond=0
             )
@@ -272,39 +266,33 @@ class RealtimeService:
                 # Re-evaluate timing from the top of the loop after monitoring
                 continue
 
-            # --- No new data this tick: decide the wait interval ---
-            if seconds_past_boundary < DATA_TIMEOUT:
-                # Within 2 min after the boundary → fast poll every 1s
-                poll_interval = FAST_POLL
-            else:
-                # Past the 2-min mark with no data for this cycle.
-                # Warn once per boundary, but only if we really don't have
-                # the current cycle's file yet (cheap guard against spurious
-                # warnings right after a successful late arrival).
+            # --- No new data this tick: warn if the previous boundary's file
+            # hasn't arrived 3 minutes into the current boundary.  With a
+            # ~6-min server delay the HH:25 file lands at ~HH:31:30, so it
+            # should always be there well before HH:33.  Only warn if we
+            # truly haven't seen it yet (once per boundary).
+            if seconds_past_boundary >= DATA_TIMEOUT:
+                previous_boundary = current_boundary - timedelta(minutes=5)
                 last_seen_dt = (
                     self._parse_sri_datetime(last_seen_file) if last_seen_file else None
                 )
-                missing_current_cycle = (
-                    last_seen_dt is None or last_seen_dt < current_boundary
-                )
-                if missing_current_cycle and last_warning_boundary != current_boundary:
+                missing_previous = last_seen_dt is None or last_seen_dt < previous_boundary
+                if missing_previous and last_warning_boundary != current_boundary:
                     last_warning_boundary = current_boundary
                     with self._lock:
                         self._notification = (
                             f"Warning: no new data since "
-                            f"{current_boundary.strftime('%H:%M')} "
+                            f"{previous_boundary.strftime('%H:%M')} "
                             f"({seconds_past_boundary}s overdue)"
                         )
                     logger.warning(
-                        "No new SRI data %ds past %s boundary",
+                        "No SRI file newer than %s by %ds past %s boundary",
+                        previous_boundary.strftime("%H:%M"),
                         seconds_past_boundary,
                         current_boundary.strftime("%H:%M"),
                     )
-                # Cap the sleep so we wake at (or just after) the next boundary
-                # and immediately enter the fast-poll window.
-                poll_interval = min(SLOW_POLL, max(1, seconds_until_next_boundary + 1))
 
-            if self._stop_event.wait(timeout=poll_interval):
+            if self._stop_event.wait(timeout=POLL_INTERVAL):
                 break
 
     def _monitor_hpc_jobs(self, models):
