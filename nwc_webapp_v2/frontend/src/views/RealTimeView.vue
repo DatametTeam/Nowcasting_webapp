@@ -489,19 +489,25 @@ const nextUpdateText = computed(() => {
 
 // ---- Helpers ----
 
-// Offset subtracted from `now` before flooring to a 5-min mark to pick the
-// upper bound of the range we ask the backend for. Files land ~1:30 past each
-// 5-min mark (so on a mark at HH:30 the HH:25 file shows up around HH:31:30).
-// Using 1 min means at each mark we request the boundary that's about to land,
-// and the 3-min search window catches its arrival within a second.
-const DATA_DELAY_MS = 1 * 60 * 1000
+// Server delay: files land on disk ~6 min after their nominal timestamp.
+//
+// Two delay values are used depending on context:
+//   STABLE (7 min): used for initial/background loads. floor(now-7min, 5min)
+//     is always a boundary whose file is already on the server, so the
+//     timeline loads cleanly with no missing frames.
+//   FRESH (1 min): used by mark-aligned search windows. floor(now-1min, 5min)
+//     asks for the boundary that is about to land; the 1s search loop catches
+//     it within a second of arrival.
+const DATA_DELAY_STABLE_MS = 7 * 60 * 1000
+const DATA_DELAY_FRESH_MS  = 1 * 60 * 1000
 
-function computeRange() {
+function computeRange(fresh = false) {
   // Data is stored in UTC. Use UTC throughout so file lookups match.
-  // Subtract DATA_DELAY_MS then floor to the nearest 5-minute mark so that
+  // Subtract the delay then floor to the nearest 5-minute mark so that
   // the backend's expected timestamps (which step at 5-min intervals) align
   // with actual filenames (DD-MM-YYYY-HH-MM.hdf on 5-min boundaries).
-  const endUtc = new Date(Date.now() - DATA_DELAY_MS)
+  const delay = fresh ? DATA_DELAY_FRESH_MS : DATA_DELAY_STABLE_MS
+  const endUtc = new Date(Date.now() - delay)
   endUtc.setUTCMinutes(Math.floor(endUtc.getUTCMinutes() / 5) * 5, 0, 0)
   const startUtc = new Date(endUtc - lookbackHours.value * 3600 * 1000)
   const fmt = dt => {
@@ -647,7 +653,7 @@ async function pollForNewData() {
   if (isLoading.value || isUpdating.value) return false
   isUpdating.value = true
   try {
-    const { start, end } = computeRange()
+    const { start, end } = computeRange(true)  // fresh: probe for just-arrived data
 
     const results = await Promise.all(
       productOrder.value.map(product =>
@@ -946,6 +952,9 @@ onMounted(async () => {
   await nextTick()
   await loadData({ preserve: false })
   startPolling()
+  // Immediately probe for data fresher than the stable load range so we
+  // don't have to wait for the next 5-min mark to get the latest file.
+  startDataSearch()
 })
 
 onUnmounted(() => {
