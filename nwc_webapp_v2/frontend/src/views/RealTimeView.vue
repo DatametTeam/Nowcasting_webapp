@@ -155,11 +155,19 @@
           <!-- Status indicator -->
           <div class="flex items-center gap-2">
             <div
-              class="w-2 h-2 rounded-full flex-shrink-0"
-              :class="(isUpdating || isSearching) ? 'bg-yellow-400 animate-pulse' : isLoaded ? 'bg-green-400' : 'bg-gray-500'"
+              class="w-2 h-2 rounded-full flex-shrink-0 transition-colors duration-300"
+              :class="searchJustFound ? 'bg-green-400'
+                    : isSearching     ? 'bg-yellow-400 animate-pulse'
+                    : isUpdating      ? 'bg-yellow-400'
+                    : isLoaded        ? 'bg-green-400'
+                    :                   'bg-gray-500'"
             />
-            <span class="text-xs text-gray-300">{{ liveStatusText }}</span>
-            <span v-if="isLoaded && !isUpdating" class="ml-auto text-[10px] text-gray-500 tabular-nums">
+            <span
+              class="text-xs transition-colors duration-300"
+              :class="searchJustFound ? 'text-green-400 font-medium' : 'text-gray-300'"
+            >{{ liveStatusText }}</span>
+            <span v-if="isLoaded && !isSearching && !isUpdating && !searchJustFound"
+                  class="ml-auto text-[10px] text-gray-500 tabular-nums">
               next: {{ nextUpdateText }}
             </span>
           </div>
@@ -299,21 +307,21 @@
               <span class="text-gray-500">/{{ productStats[product].expected }} frames</span>
               <!-- Hide "N missing" while actively searching for this product's data -->
               <button
-                v-if="productStats[product].missingTs.length > 0 && !(isSearching && (!searchWindowTs.length || searchingProducts.has(product)))"
+                v-if="timelineMissingTs[product]?.length > 0 && !(isSearching && (!searchWindowTs.length || searchingProducts.has(product)))"
                 @click="toggleMissing(product)"
                 class="text-amber-400 hover:text-amber-300 ml-1.5 underline underline-offset-2"
               >
-                {{ productStats[product].missingTs.length }} missing
+                {{ timelineMissingTs[product].length }} missing
                 {{ showMissingFor === product ? '▲' : '▼' }}
               </button>
             </div>
 
             <div
-              v-if="showMissingFor === product && productStats[product]?.missingTs.length"
+              v-if="showMissingFor === product && timelineMissingTs[product]?.length"
               class="mt-1 space-y-0.5 max-h-36 overflow-y-auto rounded bg-black/30 px-2 py-1.5"
             >
               <div
-                v-for="ts in productStats[product].missingTs"
+                v-for="ts in timelineMissingTs[product]"
                 :key="ts"
                 class="font-mono text-[10px] text-amber-300/80"
               >{{ formatMissingTs(ts) }}</div>
@@ -408,8 +416,10 @@ const SEARCH_INTERVAL    = 1   * 1000       // 1s throughout
 const SEARCH_MAX_MS      = 3   * 60 * 1000  // raise error after 3 minutes
 
 const isSearching    = ref(false)  // true while the search window is active
+const searchJustFound = ref(false) // true for 5s after a successful data find
 let   searchStart    = 0           // Date.now() when the current search began
 let   searchFoundAny = false       // true if any data was committed in this window
+let   successTimer   = null
 
 // Timestamps committed to the timeline in this search window.
 // Used to detect when all newly-added frames are fully resolved so we can
@@ -462,6 +472,20 @@ const hourTicks = computed(() => {
   return ticks
 })
 
+// Missing timestamps filtered to only those committed to the timeline.
+// Raw productStats.missingTs can include future timestamps that are in the fresh
+// API range but haven't been committed yet (e.g., 15:25 shown as missing at 15:31
+// while still within the holdback window). Only show truly committed missing frames.
+const timelineMissingTs = computed(() => {
+  const inTimeline = new Set(timestamps.value)
+  const result = {}
+  for (const product of productOrder.value) {
+    const stats = productStats.value[product]
+    result[product] = stats ? stats.missingTs.filter(ts => inTimeline.has(ts)) : []
+  }
+  return result
+})
+
 // Products that still have unresolved frames in the current search window.
 // Used to show a per-product spinner and hide the "N missing" count while polling.
 const searchingProducts = computed(() => {
@@ -477,8 +501,9 @@ const searchingProducts = computed(() => {
 
 const liveStatusText = computed(() => {
   if (isLoading.value && !isUpdating.value) return 'Loading data…'
-  if (isUpdating.value) return 'Checking for new data…'
+  if (searchJustFound.value) return '✓ New data loaded'
   if (isSearching.value) return 'Waiting for new data…'
+  if (isUpdating.value) return 'Checking for new data…'
   if (!isLoaded.value) return 'Not loaded'
   return 'Live'
 })
@@ -764,7 +789,7 @@ async function pollForNewData() {
         // The runSearch early-stop won't fire because searchWindowTs is now empty,
         // so stop here directly to avoid running to the 3-minute timeout.
         if (searchWindowTs.value.length === 0 && isSearching.value) {
-          stopSearching()
+          stopSearching(true)
         }
       }
     }
@@ -831,9 +856,15 @@ function msUntilNextFiveMinMark() {
 }
 
 // Stop the within-minute retry loop.
-function stopSearching() {
+// Pass success=true when stopping because data was found (not timeout/error).
+function stopSearching(success = false) {
   if (searchTimer) { clearTimeout(searchTimer); searchTimer = null }
   isSearching.value = false
+  if (success) {
+    searchJustFound.value = true
+    if (successTimer) clearTimeout(successTimer)
+    successTimer = setTimeout(() => { searchJustFound.value = false }, 5000)
+  }
 }
 
 // One search attempt: poll, then schedule the next one only after this one completes.
@@ -863,7 +894,7 @@ async function runSearch() {
     const allResolved = searchWindowTs.value.every(ts =>
       productOrder.value.every(p => !productStats.value[p]?.missingSet?.has(ts))
     )
-    if (allResolved) { stopSearching(); return }
+    if (allResolved) { stopSearching(true); return }
   }
 
   searchTimer = setTimeout(runSearch, SEARCH_INTERVAL)
@@ -993,15 +1024,21 @@ onActivated(async () => {
   if (isLoaded.value) goToFrame(frameIndex.value)
   // Resume polling — it was stopped in onDeactivated.
   startPolling()
-  // Immediately check for data that arrived while on another page.
-  // startPolling() only arms the timer for the next 5-min mark; without this
-  // call the map would show stale data until then.
-  await pollForNewData()
+  // If we're back within the 3-minute search window past the last 5-min mark,
+  // kick off a full search loop so we don't miss data that just arrived.
+  // Otherwise do a single one-shot poll to catch anything that landed while away.
+  const msAfterMark = Date.now() % POLL_MS
+  if (msAfterMark < SEARCH_MAX_MS) {
+    startDataSearch()
+  } else {
+    await pollForNewData()
+  }
 })
 
 onUnmounted(() => {
   stopAnimation()
   stopPolling()
+  if (successTimer) { clearTimeout(successTimer); successTimer = null }
 })
 </script>
 
