@@ -257,11 +257,13 @@
               <label :for="`layer-${product}`" class="text-white text-sm font-bold cursor-pointer flex-1">
                 {{ SHORT_NAMES[product] }}
               </label>
-              <!-- Spinner while this product's latest frame is still being fetched.
-                   During phase 1 (searchWindowTs empty) show for all products;
-                   in phase 2 show only for products still pending. -->
+              <!-- ✓ for 5s after data lands, then spinner while still searching -->
+              <span
+                v-if="productJustFound[product]"
+                class="text-green-400 text-xs font-bold flex-shrink-0"
+              >✓</span>
               <svg
-                v-if="isSearching && (!searchWindowTs.length || searchingProducts.has(product))"
+                v-else-if="isSearching && (!searchWindowTs.length || searchingProducts.has(product))"
                 class="animate-spin h-3 w-3 text-blue-400 flex-shrink-0"
                 viewBox="0 0 24 24"
               >
@@ -347,7 +349,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from 'vue'
+uimport { ref, reactive, computed, watch, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from 'vue'
 import { useConfigStore } from '../stores/config.js'
 import api from '../api.js'
 import RadarMap from '../components/RadarMap.vue'
@@ -420,6 +422,18 @@ const searchJustFound = ref(false) // true for 5s after a successful data find
 let   searchStart    = 0           // Date.now() when the current search began
 let   searchFoundAny = false       // true if any data was committed in this window
 let   successTimer   = null
+
+// Per-product "just found" state: true for 5s after new data lands for that product.
+// Used to show a ✓ next to the product name instead of the spinner.
+const productJustFound = reactive({})
+const productJustFoundTimers = {}
+function markProductFound(product) {
+  productJustFound[product] = true
+  if (productJustFoundTimers[product]) clearTimeout(productJustFoundTimers[product])
+  productJustFoundTimers[product] = setTimeout(() => {
+    delete productJustFound[product]
+  }, 5000)
+}
 
 // Timestamps committed to the timeline in this search window.
 // Used to detect when all newly-added frames are fully resolved so we can
@@ -778,6 +792,8 @@ async function pollForNewData() {
       await Promise.all(resolvedInTimeline.map(({ product, ts, idx }) =>
         radarMap.value?.resolveProductFrame(product, idx, api.explorerOverlayUrl(product, ts))
       ))
+      // Mark each product whose frame just resolved
+      for (const { product } of resolvedInTimeline) markProductFound(product)
       // Remove fully-resolved timestamps from the search window tracker
       const resolvedTsSet = new Set(resolvedInTimeline.map(r => r.ts))
       const stillPending = productOrder.value.some(p =>
@@ -802,6 +818,8 @@ async function pollForNewData() {
           stats?.missingSet?.has(ts) ? null : api.explorerOverlayUrl(product, ts)
         )
         await radarMap.value?.appendProductFrames(product, urls)
+        // Mark product as just-found if it has at least one non-null frame appended
+        if (toAppend.some(ts => !stats?.missingSet?.has(ts))) markProductFound(product)
       }))
     }
 
@@ -1039,6 +1057,7 @@ onUnmounted(() => {
   stopAnimation()
   stopPolling()
   if (successTimer) { clearTimeout(successTimer); successTimer = null }
+  Object.values(productJustFoundTimers).forEach(t => clearTimeout(t))
 })
 </script>
 
