@@ -24,9 +24,9 @@
     <nav class="bg-[#C8102E] text-white shadow-lg">
       <div class="px-4">
         <div class="flex items-center h-14">
-          <!-- App Title -->
-          <div class="flex items-center gap-3 mr-4 lg:mr-8">
-            <span class="text-lg sm:text-xl font-bold tracking-tight">LEOWeather</span>
+          <!-- App Logo -->
+          <div class="flex items-center mr-4 lg:mr-8">
+            <img src="/leo-weather-logo.png" alt="LEO Weather" class="h-8 sm:h-9" />
           </div>
 
           <!-- Navigation Tabs -->
@@ -57,7 +57,6 @@
               </span>
             </div>
             <div class="w-px h-6 bg-white/30 hidden sm:block" />
-            <img src="/ldo-logo.png" alt="Leonardo" class="h-5 brightness-0 invert hidden sm:block" />
           </div>
         </div>
       </div>

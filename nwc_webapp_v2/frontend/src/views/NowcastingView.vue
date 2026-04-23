@@ -450,6 +450,10 @@ function formatDateTimeInRome(date) {
 const radarMap = ref(null)
 const sidebarOpen = ref(false)  // Mobile sidebar drawer
 const selectedModel = ref('')
+
+// Cached prediction URLs (frames 13-24) from the last successful full load.
+// Used to keep old predictions visible on the map while a new job is computing.
+const lastPredUrls = ref([])
 const frameIndex = ref(12)  // Start at index 12 = "0 min" (current time)
 const playing = ref(false)
 const speed = ref(1)
@@ -581,7 +585,10 @@ const latestTimestampDisplay = computed(() => {
 
 // ---- Preload all 25 frames when model or timestamp changes ----
 
-async function preloadAllFrames() {
+// keepPredictions: when true, reuse cached prediction URLs (frames 13-24) instead of
+// generating new ones. Used when new SRI arrives during an active job so the old
+// prediction stays visible on the map until the new one is ready.
+async function preloadAllFrames({ keepPredictions = false } = {}) {
   if (!radarMap.value) return
   // Need at least a timestamp to show groundtruth, OR the Test model
   const isTest = selectedModel.value?.toUpperCase() === 'TEST'
@@ -611,6 +618,10 @@ async function preloadAllFrames() {
       const ts = formatIsoTimestamp(pastDt)
       return api.groundtruthOverlayUrl(ts)
     } else {
+      // Prediction frames: keep showing old data while the new job is running
+      if (keepPredictions && lastPredUrls.value.length > 0) {
+        return lastPredUrls.value[i - (CURRENT_INDEX + 1)] || ''
+      }
       const leadTimeIndex = Math.round(minuteOffset / 5) - 1
       // Ensemble mode: use probabilistic overlay
       if (ensembleActive.value && ensembleModels.value.length > 0) {
@@ -627,6 +638,12 @@ async function preloadAllFrames() {
 
   // Filter out nulls for RadarMap — pass empty string so frame slots still line up
   const safeUrls = urls.map(u => u || '')
+
+  // Save prediction URLs (frames 13-24) whenever we do a full load,
+  // so they can be restored on the next keepPredictions call.
+  if (!keepPredictions) {
+    lastPredUrls.value = safeUrls.slice(CURRENT_INDEX + 1)
+  }
 
   await radarMap.value.preloadFrames(safeUrls)
   radarMap.value.showFrame(frameIndex.value)
@@ -664,10 +681,12 @@ function formatIsoTimestamp(dt) {
 // When model changes → preload all frames for that model
 watch(selectedModel, () => { preloadAllFrames() })
 
-// When latest timestamp changes (new SRI data) → preload new frames.
-// This runs regardless of real-time mode so groundtruth always updates.
+// When latest timestamp changes (new SRI data) → update groundtruth frames.
+// If real-time is active, keep existing prediction frames visible while the
+// new job computes; they'll be replaced when the model transitions to 'ready'.
 watch(latestTimestamp, () => {
-  preloadAllFrames()
+  const keepPredictions = realTimeActive.value && !!selectedModel.value
+  preloadAllFrames({ keepPredictions })
 })
 
 // When frame index changes (slider drag) → instantly show that frame
@@ -850,20 +869,24 @@ async function pollRealtimeStatus() {
       showNotification(state.notification)
     }
 
-    // Preload frames when:
-    // 1. New SRI data arrives — always preload so groundtruth (frames 0-12)
-    //    updates immediately, even if no model predictions are ready yet.
-    //    Prediction frames (13-24) will show blank until a model is ready.
-    // 2. Selected model transitions to "ready" — preload again so the
-    //    prediction frames (13-24) now have data to show.
     const sriChanged = state.latest_sri && state.latest_sri !== prevState?.latest_sri
 
     if (sriChanged) {
-      await preloadAllFrames()
+      // New SRI arrived. The latestTimestamp watcher fires automatically and
+      // updates groundtruth frames while keeping prediction frames visible
+      // (keepPredictions=true) so the map doesn't go blank mid-job.
+      // Exception: if the model is already 'ready' for the new data (e.g. local
+      // mock mode where predictions are instant), do a full reload immediately.
+      const modelAlreadyReady = selectedModel.value &&
+        state.models[selectedModel.value]?.status === 'ready'
+      if (modelAlreadyReady) {
+        await preloadAllFrames()
+      }
     } else if (selectedModel.value && state.models[selectedModel.value]) {
       const prevModelStatus = prevState?.models?.[selectedModel.value]?.status
       const newModelStatus = state.models[selectedModel.value].status
       if (newModelStatus === 'ready' && prevModelStatus !== 'ready') {
+        // Model just finished computing — load the new predictions.
         await preloadAllFrames()
       }
     }

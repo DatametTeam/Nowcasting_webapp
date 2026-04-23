@@ -409,6 +409,7 @@ const SEARCH_MAX_MS      = 3   * 60 * 1000  // raise error after 3 minutes
 
 const isSearching    = ref(false)  // true while the search window is active
 let   searchStart    = 0           // Date.now() when the current search began
+let   searchFoundAny = false       // true if any data was committed in this window
 
 // Timestamps committed to the timeline in this search window.
 // Used to detect when all newly-added frames are fully resolved so we can
@@ -759,6 +760,12 @@ async function pollForNewData() {
       )
       if (!stillPending) {
         searchWindowTs.value = searchWindowTs.value.filter(ts => !resolvedTsSet.has(ts))
+        // All search-window timestamps are now fully resolved (including late IR).
+        // The runSearch early-stop won't fire because searchWindowTs is now empty,
+        // so stop here directly to avoid running to the 3-minute timeout.
+        if (searchWindowTs.value.length === 0 && isSearching.value) {
+          stopSearching()
+        }
       }
     }
 
@@ -803,7 +810,9 @@ async function pollForNewData() {
       searchWindowTs.value = [...merged]
     }
 
-    return addedFoundTs.length > 0 || hasResolved
+    const dataFound = addedFoundTs.length > 0 || hasResolved
+    if (dataFound) searchFoundAny = true
+    return dataFound
 
   } catch (e) {
     console.error('LiveView poll error:', e)
@@ -835,7 +844,7 @@ async function runSearch() {
   if (!isSearching.value) return
   const elapsed = Date.now() - searchStart
   if (elapsed >= SEARCH_MAX_MS) {
-    if (searchWindowTs.value.length === 0) {
+    if (!searchFoundAny) {
       const mark = new Date(searchStart).toLocaleTimeString('it-IT', {
         hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome',
       })
@@ -867,6 +876,7 @@ function startDataSearch() {
   loadError.value = ''
   isSearching.value = true
   searchStart = Date.now()
+  searchFoundAny = false
   searchWindowTs.value = []
   runSearch()
 }
@@ -983,6 +993,10 @@ onActivated(async () => {
   if (isLoaded.value) goToFrame(frameIndex.value)
   // Resume polling — it was stopped in onDeactivated.
   startPolling()
+  // Immediately check for data that arrived while on another page.
+  // startPolling() only arms the timer for the next 5-min mark; without this
+  // call the map would show stale data until then.
+  await pollForNewData()
 })
 
 onUnmounted(() => {
