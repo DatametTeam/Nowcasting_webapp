@@ -349,7 +349,7 @@
 </template>
 
 <script setup>
-uimport { ref, reactive, computed, watch, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from 'vue'
 import { useConfigStore } from '../stores/config.js'
 import api from '../api.js'
 import RadarMap from '../components/RadarMap.vue'
