@@ -26,7 +26,7 @@
         <div class="flex items-center h-14">
           <!-- App Logo -->
           <div class="flex items-center mr-4 lg:mr-8">
-            <img src="/leo-weather-logo.png" alt="LEO Weather" class="h-8 sm:h-9" />
+            <img src="/leo-weather-logo-white-transp.png" alt="LEO Weather" class="h-11 sm:h-12" />
           </div>
 
           <!-- Navigation Tabs -->
