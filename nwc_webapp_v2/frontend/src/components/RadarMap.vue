@@ -506,29 +506,37 @@ async function appendProductFrames(product, urls) {
  * @param {string} url     - Image URL to load into that slot
  */
 async function resolveProductFrame(product, index, url) {
-  if (!map || !productLayerMap[product] || !url) return
+  if (!map || !productLayerMap[product] || !url) return false
   const entry = productLayerMap[product]
-  if (index < 0 || index >= entry.layers.length) return
-  // Remove any existing layer at this slot (safety)
+  if (index < 0 || index >= entry.layers.length) return false
   if (entry.layers[index]) {
     map.removeLayer(entry.layers[index])
     entry.layers[index] = null
   }
-  await new Promise((resolve) => {
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.onload = () => {
-      if (productLayerMap[product]) {
-        entry.layers[index] = L.imageOverlay(url, RADAR_BOUNDS, {
-          opacity: 0,
-          interactive: false,
-        }).addTo(map)
+  // Retry up to 3 times — the render endpoint can transiently fail when a file
+  // is still being written to disk when the first request arrives.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, 800))
+    // Cache-bust on retries so the browser doesn't serve a cached error response
+    const src = attempt > 0 ? `${url}&_r=${attempt}` : url
+    const ok = await new Promise((resolve) => {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => {
+        if (productLayerMap[product]) {
+          entry.layers[index] = L.imageOverlay(src, RADAR_BOUNDS, {
+            opacity: 0,
+            interactive: false,
+          }).addTo(map)
+        }
+        resolve(true)
       }
-      resolve()
-    }
-    img.onerror = () => resolve()
-    img.src = url
-  })
+      img.onerror = () => resolve(false)
+      img.src = src
+    })
+    if (ok) return true
+  }
+  return false
 }
 
 /**

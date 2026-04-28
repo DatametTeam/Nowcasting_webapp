@@ -789,23 +789,34 @@ async function pollForNewData() {
 
     // ---- Fix null slots already in the timeline ----
     if (resolvedInTimeline.length > 0) {
-      await Promise.all(resolvedInTimeline.map(({ product, ts, idx }) =>
+      const resolveOk = await Promise.all(resolvedInTimeline.map(({ product, ts, idx }) =>
         radarMap.value?.resolveProductFrame(product, idx, api.explorerOverlayUrl(product, ts))
+          ?? Promise.resolve(false)
       ))
-      // Mark each product whose frame just resolved
-      for (const { product } of resolvedInTimeline) markProductFound(product)
-      // Remove fully-resolved timestamps from the search window tracker
-      const resolvedTsSet = new Set(resolvedInTimeline.map(r => r.ts))
-      const stillPending = productOrder.value.some(p =>
-        [...resolvedTsSet].some(ts => productStats.value[p]?.missingSet?.has(ts))
-      )
-      if (!stillPending) {
-        searchWindowTs.value = searchWindowTs.value.filter(ts => !resolvedTsSet.has(ts))
-        // All search-window timestamps are now fully resolved (including late IR).
-        // The runSearch early-stop won't fire because searchWindowTs is now empty,
-        // so stop here directly to avoid running to the 3-minute timeout.
-        if (searchWindowTs.value.length === 0 && isSearching.value) {
-          stopSearching(true)
+
+      // Mark products whose frame actually loaded; re-add failures to missingSet
+      // so the next 1s poll retries via resolvedInTimeline instead of giving up.
+      resolvedInTimeline.forEach(({ product, ts }, i) => {
+        if (resolveOk[i]) {
+          markProductFound(product)
+        } else {
+          if (productStats.value[product]) {
+            productStats.value[product].missingSet.add(ts)
+          }
+        }
+      })
+
+      const actuallyResolved = resolvedInTimeline.filter((_, i) => resolveOk[i])
+      if (actuallyResolved.length > 0) {
+        const resolvedTsSet = new Set(actuallyResolved.map(r => r.ts))
+        const stillPending = productOrder.value.some(p =>
+          [...resolvedTsSet].some(ts => productStats.value[p]?.missingSet?.has(ts))
+        )
+        if (!stillPending) {
+          searchWindowTs.value = searchWindowTs.value.filter(ts => !resolvedTsSet.has(ts))
+          if (searchWindowTs.value.length === 0 && isSearching.value) {
+            stopSearching(true)
+          }
         }
       }
     }
