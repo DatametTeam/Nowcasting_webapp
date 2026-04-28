@@ -44,66 +44,62 @@ nwc_webapp_v2/
 └── README.md
 ```
 
-## Prerequisites
+## Setup & Running
 
-- **Python 3.12** (via conda)
-- **Node.js** (v20+ recommended)
-- The `nwc_webapp` package installed (`pip install -e .` from the repo root)
+### 1. Conda environment
 
-### Conda Environment Setup
+The project uses a shared conda environment for both Python and Node.js (keeps everything self-contained and portable to HPC).
 
 ```bash
-# The project uses a shared conda environment
 eval "$(/path/to/miniconda3/bin/conda shell.bash hook)"
 conda activate nwc_webapp
 ```
 
-## Development
-
-Development uses two servers running simultaneously: the Vite dev server (hot-reload for the frontend) and the FastAPI backend.
-
-### 1. Start the backend
+If Node.js is not yet installed in the env:
 
 ```bash
-cd nwc_webapp_v2/backend
-uvicorn main:app --port 8000 --reload
+conda install -c conda-forge nodejs
 ```
 
-The backend automatically detects the environment:
-- **HPC**: Uses real PBS job submission + radar data from `/davinci-1/`
-- **Local**: Uses mock data generation for testing
+Install the Python package (from the repo root):
 
-API documentation is auto-generated at http://localhost:8000/docs
+```bash
+pip install -e .
+```
 
-### 2. Start the frontend
+### 2. Install frontend dependencies
 
 ```bash
 cd nwc_webapp_v2/frontend
-npm install       # first time only
-npx vite --port 5173
+npm install
 ```
 
-Open http://localhost:5173 in your browser.
+All frontend dependencies — including Vite and Rollup — are listed in `frontend/package.json` and installed by npm. No changes to `pyproject.toml` are needed for JS tooling.
 
-The Vite dev server proxies all `/api/*` requests to the FastAPI backend on port 8000 (configured in `vite.config.js`).
+### 3. Build the frontend
 
-## Production Build
-
-Build the frontend into static files that FastAPI serves directly:
+Always use the production build. Vite and Rollup are build-time tools only; the Vite dev server should **never** be used on a shared or remotely-accessible server (it has known file-read vulnerabilities over WebSocket).
 
 ```bash
 cd nwc_webapp_v2/frontend
-npm run build
+npm audit fix     # fix known vulnerabilities in build tooling
+npm run build     # outputs optimized HTML/JS/CSS to backend/static/
 ```
 
-This outputs optimized HTML/JS/CSS to `backend/static/`. Then only the backend server is needed:
+### 4. Start the backend
 
 ```bash
 cd nwc_webapp_v2/backend
 uvicorn main:app --port 8000
 ```
 
-FastAPI serves both the API and the SPA frontend from a single port.
+FastAPI serves both the API and the built frontend SPA from a single port. Open http://localhost:8000 in your browser.
+
+The backend automatically detects the environment:
+- **HPC**: Uses real PBS job submission + radar data from `/davinci-1/`
+- **Local**: Uses mock data generation for testing
+
+API documentation is auto-generated at http://localhost:8000/docs
 
 ## Pages
 
