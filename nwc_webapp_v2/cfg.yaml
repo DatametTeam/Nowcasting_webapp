@@ -13,10 +13,10 @@ enabled_tabs:
 # Available prediction models
 models:
   - ConvLSTM
-  - ED_ConvLSTM
   - IAM4VP
-  - PredFormer
   - SPROG
+  - ConvLSTM_SSIM
+  - ConvLSTM_v2
   - Test
 
 # Metrics thresholds
