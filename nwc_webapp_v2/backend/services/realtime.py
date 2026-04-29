@@ -331,13 +331,10 @@ class RealtimeService:
 
                 try:
                     if job_id and job_id.startswith("server_"):
-                        pid = int(job_id.split("_", 1)[1])
-                        os.kill(pid, 0)  # signal 0 = check existence
-                        status = "R"
+                        from nwc_webapp.hpc.jobs import get_server_process_status
+                        status = get_server_process_status(job_id)
                     else:
                         status = get_job_status(job_id)
-                except (ProcessLookupError, ValueError):
-                    status = "ended"
                 except Exception:
                     status = "ended"
 

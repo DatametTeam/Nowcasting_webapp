@@ -17,6 +17,37 @@ from nwc_webapp.logging_config import setup_logger
 # Set up logger
 logger = setup_logger(__name__)
 
+# Registry of active server subprocesses keyed by job_id ("server_{pid}").
+# Used by get_server_process_status() to call proc.poll() instead of os.kill(),
+# which correctly reaps zombie processes (os.kill(pid, 0) returns success on
+# zombies so a finished process would appear alive forever).
+_server_processes: dict[str, subprocess.Popen] = {}
+
+
+def get_server_process_status(job_id: str) -> str:
+    """
+    Check whether a server subprocess is still running.
+
+    Returns 'R' (running) or 'ended' (finished or not found).
+    Uses proc.poll() which reaps zombies; falls back to os.kill for
+    job_ids not in the registry (e.g. after a uvicorn restart).
+    """
+    import os
+    proc = _server_processes.get(job_id)
+    if proc is not None:
+        if proc.poll() is None:
+            return "R"
+        del _server_processes[job_id]
+        return "ended"
+
+    # Fallback for unknown processes (e.g. after restart)
+    try:
+        pid = int(job_id.split("_", 1)[1])
+        os.kill(pid, 0)
+        return "R"
+    except (ProcessLookupError, ValueError, IndexError, OSError):
+        return "ended"
+
 
 def modify_yaml_config_for_date_range(model_name: str, start_dt: datetime, end_dt: datetime) -> Path:
     """
@@ -133,6 +164,7 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
             with open(log_file, "w") as lf:
                 proc = subprocess.Popen(cmd, stdout=lf, stderr=subprocess.STDOUT)
             job_id = f"server_{proc.pid}"
+            _server_processes[job_id] = proc
             logger.info(f"✅ Inference process started! PID: {proc.pid}, job_id: {job_id}")
             return job_id
         except Exception as e:
@@ -338,6 +370,7 @@ def start_realtime_prediction_server(model: str, latest_sri: str) -> Optional[st
         with open(log_file, "w") as lf:
             proc = subprocess.Popen(cmd, stdout=lf, stderr=subprocess.STDOUT)
         job_id = f"server_{proc.pid}"
+        _server_processes[job_id] = proc
         logger.info(f"✅ [{model}] Inference started, PID: {proc.pid}")
         return job_id
     except Exception as e:

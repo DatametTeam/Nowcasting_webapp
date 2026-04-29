@@ -8,7 +8,6 @@ In Streamlit, job monitoring was a while-loop with time.sleep(2) that blocked
 the page. Here, the frontend polls GET /api/jobs/{id}/status every few seconds,
 or (later) receives updates via WebSocket.
 """
-import os
 from datetime import datetime
 from pathlib import Path
 
@@ -116,14 +115,11 @@ async def get_job_status(
     Returns:
         status: "Q" (queued), "R" (running), null (finished / not found)
     """
-    # Server mode: check subprocess by PID
+    # Server mode: check subprocess via proc.poll() (handles zombie processes)
     if job_id and job_id.startswith("server_"):
-        try:
-            pid = int(job_id.split("_", 1)[1])
-            os.kill(pid, 0)  # signal 0 = check existence without killing
-            status = "R"
-        except (ProcessLookupError, ValueError):
-            status = None
+        from nwc_webapp.hpc.jobs import get_server_process_status
+        raw = get_server_process_status(job_id)
+        status = "R" if raw == "R" else None
         return {"model": model, "status": status, "pbs_available": False}
 
     if not is_pbs_available():
