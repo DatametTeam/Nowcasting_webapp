@@ -13,7 +13,7 @@
     <!-- LEFT: Map area                                                    -->
     <!-- ================================================================ -->
     <div class="flex-1 flex flex-col relative min-w-0">
-      <RadarMap ref="radarMap" class="flex-1" />
+      <RadarMap ref="radarMap" class="flex-1" @mapclick="onMapClick" />
 
       <!-- Mobile sidebar toggle — top-right (Leaflet layer/search controls now live on top-left) -->
       <button
@@ -580,6 +580,77 @@ function computeRange(fresh = false) {
     return `${dt.getUTCFullYear()}-${p(dt.getUTCMonth()+1)}-${p(dt.getUTCDate())}T${p(dt.getUTCHours())}:${p(dt.getUTCMinutes())}`
   }
   return { start: fmt(startUtc), end: fmt(endUtc) }
+}
+
+// ---- Click-to-inspect popup ----
+// Per-product unit (read from the radarProducts config so it follows YAML).
+function unitFor(product) {
+  return radarProducts.value?.[product]?.unit || ''
+}
+
+function fmtValue(v) {
+  if (v === null || v === undefined || !Number.isFinite(v)) return 'N/A'
+  // Compact: 2 decimals if |v|<10, otherwise 1 (cleaner for VMI/ETM ranges).
+  return Math.abs(v) < 10 ? v.toFixed(2) : v.toFixed(1)
+}
+
+async function onMapClick(latlng) {
+  if (!radarMap.value) return
+  if (!timestamps.value.length) return
+  const ts = timestamps.value[frameIndex.value]
+  if (!ts) return
+
+  // Sample only the products the user has currently enabled.
+  const products = productOrder.value.filter(p => layerConfig.value[p].enabled)
+  if (products.length === 0) return
+
+  // Loading placeholder — popup opens immediately so the click feels responsive.
+  const loadingHtml = `
+    <div class="pi-header">${ts.replace('T', ' ')} (UTC)</div>
+    <div class="pi-row"><span class="pi-label">Loading…</span></div>
+  `
+  radarMap.value.showPopup(latlng, loadingHtml)
+
+  try {
+    const data = await api.samplePixel({
+      lat: latlng.lat,
+      lon: latlng.lng,
+      timestamp: ts,
+      products,
+    })
+
+    let body
+    if (!data.in_bounds) {
+      body = `<div class="pi-row"><span class="pi-label">Outside radar grid</span></div>`
+    } else {
+      const rows = products.map(p => {
+        const v = data.values?.[p]
+        const u = unitFor(p)
+        return `
+          <div class="pi-row">
+            <span class="pi-label">${SHORT_NAMES[p] || p}</span>
+            <span class="pi-value">${fmtValue(v)}${v != null && u ? ' ' + u : ''}</span>
+          </div>`
+      }).join('')
+      body = `
+        <div class="pi-row" style="margin-bottom:4px;">
+          <span class="pi-label">pixel</span>
+          <span class="pi-value">x ${data.x}, y ${data.y}</span>
+        </div>
+        ${rows}`
+    }
+
+    const html = `
+      <div class="pi-header">${ts.replace('T', ' ')} (UTC)</div>
+      ${body}
+    `
+    radarMap.value.showPopup(latlng, html)
+  } catch (e) {
+    radarMap.value.showPopup(
+      latlng,
+      `<div class="pi-row"><span class="pi-label">Error: ${e.message || e}</span></div>`,
+    )
+  }
 }
 
 // ---- Frame navigation ----

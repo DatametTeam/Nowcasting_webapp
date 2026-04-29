@@ -98,6 +98,24 @@ export default {
   checkSingleTarget: (timestamp) =>
     get(`/data/target/check-single?timestamp=${timestamp}`),
 
+  /**
+   * Sample radar product values (and optionally a model prediction) at a
+   * single (lat, lon) for the popup. Returns:
+   *   { lat, lon, x, y, in_bounds, timestamp, values: { SRI_adj, VMI, ..., __model__<name> } }
+   */
+  samplePixel: ({ lat, lon, timestamp, products = [], model = '', models = [], leadTime = 0 }) => {
+    const params = new URLSearchParams({
+      lat: String(lat),
+      lon: String(lon),
+      timestamp,
+      products: products.join(','),
+      lead_time: String(leadTime),
+    })
+    if (model) params.set('model', model)
+    if (models.length) params.set('models', models.join(','))
+    return get(`/data/sample?${params.toString()}`)
+  },
+
   /** Get which dates in a month have predictions (for calendar highlighting). */
   getCalendarAvailability: (models, year, month) =>
     get(`/data/predictions/calendar?models=${models.join(',')}&year=${year}&month=${month}`),

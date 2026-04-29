@@ -46,6 +46,9 @@ const props = defineProps({
   overlayOpacity: { type: Number, default: 0.7 },
 })
 
+// Emit click events with the clicked lat/lon so parents can show pixel-value popups.
+const emit = defineEmits(['mapclick'])
+
 const mapContainer = ref(null)
 const loading = ref(false)
 const loadedCount = ref(0)
@@ -176,6 +179,12 @@ onMounted(() => {
   // Dark map is the default — mark the container so CSS can invert icons
   const DARK_LAYERS = new Set(['Dark', 'Satellite'])
   mapContainer.value.classList.add('dark-basemap')
+
+  // Click → emit (lat, lon) so the parent view can fetch pixel values and
+  // display a popup. Skip clicks on existing popups, controls, or markers.
+  map.on('click', (e) => {
+    emit('mapclick', { lat: e.latlng.lat, lng: e.latlng.lng })
+  })
 
   map.on('baselayerchange', (e) => {
     if (DARK_LAYERS.has(e.name)) {
@@ -316,6 +325,42 @@ function bringFramesToFront() {
 function invalidateSize() {
   if (map) {
     nextTick(() => map.invalidateSize())
+  }
+}
+
+// ==========================================================================
+// Click-to-inspect popup
+// ==========================================================================
+
+let activePopup = null
+
+/**
+ * Open a Leaflet popup at (lat, lng) showing arbitrary HTML content.
+ * Closes any previously-open popup. Pass html='' to just close.
+ */
+function showPopup(latlng, html, options = {}) {
+  if (!map) return
+  if (activePopup) {
+    map.closePopup(activePopup)
+    activePopup = null
+  }
+  if (!html) return
+  activePopup = L.popup({
+    closeButton: true,
+    autoClose: true,
+    className: 'pixel-inspect-popup',
+    maxWidth: 280,
+    ...options,
+  })
+    .setLatLng(latlng)
+    .setContent(html)
+    .openOn(map)
+}
+
+function closePopup() {
+  if (map && activePopup) {
+    map.closePopup(activePopup)
+    activePopup = null
   }
 }
 
@@ -573,7 +618,7 @@ defineExpose({
   loadProductFrames, appendProductFrames, trimProductFrames, resolveProductFrame,
   showAllAtFrame, setProductOpacity, removeProduct, clearAllProducts, setProductOrder,
   // Utility
-  invalidateSize,
+  invalidateSize, showPopup, closePopup,
 })
 </script>
 
@@ -676,5 +721,46 @@ defineExpose({
 }
 .radar-tooltip::before {
   border-top-color: rgba(0, 0, 0, 0.8) !important;
+}
+
+/* Pixel-inspect popup — dark theme matching the rest of the UI. */
+.pixel-inspect-popup .leaflet-popup-content-wrapper {
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  color: white;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.pixel-inspect-popup .leaflet-popup-content {
+  margin: 10px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.pixel-inspect-popup .leaflet-popup-tip {
+  background: rgba(15, 23, 42, 0.95);
+}
+.pixel-inspect-popup .leaflet-popup-close-button {
+  color: rgba(255, 255, 255, 0.7) !important;
+  padding: 6px 8px 0 0 !important;
+}
+.pixel-inspect-popup .pi-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.pixel-inspect-popup .pi-label {
+  color: rgba(255, 255, 255, 0.6);
+}
+.pixel-inspect-popup .pi-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pixel-inspect-popup .pi-header {
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
 }
 </style>

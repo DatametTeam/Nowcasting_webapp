@@ -382,7 +382,7 @@ async def get_ensemble_overlay(
         raise HTTPException(status_code=400, detail="At least one model must be specified")
 
     from nwc_webapp.data.predictions import load_prediction_array
-    from matplotlib.cm import Blues as blues_cmap
+    from matplotlib.cm import Oranges as prob_cmap
 
     frames = []
     for model in model_list:
@@ -413,12 +413,32 @@ async def get_ensemble_overlay(
     # Reproject to Web Mercator (same lookup table as all other overlays)
     warped = _warp_frame(prob_map)
 
-    # Blues colormap: 0.0 → almost white, 1.0 → dark navy
+    # Oranges colormap: 0.0 → near-white, 1.0 → deep orange/brown.
+    # Stays legible on dark, OSM, and satellite basemaps (blue/green) alike.
     warped_safe = np.where(np.isfinite(warped), np.clip(warped, 0.0, 1.0), 0.0)
-    rgba = blues_cmap(warped_safe)   # (H, W, 4) float 0–1
+    rgba = prob_cmap(warped_safe)   # (H, W, 4) float 0–1
 
     # Transparent where probability == 0 (no model predicts rain) or outside domain
     rgba[~np.isfinite(warped) | (warped <= 0.0)] = [0.0, 0.0, 0.0, 0.0]
+
+    # Dark probability contour lines so even the lightest values stay visible.
+    # Compute pixel-level boundaries where `warped > level`: any pixel that is
+    # >level but has a 4-neighbor that is <=level is on the boundary. We OR
+    # boundaries across several levels and stamp them dark grey on the RGBA.
+    contour_levels = (0.25, 0.5, 0.75)
+    valid = np.isfinite(warped)
+    edges = np.zeros(warped.shape, dtype=bool)
+    for lvl in contour_levels:
+        above = (warped > lvl) & valid
+        # 4-neighbor edge: True where `above` differs from any neighbor
+        e = np.zeros_like(above)
+        e[1:, :]  |= above[1:, :]  & ~above[:-1, :]
+        e[:-1, :] |= above[:-1, :] & ~above[1:, :]
+        e[:, 1:]  |= above[:, 1:]  & ~above[:, :-1]
+        e[:, :-1] |= above[:, :-1] & ~above[:, 1:]
+        edges |= e
+    # Dark grey, fully opaque — readable on any basemap
+    rgba[edges] = [0.15, 0.15, 0.15, 1.0]
 
     img = Image.fromarray((rgba * 255).astype(np.uint8))
     buffer = io.BytesIO()

@@ -37,6 +37,7 @@
         ref="radarMap"
         class="flex-1"
         :overlay-opacity="overlayOpacity"
+        @mapclick="onMapClick"
       />
 
       <!-- Notification toast — floating at top center of map -->
@@ -59,7 +60,7 @@
       <!-- Ensemble mode: single probability colorbar. Normal: SRI + optional IR. -->
       <div class="absolute right-[10px] z-[1001]
                   top-16 sm:top-auto
-                  bottom-[calc(100px+env(safe-area-inset-bottom))] sm:bottom-[110px]
+                  bottom-[calc(105px+env(safe-area-inset-bottom))] sm:bottom-[110px]
                   flex flex-col justify-end gap-1.5 items-end
                   max-h-[calc(100dvh-15rem)] sm:max-h-none
                   overflow-y-auto">
@@ -378,16 +379,20 @@
           </label>
         </div>
 
-        <!-- Threshold selector -->
+        <!-- Threshold slider (0–50 mm/h, step 0.5) -->
         <div class="flex items-center gap-2">
           <span class="text-xs text-gray-400 flex-shrink-0">Threshold</span>
-          <select
+          <input
+            type="range"
             v-model.number="ensembleThreshold"
-            class="flex-1 rounded border border-gray-600 bg-gray-800 text-gray-200
-                   px-2 py-1 text-xs focus:border-purple-500 focus:outline-none"
-          >
-            <option v-for="t in THRESHOLDS" :key="t" :value="t">{{ t }} mm/h</option>
-          </select>
+            min="0"
+            max="50"
+            step="0.5"
+            class="flex-1 accent-purple-500 cursor-pointer"
+          />
+          <span class="text-xs font-semibold text-purple-300 tabular-nums w-16 text-right">
+            {{ ensembleThreshold.toFixed(1) }} mm/h
+          </span>
         </div>
 
         <p v-if="ensembleActive" class="text-[10px] text-purple-400 mt-2">
@@ -504,20 +509,20 @@ const irEnabled = ref(false)
 const irOpacity = ref(0.75)
 
 // ---- Probabilistic ensemble ----
-const THRESHOLDS = [0.2, 0.5, 1, 2, 5, 10, 25]
 const ensembleActive = ref(false)
 const ensembleModels = ref([])     // populated in onMounted once model list is loaded
 const ensembleThreshold = ref(2.0) // default: 2 mm/h
 
-// Probability colorbar legend: Blues palette, ticks in percent
+// Probability colorbar legend: Oranges palette (matplotlib), ticks in percent.
+// Stays legible on dark, OSM, and satellite basemaps alike.
 const probLegend = computed(() => ({
-  unit: `P > ${ensembleThreshold.value} mm/h`,
+  unit: `P > ${ensembleThreshold.value.toFixed(1)} mm/h`,
   thresholds: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
   colors: [
-    'rgb(247,251,255)', 'rgb(222,235,247)', 'rgb(198,219,239)',
-    'rgb(158,202,225)', 'rgb(107,174,214)', 'rgb(66,146,198)',
-    'rgb(33,113,181)',  'rgb(8,81,156)',    'rgb(8,48,107)',
-    'rgb(8,20,80)',     'rgb(3,10,60)',
+    'rgb(255,245,235)', 'rgb(254,230,206)', 'rgb(253,208,162)',
+    'rgb(253,174,107)', 'rgb(253,141,60)',  'rgb(241,105,19)',
+    'rgb(217,72,1)',    'rgb(166,54,3)',    'rgb(127,39,4)',
+    'rgb(102,30,3)',    'rgb(80,22,2)',
   ],
 }))
 
@@ -569,6 +574,153 @@ function cycleSpeed() {
  */
 function frameToMinutes(index) {
   return (index - CURRENT_INDEX) * 5
+}
+
+// ---- Click-to-inspect popup ----
+// Build the timestamp string the backend expects: "YYYY-MM-DDTHH:MM" (no Z).
+function isoNoTz(dt) {
+  const p = n => String(n).padStart(2, '0')
+  return `${dt.getUTCFullYear()}-${p(dt.getUTCMonth()+1)}-${p(dt.getUTCDate())}T${p(dt.getUTCHours())}:${p(dt.getUTCMinutes())}:00`
+}
+
+function fmtMm(v) {
+  if (v === null || v === undefined || !Number.isFinite(v)) return 'N/A'
+  return Math.abs(v) < 10 ? v.toFixed(2) : v.toFixed(1)
+}
+
+async function onMapClick(latlng) {
+  if (!radarMap.value) return
+
+  if (!latestTimestamp.value) return
+
+  const idx = frameIndex.value
+  const isFuture = idx > CURRENT_INDEX
+  const baseDt = new Date(latestTimestamp.value)
+  const frameDt = new Date(baseDt.getTime() + frameToMinutes(idx) * 60000)
+
+  const headerLabel = `${formatDateTimeInRome(frameDt)}`
+  radarMap.value.showPopup(
+    latlng,
+    `<div class="pi-header">${headerLabel}</div>
+     <div class="pi-row"><span class="pi-label">Loading…</span></div>`,
+  )
+
+  try {
+    let data
+    let mode  // 'ensemble' | 'future' | 'past'
+    if (isFuture && ensembleActive.value && ensembleModels.value.length > 0) {
+      mode = 'ensemble'
+      const leadTime = idx - CURRENT_INDEX - 1
+      data = await api.samplePixel({
+        lat: latlng.lat,
+        lon: latlng.lng,
+        timestamp: isoNoTz(baseDt),
+        products: [],
+        models: ensembleModels.value,
+        leadTime,
+      })
+    } else if (isFuture) {
+      mode = 'future'
+      if (!selectedModel.value) {
+        radarMap.value.showPopup(
+          latlng,
+          `<div class="pi-header">${headerLabel}</div>
+           <div class="pi-row"><span class="pi-label">No model selected</span></div>`,
+        )
+        return
+      }
+      const leadTime = idx - CURRENT_INDEX - 1
+      data = await api.samplePixel({
+        lat: latlng.lat,
+        lon: latlng.lng,
+        timestamp: isoNoTz(baseDt),
+        products: [],
+        model: selectedModel.value,
+        leadTime,
+      })
+    } else {
+      mode = 'past'
+      data = await api.samplePixel({
+        lat: latlng.lat,
+        lon: latlng.lng,
+        timestamp: isoNoTz(frameDt),
+        products: ['SRI_adj'],
+      })
+    }
+
+    let body
+    if (!data.in_bounds) {
+      body = `<div class="pi-row"><span class="pi-label">Outside radar grid</span></div>`
+    } else {
+      const rowPixel = `
+        <div class="pi-row" style="margin-bottom:4px;">
+          <span class="pi-label">pixel</span>
+          <span class="pi-value">x ${data.x}, y ${data.y}</span>
+        </div>`
+
+      let rowValue
+      if (mode === 'ensemble') {
+        const thr = ensembleThreshold.value
+        const perModel = data.models || {}
+        const names = Object.keys(perModel)
+        const valid = names.filter(n => perModel[n] !== null && Number.isFinite(perModel[n]))
+        const exceed = valid.filter(n => perModel[n] > thr)
+        const probPct = valid.length > 0
+          ? Math.round((exceed.length / valid.length) * 100)
+          : null
+
+        // Header summary + per-model breakdown.
+        const summary = `
+          <div class="pi-row" style="margin-bottom:4px;">
+            <span class="pi-label">P &gt; ${thr.toFixed(1)} mm/h</span>
+            <span class="pi-value" style="color:#fdba74;">
+              ${probPct === null ? 'N/A' : probPct + '%'}
+              ${valid.length ? `<span style="color:rgba(255,255,255,0.5);font-weight:400;">&nbsp;(${exceed.length}/${valid.length})</span>` : ''}
+            </span>
+          </div>`
+        const perModelRows = names.map(n => {
+          const v = perModel[n]
+          const exceeds = v != null && Number.isFinite(v) && v > thr
+          const dot = exceeds
+            ? '<span style="color:#fdba74;">●</span>'
+            : v == null ? '<span style="color:rgba(255,255,255,0.3);">○</span>'
+                        : '<span style="color:rgba(255,255,255,0.3);">○</span>'
+          return `
+            <div class="pi-row">
+              <span class="pi-label">${dot} ${n}</span>
+              <span class="pi-value">${fmtMm(v)}${v != null ? ' mm/h' : ''}</span>
+            </div>`
+        }).join('')
+        rowValue = summary + perModelRows
+      } else if (mode === 'future') {
+        const v = data.values?.[`__model__${selectedModel.value}`]
+        rowValue = `
+          <div class="pi-row">
+            <span class="pi-label">${selectedModel.value}</span>
+            <span class="pi-value">${fmtMm(v)}${v != null ? ' mm/h' : ''}</span>
+          </div>`
+      } else {
+        const v = data.values?.SRI_adj
+        rowValue = `
+          <div class="pi-row">
+            <span class="pi-label">SRI</span>
+            <span class="pi-value">${fmtMm(v)}${v != null ? ' mm/h' : ''}</span>
+          </div>`
+      }
+      body = rowPixel + rowValue
+    }
+
+    radarMap.value.showPopup(
+      latlng,
+      `<div class="pi-header">${headerLabel}</div>${body}`,
+    )
+  } catch (e) {
+    radarMap.value.showPopup(
+      latlng,
+      `<div class="pi-header">${headerLabel}</div>
+       <div class="pi-row"><span class="pi-label">Error: ${e.message || e}</span></div>`,
+    )
+  }
 }
 
 /**
@@ -751,8 +903,17 @@ watch(irEnabled, async (enabled) => {
 })
 
 // Ensemble: any change to active state, models, or threshold → reload frames
-watch([ensembleActive, ensembleThreshold], () => { preloadAllFrames() })
+watch(ensembleActive, () => { preloadAllFrames() })
 watch(ensembleModels, () => { preloadAllFrames() }, { deep: true })
+
+// Threshold slider fires on every step — debounce so we don't flood the
+// backend with reload requests while the user is dragging.
+let thresholdReloadTimer = null
+watch(ensembleThreshold, () => {
+  if (!ensembleActive.value) return
+  if (thresholdReloadTimer) clearTimeout(thresholdReloadTimer)
+  thresholdReloadTimer = setTimeout(() => { preloadAllFrames() }, 300)
+})
 
 // IR opacity: update the currently visible IR frame
 watch(irOpacity, (opacity) => {

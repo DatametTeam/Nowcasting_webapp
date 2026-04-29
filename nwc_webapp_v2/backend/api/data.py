@@ -34,6 +34,143 @@ router = APIRouter(prefix="/api/data", tags=["data"])
 
 
 # ============================================================================
+# Pixel sampling — click-to-inspect popup support
+# ============================================================================
+
+@router.get("/sample")
+async def sample_pixel(
+    lat: float = Query(..., description="Latitude (WGS84)"),
+    lon: float = Query(..., description="Longitude (WGS84)"),
+    timestamp: str = Query(..., description="Datetime (YYYY-MM-DDTHH:MM)"),
+    products: str = Query("", description="Comma-separated radar product names (SRI_adj,VMI,ETM,VIL,IR_108)"),
+    model: str = Query("", description="Optional single model name to sample prediction value"),
+    models: str = Query("", description="Comma-separated model names to sample (probabilistic mode)"),
+    lead_time: int = Query(0, description="Lead-time index (0–11) for the prediction"),
+):
+    """
+    Sample radar product values and/or a model prediction at a single (lat, lon).
+
+    Inverts the source TMerc projection to recover (line, col) grid indices
+    on the 1400x1200 source grid, then reads each requested HDF5/TIFF file
+    and the model prediction npy at that pixel.
+
+    Missing files / out-of-bounds pixels produce null values rather than 500s
+    so the popup still renders for the products that did succeed.
+    """
+    import h5py
+    import numpy as np
+    from PIL import Image
+    from pyproj import Proj
+
+    try:
+        dt = datetime.fromisoformat(timestamp)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid datetime: {e}")
+
+    config = get_config()
+    src = config.source_grid
+
+    # lat/lon → tmerc x,y → grid (line, col)
+    proj = Proj(proj="tmerc", lat_0=src.prj_lat, lon_0=src.prj_lon, x_0=0, y_0=0, ellps="WGS84")
+    x_m, y_m = proj(lon, lat)
+    col = int(round(x_m / src.cRes + src.cOff))
+    line = int(round(y_m / src.lRes + src.lOff))
+
+    in_bounds = (0 <= col < src.ncols) and (0 <= line < src.nlines)
+
+    result: dict = {
+        "lat": lat,
+        "lon": lon,
+        "x": col,
+        "y": line,
+        "in_bounds": in_bounds,
+        "timestamp": timestamp,
+        "values": {},
+    }
+
+    if not in_bounds:
+        return result
+
+    # --- Sample radar products (HDF5 / TIFF) ---
+    product_list = [p.strip() for p in products.split(",") if p.strip()]
+    radar_products = config.radar_products
+
+    for product in product_list:
+        if product not in radar_products:
+            result["values"][product] = None
+            continue
+
+        product_cfg = radar_products[product]
+        file_format = product_cfg.get("file_format", "hdf")
+        stem = dt.strftime("%d-%m-%Y-%H-%M")
+
+        try:
+            if file_format == "tiff":
+                file_path = config.find_product_file(product, dt, stem + ".tif")
+                if file_path is None:
+                    file_path = config.find_product_file(product, dt, stem + ".tiff")
+                if file_path is None:
+                    result["values"][product] = None
+                    continue
+                pil_img = Image.open(file_path)
+                # PIL is lazy; only decode the row we need.
+                arr = np.array(pil_img, dtype=float)
+                value = float(arr[line, col])
+            else:
+                filename = stem + ".hdf"
+                file_path = config.find_product_file(product, dt, filename)
+                if file_path is None:
+                    result["values"][product] = None
+                    continue
+                with h5py.File(file_path, "r") as f:
+                    if "dataset1/data1/data" not in f:
+                        result["values"][product] = None
+                        continue
+                    # Slice by index — h5py reads only the requested element.
+                    value = float(f["dataset1/data1/data"][line, col])
+
+            if not np.isfinite(value):
+                value = None
+            result["values"][product] = value
+        except Exception as e:
+            logger.warning(f"Sample {product} at ({lat},{lon}) {timestamp}: {e}")
+            result["values"][product] = None
+
+    # --- Sample model prediction(s) (npy) ---
+    # `model` (single) and `models` (CSV) coexist. Single goes under values
+    # with a __model__ prefix for back-compat; CSV goes under a 'models' dict
+    # mapping name → value for the probabilistic-mode popup.
+    model_list = [m.strip() for m in models.split(",") if m.strip()]
+    if model and model not in model_list:
+        model_list.append(model)
+
+    if model_list:
+        from nwc_webapp.data.predictions import load_prediction_array
+
+        pred_filename = dt.strftime("%d-%m-%Y-%H-%M") + ".npy"
+        per_model: dict = {}
+        for m in model_list:
+            pred_path = config.real_time_pred / m / pred_filename
+            v_out = None
+            if pred_path.exists():
+                try:
+                    arr = load_prediction_array(pred_path, m)
+                    if arr is not None and 0 <= lead_time < arr.shape[0]:
+                        v = float(arr[lead_time, line, col])
+                        v_out = v if np.isfinite(v) else None
+                except Exception as e:
+                    logger.warning(f"Sample model {m} at ({lat},{lon}) {timestamp}: {e}")
+            per_model[m] = v_out
+
+        result["models"] = per_model
+        # Back-compat: also expose the single-model value under values[__model__...]
+        if model:
+            result["values"][f"__model__{model}"] = per_model.get(model)
+
+    return result
+
+
+# ============================================================================
 # SRI (radar input) endpoints
 # ============================================================================
 
