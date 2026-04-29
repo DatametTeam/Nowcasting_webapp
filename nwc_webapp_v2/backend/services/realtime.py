@@ -30,7 +30,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 
 from nwc_webapp.config.config import get_config
-from nwc_webapp.config.environment import is_hpc
+from nwc_webapp.config.environment import is_hpc, is_server
 
 logger = logging.getLogger(__name__)
 
@@ -120,10 +120,10 @@ class RealtimeService:
             self._notification = ""
 
         # Spawn the appropriate loop as a daemon thread
-        target = self._hpc_loop if is_hpc() else self._local_loop
+        target = self._hpc_loop if (is_hpc() or is_server()) else self._local_loop
         self._thread = threading.Thread(target=target, daemon=True, name="realtime-loop")
         self._thread.start()
-        mode = "hpc" if is_hpc() else "local"
+        mode = "hpc" if is_hpc() else ("server" if is_server() else "local")
         logger.info("RealtimeService started (%s mode)", mode)
 
         return {"ok": True, "mode": mode}
@@ -163,7 +163,7 @@ class RealtimeService:
         with self._lock:
             return copy.deepcopy({
                 "active": self._active,
-                "mode": "hpc" if is_hpc() else "local",
+                "mode": "hpc" if is_hpc() else ("server" if is_server() else "local"),
                 "latest_sri": self._latest_sri,
                 "latest_sri_timestamp": self._latest_sri_timestamp,
                 "notification": self._notification,
@@ -176,7 +176,8 @@ class RealtimeService:
 
     def _hpc_loop(self):
         """
-        Real HPC loop — polls the SRI folder every 1 s continuously.
+        Real prediction loop — polls the SRI folder every 1 s continuously.
+        Used for both HPC (PBS jobs) and server mode (direct subprocess).
 
         SRI files arrive every 5 minutes with a ~6-min server delay, so the
         file timestamped HH:25 typically lands around HH:31:30.  1-second
@@ -188,11 +189,14 @@ class RealtimeService:
 
         On new data:
           1. Check each model — skip if prediction .npy already exists
-          2. Submit PBS jobs for remaining models
+          2. Submit jobs (PBS on HPC, subprocess on server)
           3. Monitor job statuses until all resolve
           4. Resume polling for the next arrival
         """
-        from nwc_webapp.hpc.pbs import start_prediction_job
+        if is_server():
+            from nwc_webapp.hpc.jobs import start_realtime_prediction_server as _submit
+        else:
+            from nwc_webapp.hpc.pbs import start_prediction_job as _submit
 
         config = get_config()
         sri_folder = Path(str(config.sri_folder))
@@ -248,7 +252,7 @@ class RealtimeService:
                     with self._lock:
                         self._models[model] = {"status": "queued", "job_id": None}
                     try:
-                        job_id = start_prediction_job(model, latest)
+                        job_id = _submit(model, latest)
                         with self._lock:
                             self._models[model]["job_id"] = job_id
                         if job_id is None:
@@ -300,9 +304,7 @@ class RealtimeService:
         Poll job statuses every 5s until all models are resolved (ready/failed)
         or 30 minutes have passed.
 
-        Uses get_job_status(job_id) directly instead of get_model_job_status(model),
-        because the latter tries to read streamlit.session_state which doesn't
-        exist in the FastAPI context.
+        Handles both PBS job IDs (HPC) and server_{pid} job IDs (server mode).
         """
         from nwc_webapp.hpc.pbs import get_job_status
 
@@ -328,7 +330,14 @@ class RealtimeService:
                     continue
 
                 try:
-                    status = get_job_status(job_id)
+                    if job_id and job_id.startswith("server_"):
+                        pid = int(job_id.split("_", 1)[1])
+                        os.kill(pid, 0)  # signal 0 = check existence
+                        status = "R"
+                    else:
+                        status = get_job_status(job_id)
+                except (ProcessLookupError, ValueError):
+                    status = "ended"
                 except Exception:
                     status = "ended"
 
