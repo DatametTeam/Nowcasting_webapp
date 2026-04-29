@@ -39,17 +39,24 @@ fss_window_sizes: [1, 5, 10, 20]
 
 # HPC paths (used when running on davinci cluster)
 hpc_paths:
-  sri_folder: "/davinci-1/work/protezionecivile/data1/SRI_adj"
-  prediction_output: "/davinci-1/work/protezionecivile/nwc_webapp/"
   data_root: "/davinci-1/work/protezionecivile"
+  prediction_output: "/davinci-1/work/protezionecivile/nwc_webapp/"
   real_time_pred: "/davinci-1/work/protezionecivile/nwc_webapp/real_time_results"
+  archive_folder: "/davinci-1/work/protezionecivile/data"
 
-# Local paths (used for development)
+# Server paths (used when running on a dedicated GPU server without job scheduler)
+server_paths:
+  data_root: "/home/ubuntu/data1"
+  prediction_output: "/home/ubuntu/data1/nwc_webapp/"
+  real_time_pred: "/home/ubuntu/data1/nwc_webapp/real_time_results"
+  archive_folder: "/home/ubuntu/data"
+
+# Local paths (used for local development with mock data)
 local_paths:
-  sri_folder: "data/mock_sri"
-  prediction_output: "data/predictions"
   data_root: "data"
+  prediction_output: "data/predictions"
   real_time_pred: "data/predictions/real_time_pred"
+  archive_folder: ""
 
 # Radar mask (relative to package root)
 radar_mask_path: "resources/mask/mask_correct.hdf"
@@ -127,42 +134,32 @@ logging:
   log_to_file: false
   log_to_console: true
 
-# Archive data folder for radar products older than ~3 days.
-# Structure: {archive_folder}/YYYY/MM/DD/{product}/{filename}
-# Recent data (last ~3 days) stays in folder_hpc / folder_local defined per-product.
-data_archive_folder_hpc: "/davinci-1/work/protezionecivile/data"
-data_archive_folder_local: ""
-
-# Radar products for the Data Explorer tab
+# Radar products for the Data Explorer tab.
+# 'folder' supports {data_root} which is resolved from the active paths section.
 radar_products:
   SRI_adj:
     legend: "R"
     label: "Rain Rate"
     unit: "mm/h"
-    folder_local: "data/mock_sri"
-    folder_hpc: "/davinci-1/work/protezionecivile/data1/SRI_adj"
+    folder: "{data_root}/SRI_adj"
   VMI:
     legend: "CZ"
     label: "Reflectivity"
     unit: "dBZ"
-    folder_local: ""
-    folder_hpc: "/davinci-1/work/protezionecivile/data1/VMI"
+    folder: "{data_root}/VMI"
   ETM:
     legend: "ETM"
     label: "Echo Top"
     unit: "m"
-    folder_local: ""
-    folder_hpc: "/davinci-1/work/protezionecivile/data1/ETM"
+    folder: "{data_root}/ETM"
   VIL:
     legend: "VIL"
     label: "VIL"
     unit: "kg/m²"
-    folder_local: ""
-    folder_hpc: "/davinci-1/work/protezionecivile/data1/VIL"
+    folder: "{data_root}/VIL"
   IR_108:
     legend: "IR_Temp"
     label: "IR Temperature"
     unit: "°C"
     file_format: "tiff"
-    folder_local: "data/mock_ir"
-    folder_hpc: "/davinci-1/work/protezionecivile/data1/IR_108"
+    folder: "{data_root}/IR_108"

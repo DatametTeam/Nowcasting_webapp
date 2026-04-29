@@ -137,7 +137,7 @@ onMounted(async () => {
     backendConnected.value = true
     // Load config into the Pinia store — all pages can now access it
     await configStore.fetchConfig()
-    environment.value = configStore.isHpc ? 'HPC Mode' : 'Local Mode'
+    environment.value = configStore.isHpc ? 'HPC Mode' : (configStore.isServer ? 'Server Mode' : 'Local Mode')
   } catch (e) {
     backendConnected.value = false
     environment.value = 'disconnected'

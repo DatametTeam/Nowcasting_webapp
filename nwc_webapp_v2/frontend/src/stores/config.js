@@ -26,6 +26,7 @@ export const useConfigStore = defineStore('config', {
     models: [],
     environment: 'unknown',
     isHpc: false,
+    isServer: false,
     sriFolder: '',
     csiThresholds: [],
     radarProducts: {},
@@ -46,6 +47,7 @@ export const useConfigStore = defineStore('config', {
         this.models = data.models
         this.environment = data.environment
         this.isHpc = data.environment === 'hpc'
+        this.isServer = data.environment === 'server'
         this.sriFolder = data.sri_folder
         this.csiThresholds = data.csi_thresholds
         this.radarProducts = data.radar_products || {}

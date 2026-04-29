@@ -182,8 +182,8 @@ class Config:
 
     @property
     def sri_folder(self) -> Path:
-        """Get SRI data folder path."""
-        return Path(self.get_paths().get("sri_folder", "data/mock_sri"))
+        """Get SRI data folder path — derived from the SRI_adj product folder."""
+        return self.get_product_folder("SRI_adj") or (self.data_root / "SRI_adj")
 
     @property
     def prediction_output(self) -> Path:
@@ -233,20 +233,23 @@ class Config:
 
     def get_product_folder(self, product_name: str) -> Optional[Path]:
         """
-        Get the data folder for a radar product based on the current environment.
+        Get the data folder for a radar product, resolving {data_root} templates.
 
         Args:
             product_name: Product key (e.g. 'SRI_adj', 'VMI')
 
         Returns:
-            Path to product folder, or None if not configured for this environment.
+            Path to product folder, or None if not configured.
         """
         products = self.radar_products
         if product_name not in products:
             return None
         product = products[product_name]
-        folder = product.get("folder_hpc", "") if is_hpc() else product.get("folder_local", "")
-        return Path(folder) if folder else None
+        folder = product.get("folder", "")
+        if not folder:
+            return None
+        resolved = folder.replace("{data_root}", str(self.data_root))
+        return Path(resolved)
 
     @property
     def data_archive_folder(self) -> Optional[Path]:
@@ -256,8 +259,7 @@ class Config:
         Files in the archive are organised as:
             {archive_folder}/YYYY/MM/DD/{product}/{filename}
         """
-        key = "data_archive_folder_hpc" if is_hpc() else "data_archive_folder_local"
-        folder = self._config.get(key, "")
+        folder = self.get_paths().get("archive_folder", "")
         return Path(folder) if folder else None
 
     def find_product_file(self, product_name: str, dt: datetime, filename: str) -> Optional[Path]:
