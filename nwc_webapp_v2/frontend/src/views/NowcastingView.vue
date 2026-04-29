@@ -59,7 +59,7 @@
       <!-- Ensemble mode: single probability colorbar. Normal: SRI + optional IR. -->
       <div class="absolute right-[10px] z-[1001]
                   top-16 sm:top-auto
-                  bottom-[calc(130px+env(safe-area-inset-bottom))] sm:bottom-[80px]
+                  bottom-[calc(100px+env(safe-area-inset-bottom))] sm:bottom-[110px]
                   flex flex-col justify-end gap-1.5 items-end
                   max-h-[calc(100dvh-15rem)] sm:max-h-none
                   overflow-y-auto">
@@ -104,11 +104,16 @@
         <div class="flex items-center justify-between text-white mb-2">
           <div class="text-sm font-medium hidden sm:block">
             <span class="text-gray-300">Model:</span>
-            <span class="ml-1 font-bold">{{ selectedModel || 'None' }}</span>
+            <span class="ml-1 font-bold">{{ ensembleActive ? 'Probabilistic' : (selectedModel || 'None') }}</span>
           </div>
           <div class="text-center">
             <span class="text-sm sm:text-2xl font-bold tabular-nums">
               {{ frameMinutesDisplay }}
+            </span>
+            <!-- Inline model label — mobile only; desktop shows it on the left -->
+            <span class="sm:hidden ml-1.5 text-[10px] text-gray-300">
+              <span class="text-gray-400">Model:</span>
+              <span class="ml-0.5 font-semibold text-white">{{ ensembleActive ? 'Probabilistic' : (selectedModel || '—') }}</span>
             </span>
             <span
               class="ml-2 text-[10px] sm:text-xs font-medium px-1.5 sm:px-2 py-0.5 rounded-full"
