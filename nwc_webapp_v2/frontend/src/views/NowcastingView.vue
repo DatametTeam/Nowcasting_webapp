@@ -27,7 +27,7 @@
   - Any tab can start or stop the service
 -->
 <template>
-  <div class="h-[calc(100vh-3.5rem)] flex">
+  <div class="h-[calc(100vh-3rem)] sm:h-[calc(100vh-3.5rem)] flex">
 
     <!-- ================================================================ -->
     <!-- LEFT: Map area (takes all available width)                       -->
@@ -57,7 +57,9 @@
 
       <!-- Colorbars — floating on the map, bottom right (above the timeline bar) -->
       <!-- Ensemble mode: single probability colorbar. Normal: SRI + optional IR. -->
-      <div class="absolute bottom-[110px] right-[10px] z-[1001] flex flex-col gap-1.5 items-end">
+      <div class="absolute right-[10px] z-[1001]
+                  bottom-[calc(120px+env(safe-area-inset-bottom))] sm:bottom-[110px]
+                  flex flex-col gap-1.5 items-end">
         <template v-if="ensembleActive">
           <ColorBar :legend="probLegend" product-name="P(%)" />
         </template>
@@ -78,7 +80,7 @@
       <button
         v-if="!sidebarOpen"
         @click="sidebarOpen = true"
-        class="absolute top-3 right-3 z-[1001] lg:hidden
+        class="absolute top-3 left-3 z-[1001] lg:hidden
                w-10 h-10 flex items-center justify-center rounded-full
                bg-white shadow-lg border border-gray-200 text-gray-600
                hover:bg-gray-50 transition-colors"
@@ -92,7 +94,8 @@
 
       <div class="absolute bottom-0 left-0 right-0 z-[1000]
                   bg-gradient-to-t from-black/80 via-black/60 to-transparent
-                  px-3 sm:px-6 pt-10 pb-4">
+                  px-3 sm:px-6 pt-6 sm:pt-10
+                  pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:pb-4">
 
         <!-- Current time display -->
         <div class="flex items-center justify-between text-white mb-2">
@@ -101,11 +104,11 @@
             <span class="ml-1 font-bold">{{ selectedModel || 'None' }}</span>
           </div>
           <div class="text-center">
-            <span class="text-lg sm:text-2xl font-bold tabular-nums">
+            <span class="text-sm sm:text-2xl font-bold tabular-nums">
               {{ frameMinutesDisplay }}
             </span>
             <span
-              class="ml-2 text-xs font-medium px-2 py-0.5 rounded-full"
+              class="ml-2 text-[10px] sm:text-xs font-medium px-1.5 sm:px-2 py-0.5 rounded-full"
               :class="frameIndex <= 12
                 ? 'bg-emerald-500/30 text-emerald-300'
                 : ensembleActive
@@ -196,7 +199,7 @@
     />
     <div
       class="bg-gray-900 border-l border-gray-700 flex flex-col overflow-y-auto
-             fixed right-0 top-14 bottom-0 z-[1101] w-72
+             fixed right-0 top-12 sm:top-14 bottom-0 z-[1101] w-72
              transform transition-transform duration-200 ease-out
              lg:static lg:translate-x-0 lg:z-auto"
       :class="sidebarOpen ? 'translate-x-0' : 'translate-x-full'"

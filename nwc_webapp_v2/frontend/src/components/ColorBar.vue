@@ -95,6 +95,36 @@ const gradient = computed(() => {
   gap: 3px;
 }
 
+/* Mobile: smaller colorbar so it doesn't dominate the screen */
+@media (max-width: 640px) {
+  .colorbar-container {
+    padding: 4px 3px;
+    gap: 2px;
+  }
+  .colorbar-body {
+    height: 110px;
+    gap: 2px;
+  }
+  .colorbar-label {
+    width: 9px;
+    font-size: 8px;
+    letter-spacing: 0.5px;
+  }
+  .colorbar-gradient {
+    width: 8px;
+  }
+  .colorbar-ticks {
+    width: 18px;
+  }
+  .colorbar-tick {
+    font-size: 8px;
+    left: 1px;
+  }
+  .colorbar-unit {
+    font-size: 8px;
+  }
+}
+
 /* Vertical product label (e.g. "SRI") */
 .colorbar-label {
   width: 12px;

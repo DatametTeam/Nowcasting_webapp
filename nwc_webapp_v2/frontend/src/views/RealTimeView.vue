@@ -7,7 +7,7 @@
   when off, the user's current frame position is preserved across updates.
 -->
 <template>
-  <div class="h-[calc(100vh-3.5rem)] flex overflow-hidden">
+  <div class="h-[calc(100vh-3rem)] sm:h-[calc(100vh-3.5rem)] flex overflow-hidden">
 
     <!-- ================================================================ -->
     <!-- LEFT: Map area                                                    -->
@@ -15,11 +15,11 @@
     <div class="flex-1 flex flex-col relative min-w-0">
       <RadarMap ref="radarMap" class="flex-1" />
 
-      <!-- Mobile sidebar toggle -->
+      <!-- Mobile sidebar toggle (top-left so it doesn't overlap the Leaflet layer/search controls at top-right) -->
       <button
         v-if="!sidebarOpen"
         @click="sidebarOpen = true"
-        class="absolute top-3 right-3 z-[1001] lg:hidden
+        class="absolute top-3 left-3 z-[1001] lg:hidden
                w-10 h-10 flex items-center justify-center rounded-full
                bg-white shadow-lg border border-gray-200 text-gray-600"
       >
@@ -30,7 +30,8 @@
 
       <!-- Stacked colorbars — bottom right, above timeline -->
       <div
-        class="absolute bottom-[110px] right-[10px] z-[1001]
+        class="absolute right-[10px] z-[1001]
+               bottom-[calc(120px+env(safe-area-inset-bottom))] sm:bottom-[110px]
                flex flex-col gap-1.5 items-end
                max-h-[calc(100vh-18rem)] overflow-y-auto"
       >
@@ -48,7 +49,8 @@
       <div
         class="absolute bottom-0 left-0 right-0 z-[1000]
                bg-gradient-to-t from-black/80 via-black/60 to-transparent
-               px-3 sm:px-6 pt-10 pb-4"
+               px-3 sm:px-6 pt-6 sm:pt-10
+               pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:pb-4"
         :class="{ 'pointer-events-none opacity-40': !isLoaded }"
       >
         <!-- Top row: layer names | datetime | speed -->
@@ -57,7 +59,7 @@
             {{ visibleProducts.map(p => SHORT_NAMES[p]).join(' + ') || '—' }}
           </div>
           <div class="text-center">
-            <span class="text-base sm:text-xl font-bold tabular-nums tracking-tight">
+            <span class="text-xs sm:text-xl font-bold tabular-nums tracking-tight">
               {{ currentTimestampDisplay }}
             </span>
           </div>
@@ -126,7 +128,7 @@
 
     <div
       class="bg-gray-900 border-l border-gray-700 flex flex-col
-             fixed right-0 top-14 bottom-0 z-[1101] w-72
+             fixed right-0 top-12 sm:top-14 bottom-0 z-[1101] w-72
              transform transition-transform duration-200 ease-out overflow-y-auto
              lg:static lg:translate-x-0 lg:z-auto"
       :class="sidebarOpen ? 'translate-x-0' : 'translate-x-full'"

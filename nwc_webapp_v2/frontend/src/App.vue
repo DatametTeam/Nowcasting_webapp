@@ -22,20 +22,26 @@
   <div class="min-h-screen bg-gray-50">
     <!-- Top Navigation Bar — Leonardo red (#E4002B) -->
     <nav class="bg-[#C8102E] text-white shadow-lg">
-      <div class="px-4">
-        <div class="flex items-center h-14">
+      <div class="px-2 sm:px-4">
+        <div class="flex items-center h-12 sm:h-14 gap-2 sm:gap-4">
           <!-- App Logo -->
-          <div class="flex items-center mr-4 lg:mr-8">
-            <img src="/leo-weather-logo-white-transp.png" alt="LEO Weather" class="h-9 sm:h-10 pr-1" />
+          <div class="flex items-center flex-shrink-0">
+            <img
+              src="/leo-weather-logo-white-transp.png"
+              alt="LEO Weather"
+              class="h-7 sm:h-10 w-auto object-contain pr-1"
+            />
           </div>
 
-          <!-- Navigation Tabs -->
-          <div class="flex flex-wrap gap-0.5 sm:gap-1">
+          <!-- Navigation Tabs — horizontally scrollable on mobile, no wrap -->
+          <div
+            class="flex flex-nowrap gap-0.5 sm:gap-1 overflow-x-auto no-scrollbar min-w-0 flex-1"
+          >
             <router-link
               v-for="item in navItems"
               :key="item.path"
               :to="item.path"
-              class="px-2 sm:px-4 py-1.5 sm:py-2 rounded-md text-xs sm:text-sm font-medium transition-colors duration-150"
+              class="px-2 sm:px-4 py-1.5 sm:py-2 rounded-md text-xs sm:text-sm font-medium transition-colors duration-150 whitespace-nowrap flex-shrink-0"
               :class="isActive(item.path)
                 ? 'bg-white/20 text-white'
                 : 'text-white/70 hover:bg-white/10 hover:text-white'"
@@ -45,7 +51,7 @@
           </div>
 
           <!-- Right side: status + Leonardo logo -->
-          <div class="ml-auto flex items-center gap-2 sm:gap-4">
+          <div class="flex items-center gap-2 sm:gap-4 flex-shrink-0">
             <div class="flex items-center gap-2">
               <div
                 class="w-2 h-2 rounded-full"
@@ -144,3 +150,9 @@ onMounted(async () => {
   }
 })
 </script>
+
+<style>
+/* Hide horizontal scrollbar on the mobile tab strip while keeping it scrollable */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+</style>
