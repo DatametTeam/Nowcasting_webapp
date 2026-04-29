@@ -93,7 +93,7 @@ const gradient = computed(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 5px;
   padding: 6px 5px;
   background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(8px);
@@ -150,7 +150,19 @@ const gradient = computed(() => {
 @media (max-width: 640px) {
   .colorbar-container {
     padding: 2px 3px;
-    gap: 1px;
+    gap: 3px;
+    /* Fixed mobile width so VIL ("kg/m²") and SRI ("mm/h") don't stretch
+       wider than VMI/ETM/IR which have shorter units. */
+    width: 36px;
+    box-sizing: border-box;
+  }
+  .colorbar-unit {
+    /* Keep the unit on one line; if it ever exceeds the box, scale it
+       down rather than blowing the box out. */
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: clip;
   }
   .colorbar-body {
     height: 70px;

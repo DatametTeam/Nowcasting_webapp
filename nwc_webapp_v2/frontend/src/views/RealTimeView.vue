@@ -34,7 +34,7 @@
       <div
         class="absolute right-[10px] z-[1001]
                top-16 sm:top-auto
-               bottom-[calc(130px+env(safe-area-inset-bottom))] sm:bottom-[110px]
+               bottom-[calc(130px+env(safe-area-inset-bottom))] sm:bottom-[80px]
                flex flex-col justify-end gap-1.5 items-end
                max-h-[calc(100dvh-15rem)] sm:max-h-[calc(100vh-18rem)]
                overflow-y-auto"
@@ -57,7 +57,7 @@
                pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-4"
         :class="{ 'pointer-events-none opacity-40': !isLoaded }"
       >
-        <!-- Top row: layer names | datetime | speed -->
+        <!-- Top row: layer names | datetime | (right spacer to keep datetime centered) -->
         <div class="flex items-center justify-between text-white mb-2">
           <div class="text-xs font-medium text-gray-300 hidden sm:block truncate max-w-[160px]">
             {{ visibleProducts.map(p => SHORT_NAMES[p]).join(' + ') || '—' }}
@@ -67,13 +67,7 @@
               {{ currentTimestampDisplay }}
             </span>
           </div>
-          <button
-            @click="cycleSpeed"
-            class="text-sm bg-white/15 hover:bg-white/25 border border-white/25 text-white
-                   rounded-md px-3 py-1 transition-colors font-semibold tabular-nums min-w-[48px]"
-          >
-            {{ playSpeed }}×
-          </button>
+          <div class="hidden sm:block max-w-[160px] flex-1" />
         </div>
 
         <!-- Slider row — items-start so the slider thumb (centered inside its own
@@ -118,8 +112,16 @@
             </div>
           </div>
 
-          <div class="h-9 flex items-center text-xs text-gray-400 flex-shrink-0 tabular-nums">
-            {{ timestamps.length ? `${frameIndex + 1}/${timestamps.length}` : '0/0' }}
+          <div class="h-9 flex items-center flex-shrink-0">
+            <button
+              @click="cycleSpeed"
+              class="px-3 py-1.5 rounded-full bg-white/20 hover:bg-white/30
+                     text-white text-xs font-medium transition-colors backdrop-blur-sm
+                     tabular-nums min-w-[44px]"
+              title="Animation speed"
+            >
+              {{ playSpeed }}×
+            </button>
           </div>
         </div>
       </div>

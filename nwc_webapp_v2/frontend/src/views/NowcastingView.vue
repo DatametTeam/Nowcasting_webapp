@@ -59,7 +59,7 @@
       <!-- Ensemble mode: single probability colorbar. Normal: SRI + optional IR. -->
       <div class="absolute right-[10px] z-[1001]
                   top-16 sm:top-auto
-                  bottom-[calc(130px+env(safe-area-inset-bottom))] sm:bottom-[110px]
+                  bottom-[calc(130px+env(safe-area-inset-bottom))] sm:bottom-[80px]
                   flex flex-col justify-end gap-1.5 items-end
                   max-h-[calc(100dvh-15rem)] sm:max-h-none
                   overflow-y-auto">
@@ -544,8 +544,8 @@ const POLL_INTERVAL_MS = 3000  // How often we poll the backend
 const SRI_POLL_INTERVAL_MS = 60000  // How often we poll for new SRI data (1 min)
 
 // ---- Speed control ----
-const speeds = [0.5, 1, 2]
-const speedLabel = computed(() => `${speed.value}x`)
+const speeds = [0.5, 1, 2, 4]
+const speedLabel = computed(() => `${speed.value}×`)
 
 function cycleSpeed() {
   const idx = speeds.indexOf(speed.value)
