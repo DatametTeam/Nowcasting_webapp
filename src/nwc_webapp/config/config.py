@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from nwc_webapp.config.environment import is_hpc, is_local
+from nwc_webapp.config.environment import is_hpc, is_local, is_server
 from nwc_webapp.logging_config import setup_logger
 
 # Set up logger
@@ -71,6 +71,14 @@ class PredictionConfig:
     num_sequences: int
     display_times: List[int]
     time_options: List[str]
+
+
+@dataclass
+class ServerConfig:
+    """Settings for dedicated GPU server mode (no job scheduler)."""
+
+    inference_script_path: str
+    conda_env: str
 
 
 @dataclass
@@ -136,6 +144,11 @@ class Config:
         """Reload configuration from file."""
         self._load_config()
 
+    @property
+    def mode(self) -> str:
+        """Deployment mode: hpc | server | local."""
+        return self._config.get("mode", "local")
+
     # Models
     @property
     def enabled_tabs(self) -> List[str]:
@@ -162,6 +175,8 @@ class Config:
         """Get paths based on current environment."""
         if is_hpc():
             return self._config.get("hpc_paths", {})
+        elif is_server():
+            return self._config.get("server_paths", self._config.get("local_paths", {}))
         else:
             return self._config.get("local_paths", {})
 
@@ -300,6 +315,15 @@ class Config:
         """Get prediction configuration."""
         pred_config = self._config.get("prediction", {})
         return PredictionConfig(**pred_config)
+
+    @property
+    def server(self) -> ServerConfig:
+        """Get server-mode inference configuration."""
+        server_config = self._config.get("server", {})
+        return ServerConfig(
+            inference_script_path=server_config.get("inference_script_path", ""),
+            conda_env=server_config.get("conda_env", "nowcasting3.12_webapp"),
+        )
 
     @property
     def pbs(self) -> PBSConfig:

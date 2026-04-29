@@ -1,5 +1,5 @@
 """
-Environment detection for running on HPC vs local development.
+Environment detection for running on HPC vs dedicated server vs local development.
 """
 
 import os
@@ -7,21 +7,42 @@ import subprocess
 from pathlib import Path
 from typing import Literal
 
-EnvironmentType = Literal["hpc", "local"]
+import yaml
+
+EnvironmentType = Literal["hpc", "server", "local"]
+
+
+def _read_mode_from_cfg() -> str:
+    """
+    Read the 'mode' field from cfg.yaml without going through get_config()
+    (which would create a circular import since config.py imports this module).
+    """
+    try:
+        v2_cfg = Path(__file__).parent.parent.parent.parent / "nwc_webapp_v2" / "cfg.yaml"
+        cfg_path = v2_cfg if v2_cfg.exists() else Path(__file__).parent / "cfg.yaml"
+        with open(cfg_path) as f:
+            raw = yaml.safe_load(f)
+        return raw.get("mode", "")
+    except Exception:
+        return ""
 
 
 def detect_environment() -> EnvironmentType:
     """
-    Detect if we're running on HPC or local machine.
+    Detect the deployment environment.
 
-    Returns:
-        "hpc" if running on HPC cluster, "local" otherwise
+    Priority:
+    1. Explicit 'mode' field in cfg.yaml (hpc / server / local)
+    2. Auto-detection via filesystem and process checks (legacy fallback)
     """
-    # Check for HPC-specific paths
+    mode = _read_mode_from_cfg()
+    if mode in ("hpc", "server", "local"):
+        return mode
+
+    # Legacy auto-detection fallback
     if Path("/davinci-1").exists():
         return "hpc"
 
-    # Check if PBS is available
     try:
         result = subprocess.run(["qstat"], capture_output=True, timeout=2)
         if result.returncode == 0:
@@ -29,7 +50,6 @@ def detect_environment() -> EnvironmentType:
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
 
-    # Check environment variables that might indicate HPC
     hpc_indicators = ["PBS_JOBID", "SLURM_JOB_ID", "PBS_O_WORKDIR"]
     if any(os.environ.get(var) for var in hpc_indicators):
         return "hpc"
@@ -38,18 +58,24 @@ def detect_environment() -> EnvironmentType:
 
 
 def is_hpc() -> bool:
-    """Check if running on HPC."""
+    """Check if running on HPC cluster (PBS job scheduler)."""
     return detect_environment() == "hpc"
 
 
+def is_server() -> bool:
+    """Check if running on a dedicated GPU server (no job scheduler, real data)."""
+    return detect_environment() == "server"
+
+
 def is_local() -> bool:
-    """Check if running on local machine."""
+    """Check if running in local development mode (mock data)."""
     return detect_environment() == "local"
 
 
 # Global environment detection
 ENVIRONMENT = detect_environment()
 IS_HPC = ENVIRONMENT == "hpc"
+IS_SERVER = ENVIRONMENT == "server"
 IS_LOCAL = ENVIRONMENT == "local"
 
 
@@ -58,7 +84,6 @@ def get_data_root() -> Path:
     if IS_HPC:
         return Path("/davinci-1/work/protezionecivile")
     else:
-        # Use local data directory
         return Path(__file__).parent.parent.parent / "data"
 
 
@@ -67,7 +92,6 @@ def get_sri_folder() -> Path:
     if IS_HPC:
         return Path("/davinci-1/work/protezionecivile/data1/SRI_adj")
     else:
-        # Use local mock data
         return get_data_root() / "mock_sri"
 
 

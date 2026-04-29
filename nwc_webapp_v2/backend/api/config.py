@@ -18,7 +18,7 @@ The prefix="/api/config" means all routes here start with /api/config:
 from fastapi import APIRouter
 
 from nwc_webapp.config.config import get_config
-from nwc_webapp.config.environment import is_hpc, is_local
+from nwc_webapp.config.environment import is_hpc, is_local, is_server
 from nwc_webapp.rendering.colormaps import get_legend_data, build_legend_file_path
 
 router = APIRouter(prefix="/api/config", tags=["config"])
@@ -60,7 +60,7 @@ async def get_app_config():
 
     return {
         "models": config.models,
-        "environment": "hpc" if is_hpc() else "local",
+        "environment": "hpc" if is_hpc() else ("server" if is_server() else "local"),
         "sri_folder": str(config.sri_folder),
         "real_time_pred": str(config.real_time_pred),
         "csi_thresholds": config.csi_threshold,
@@ -92,6 +92,7 @@ async def get_environment():
     """
     return {
         "is_hpc": is_hpc(),
+        "is_server": is_server(),
         "is_local": is_local(),
-        "mode": "hpc" if is_hpc() else "local",
+        "mode": "hpc" if is_hpc() else ("server" if is_server() else "local"),
     }

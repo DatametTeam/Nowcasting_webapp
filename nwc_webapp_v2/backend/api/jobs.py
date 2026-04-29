@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from nwc_webapp.config.environment import is_hpc
+from nwc_webapp.config.environment import is_hpc, is_server
 from nwc_webapp.hpc.jobs import submit_date_range_prediction_job
 from nwc_webapp.hpc.pbs import is_pbs_available
 
@@ -83,12 +83,11 @@ async def submit_job(request: JobSubmitRequest):
     # Submit the job (uses PBS on HPC, mock locally - same as Streamlit)
     job_id = submit_date_range_prediction_job(request.model, start_dt, end_dt)
 
-    # is_mock=True tells the frontend to skip PBS status polling and just watch
-    # the predictions folder. This covers three cases:
-    #   - local mock mode (job_id starts with "mock_")
-    #   - watch-folder mode (submit_jobs=false, job_id == "watch_only")
-    #   - anything that isn't a real PBS job
-    is_mock = not is_hpc() or bool(job_id and (job_id.startswith("mock_") or job_id == "watch_only"))
+    # is_mock=True tells the frontend to skip job status polling and just watch
+    # the predictions folder. True for: local mock, watch-folder mode.
+    # False for: HPC PBS jobs and server subprocess jobs (both have real status to poll).
+    is_real_job = is_hpc() or (is_server() and job_id and job_id.startswith("server_"))
+    is_mock = not is_real_job or bool(job_id and (job_id.startswith("mock_") or job_id == "watch_only"))
 
     return JobSubmitResponse(
         job_id=job_id,
@@ -104,33 +103,39 @@ async def submit_job(request: JobSubmitRequest):
 @router.get("/status")
 async def get_job_status(
     model: str = Query(..., description="Model name"),
-    job_id: str = Query(None, description="PBS job ID for direct lookup (avoids matching wrong jobs)"),
+    job_id: str = Query(None, description="Job ID (PBS ID or server_<pid>)"),
 ):
     """
-    Check PBS job status for a model.
+    Check job status for a model.
 
-    When job_id is provided, checks that specific job directly via qstat -f.
-    This avoids the old model-name substring search which could match
-    unrelated jobs (e.g. a real-time job matching a range job's model name).
+    For server mode (job_id starts with "server_"): checks if the subprocess
+    PID is still running. Returns "R" if running, null if finished.
 
-    Without job_id, falls back to searching by model name (legacy behavior).
+    For HPC mode: checks PBS queue via qstat.
 
     Returns:
-        status: "Q" (queued), "R" (running), null (not in queue / completed)
+        status: "Q" (queued), "R" (running), null (finished / not found)
     """
+    # Server mode: check subprocess by PID
+    if job_id and job_id.startswith("server_"):
+        try:
+            pid = int(job_id.split("_", 1)[1])
+            os.kill(pid, 0)  # signal 0 = check existence without killing
+            status = "R"
+        except (ProcessLookupError, ValueError):
+            status = None
+        return {"model": model, "status": status, "pbs_available": False}
+
     if not is_pbs_available():
         return {"model": model, "status": None, "pbs_available": False}
 
     try:
         if job_id:
-            # Direct lookup by job ID — fast and accurate
             from nwc_webapp.hpc.pbs import get_job_status as pbs_get_job_status
             status = pbs_get_job_status(job_id)
-            # get_job_status returns "ended" when job is no longer in queue
             if status == "ended":
                 status = None
         else:
-            # Fallback: search by model name (legacy, may match wrong jobs)
             from nwc_webapp.hpc.pbs import get_model_job_status
             status = get_model_job_status(model)
     except Exception as e:

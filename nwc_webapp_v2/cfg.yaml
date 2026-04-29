@@ -1,5 +1,16 @@
 # Nowcasting Application Configuration
 
+# Deployment mode: hpc | server | local
+#   hpc    — HPC cluster with PBS/qsub job scheduler
+#   server — Dedicated GPU server, run inference directly (no job scheduler)
+#   local  — Local development machine, use mock data
+mode: server
+
+# Server-mode inference settings (used only when mode: server)
+server:
+  inference_script_path: "/home/ubuntu/spatiotemporal-nowcast/spatiotemporal_forecast/scripts/webapp_predictions.py"
+  conda_env: "nowcasting3.12_webapp"
+
 # Tabs shown in the navigation bar.
 # Remove any entry to hide that tab from the UI.
 # Available values: realtime, nowcasting, explorer, comparison, metrics

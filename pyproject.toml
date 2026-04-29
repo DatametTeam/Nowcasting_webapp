@@ -50,6 +50,10 @@ dependencies = [
     "branca>=0.6.0",
     "basemap>=1.4.0",
 
+    # Web server
+    "uvicorn>=0.30.0",
+    "fastapi>=0.115.0",
+
     # Configuration
     "pyyaml>=6.0.0",
 

@@ -11,7 +11,7 @@ from typing import Optional
 
 import yaml
 
-from nwc_webapp.config.environment import is_hpc
+from nwc_webapp.config.environment import is_hpc, is_server
 from nwc_webapp.logging_config import setup_logger
 
 # Set up logger
@@ -109,19 +109,41 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
         logger.info(f"submit_jobs=false — skipping job submission for {model_name}, watching output folder")
         return "watch_only"
 
-    # Check if running locally
+    # Server mode: run inference directly as a subprocess (no job scheduler)
+    if is_server():
+        logger.info(f"🖥️  Running in SERVER mode - launching inference directly for {model_name}")
+        try:
+            config_path = modify_yaml_config_for_date_range(model_name, start_dt, end_dt)
+        except Exception as e:
+            logger.error(f"Failed to prepare config for {model_name}: {e}")
+            return None
+
+        server_cfg = get_config().server
+        cmd = [
+            "conda", "run", "-n", server_cfg.conda_env, "--no-capture-output",
+            "python", server_cfg.inference_script_path,
+            "--cfg_path", str(config_path),
+        ]
+        logger.info(f"Command: {' '.join(cmd)}")
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            job_id = f"server_{proc.pid}"
+            logger.info(f"✅ Inference process started! PID: {proc.pid}, job_id: {job_id}")
+            return job_id
+        except Exception as e:
+            logger.error(f"Failed to launch inference process: {e}")
+            return None
+
+    # Local mode: generate mock predictions
     if not is_hpc():
         logger.info(f"🖥️  Running in LOCAL mode - generating mock predictions for {model_name}")
 
         try:
             from nwc_webapp.mock.generator import generate_mock_predictions_for_range
 
-            # Generate mock predictions with ORIGINAL start_dt (not adjusted)
-            # The mock generator should handle predictions starting from start_dt
             created_count = generate_mock_predictions_for_range(model_name, start_dt, end_dt)
 
             if created_count >= 0:
-                # Return a fake job ID for UI compatibility
                 fake_job_id = f"mock_{int(datetime.now().timestamp())}"
                 logger.info(f"✅ Mock predictions generated successfully! Fake job ID: {fake_job_id}")
                 return fake_job_id
