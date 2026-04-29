@@ -286,9 +286,18 @@ async def get_groundtruth_overlay(
         if file_path is None:
             raise HTTPException(status_code=404, detail=f"File not found: {stem}.tif")
 
-        # Load TIFF — PIL handles all common TIFF variants
-        pil_img = Image.open(file_path)
-        frame = np.array(pil_img, dtype=float)
+        # Load TIFF — PIL handles all common TIFF variants.
+        # File may still be mid-write when the 1s poll catches it; treat
+        # truncated/unreadable files as "not yet ready" (404) so the frontend
+        # retries on the next tick instead of seeing a 500.
+        try:
+            pil_img = Image.open(file_path)
+            frame = np.array(pil_img, dtype=float)
+        except (Image.UnidentifiedImageError, OSError) as e:
+            raise HTTPException(
+                status_code=404,
+                detail=f"File not yet readable (likely still being written): {file_path.name} ({e})",
+            )
 
         # TIFF is (height=1400, width=1200), same spatial extent as HDF5 radar data.
         # No radar mask — satellite has wider coverage than the radar composite.
@@ -308,11 +317,20 @@ async def get_groundtruth_overlay(
         if file_path is None:
             raise HTTPException(status_code=404, detail=f"File not found: {filename}")
 
-        with h5py.File(file_path, "r") as f:
-            if "dataset1/data1/data" in f:
-                frame = f["dataset1/data1/data"][()].astype(float)
-            else:
-                raise HTTPException(status_code=500, detail="Unknown HDF5 structure")
+        # Same race as the TIFF branch: a poll can hit the file mid-write.
+        # h5py raises OSError for truncated/invalid HDF5 — return 404 so the
+        # frontend retries on the next tick instead of seeing a 500.
+        try:
+            with h5py.File(file_path, "r") as f:
+                if "dataset1/data1/data" in f:
+                    frame = f["dataset1/data1/data"][()].astype(float)
+                else:
+                    raise HTTPException(status_code=500, detail="Unknown HDF5 structure")
+        except OSError as e:
+            raise HTTPException(
+                status_code=404,
+                detail=f"File not yet readable (likely still being written): {file_path.name} ({e})",
+            )
 
         # Apply radar mask (cached in memory)
         mask = _get_radar_mask()
