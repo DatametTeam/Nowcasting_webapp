@@ -7,7 +7,7 @@
   when off, the user's current frame position is preserved across updates.
 -->
 <template>
-  <div class="h-[calc(100vh-3rem)] sm:h-[calc(100vh-3.5rem)] flex overflow-hidden">
+  <div class="h-[calc(100dvh-3rem)] sm:h-[calc(100vh-3.5rem)] flex overflow-hidden">
 
     <!-- ================================================================ -->
     <!-- LEFT: Map area                                                    -->
@@ -31,7 +31,7 @@
       <!-- Stacked colorbars — bottom right, above timeline -->
       <div
         class="absolute right-[10px] z-[1001]
-               bottom-[calc(120px+env(safe-area-inset-bottom))] sm:bottom-[110px]
+               bottom-[calc(130px+env(safe-area-inset-bottom))] sm:bottom-[110px]
                flex flex-col gap-1.5 items-end
                max-h-[calc(100vh-18rem)] overflow-y-auto"
       >
@@ -50,7 +50,7 @@
         class="absolute bottom-0 left-0 right-0 z-[1000]
                bg-gradient-to-t from-black/80 via-black/60 to-transparent
                px-3 sm:px-6 pt-6 sm:pt-10
-               pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:pb-4"
+               pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-4"
         :class="{ 'pointer-events-none opacity-40': !isLoaded }"
       >
         <!-- Top row: layer names | datetime | speed -->
@@ -133,10 +133,11 @@
              lg:static lg:translate-x-0 lg:z-auto"
       :class="sidebarOpen ? 'translate-x-0' : 'translate-x-full'"
     >
-      <!-- Close (mobile) -->
+      <!-- Close (mobile) — top-left of the sidebar so a ghost-tap on close
+           doesn't pass through to the Leaflet layer control on the map's top-right. -->
       <button
         @click="sidebarOpen = false"
-        class="lg:hidden absolute top-2 right-2 w-8 h-8 flex items-center justify-center
+        class="lg:hidden absolute top-2 left-2 w-8 h-8 flex items-center justify-center
                rounded-full text-gray-400 hover:text-gray-200 hover:bg-white/10 transition-colors"
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">

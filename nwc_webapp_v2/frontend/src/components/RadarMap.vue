@@ -582,6 +582,14 @@ defineExpose({
   background: #1a1a2e;
 }
 
+/* Mobile: hide zoom +/- buttons (pinch-zoom is more natural on touch screens
+   and the buttons collide with the sidebar toggle in the top-left corner). */
+@media (max-width: 1023px) {
+  .leaflet-control-zoom {
+    display: none !important;
+  }
+}
+
 /*
   image-rendering: pixelated — tells the browser NOT to smooth/blur
   the radar image when zoomed in. Instead you see crisp grid cells.

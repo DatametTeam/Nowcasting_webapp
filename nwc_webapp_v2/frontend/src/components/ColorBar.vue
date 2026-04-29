@@ -27,7 +27,7 @@
           class="colorbar-tick"
           :style="{ bottom: tick.position + '%' }"
         >
-          {{ tick.value }}
+          {{ tick.label }}
         </span>
       </div>
     </div>
@@ -61,9 +61,22 @@ const colors = computed(() =>
 )
 const unit = computed(() => props.legend?.unit ?? DEFAULT_UNIT)
 
+// Format tick labels compactly so wide numbers don't fatten the colorbar:
+// 12000 → 12k, 1500 → 1.5k. Smaller values stay as-is.
+function formatTick(v) {
+  if (typeof v !== 'number' || !isFinite(v)) return String(v)
+  const abs = Math.abs(v)
+  if (abs >= 1000) {
+    const k = v / 1000
+    return (Number.isInteger(k) ? k.toFixed(0) : k.toFixed(1)) + 'k'
+  }
+  return String(v)
+}
+
 const ticks = computed(() =>
   thresholds.value.map((value, i) => ({
     value,
+    label: formatTick(value),
     position: (i / (thresholds.value.length - 1)) * 100,
   }))
 )
@@ -98,30 +111,31 @@ const gradient = computed(() => {
 /* Mobile: smaller colorbar so it doesn't dominate the screen */
 @media (max-width: 640px) {
   .colorbar-container {
-    padding: 4px 3px;
-    gap: 2px;
+    padding: 3px 2px;
+    gap: 1px;
   }
   .colorbar-body {
-    height: 110px;
+    height: 90px;
     gap: 2px;
   }
   .colorbar-label {
-    width: 9px;
-    font-size: 8px;
-    letter-spacing: 0.5px;
+    width: 8px;
+    font-size: 7px;
+    letter-spacing: 0.3px;
   }
   .colorbar-gradient {
-    width: 8px;
+    width: 7px;
   }
+  /* Tick column narrower since labels are now compact (12k vs 12000) */
   .colorbar-ticks {
-    width: 18px;
+    width: 14px;
   }
   .colorbar-tick {
-    font-size: 8px;
+    font-size: 7px;
     left: 1px;
   }
   .colorbar-unit {
-    font-size: 8px;
+    font-size: 7px;
   }
 }
 

@@ -27,7 +27,7 @@
   - Any tab can start or stop the service
 -->
 <template>
-  <div class="h-[calc(100vh-3rem)] sm:h-[calc(100vh-3.5rem)] flex">
+  <div class="h-[calc(100dvh-3rem)] sm:h-[calc(100vh-3.5rem)] flex">
 
     <!-- ================================================================ -->
     <!-- LEFT: Map area (takes all available width)                       -->
@@ -58,7 +58,7 @@
       <!-- Colorbars — floating on the map, bottom right (above the timeline bar) -->
       <!-- Ensemble mode: single probability colorbar. Normal: SRI + optional IR. -->
       <div class="absolute right-[10px] z-[1001]
-                  bottom-[calc(120px+env(safe-area-inset-bottom))] sm:bottom-[110px]
+                  bottom-[calc(130px+env(safe-area-inset-bottom))] sm:bottom-[110px]
                   flex flex-col gap-1.5 items-end">
         <template v-if="ensembleActive">
           <ColorBar :legend="probLegend" product-name="P(%)" />
@@ -95,7 +95,7 @@
       <div class="absolute bottom-0 left-0 right-0 z-[1000]
                   bg-gradient-to-t from-black/80 via-black/60 to-transparent
                   px-3 sm:px-6 pt-6 sm:pt-10
-                  pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:pb-4">
+                  pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-4">
 
         <!-- Current time display -->
         <div class="flex items-center justify-between text-white mb-2">
@@ -205,9 +205,11 @@
       :class="sidebarOpen ? 'translate-x-0' : 'translate-x-full'"
     >
       <!-- Close button (mobile only) -->
+      <!-- Close (mobile) — top-left of the sidebar so a ghost-tap on close
+           doesn't pass through to the Leaflet layer control on the map's top-right. -->
       <button
         @click="sidebarOpen = false"
-        class="lg:hidden absolute top-2 right-2 w-8 h-8 flex items-center justify-center
+        class="lg:hidden absolute top-2 left-2 w-8 h-8 flex items-center justify-center
                rounded-full text-gray-400 hover:text-gray-200 hover:bg-white/10 transition-colors"
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
