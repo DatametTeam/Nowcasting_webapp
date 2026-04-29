@@ -362,6 +362,7 @@ async def get_ensemble_overlay(
     lead_time: int = Query(0, description="Lead time index (0-11)"),
     threshold: float = Query(2.0, description="Rainfall threshold in mm/h"),
     models: str = Query(..., description="Comma-separated model names"),
+    contours: bool = Query(False, description="Overlay dark probability contour lines"),
 ):
     """
     Generate a probabilistic ensemble overlay: P(rain > threshold) per pixel.
@@ -421,24 +422,23 @@ async def get_ensemble_overlay(
     # Transparent where probability == 0 (no model predicts rain) or outside domain
     rgba[~np.isfinite(warped) | (warped <= 0.0)] = [0.0, 0.0, 0.0, 0.0]
 
-    # Dark probability contour lines so even the lightest values stay visible.
+    # Optional dark probability contour lines for extra legibility.
     # Compute pixel-level boundaries where `warped > level`: any pixel that is
     # >level but has a 4-neighbor that is <=level is on the boundary. We OR
     # boundaries across several levels and stamp them dark grey on the RGBA.
-    contour_levels = (0.25, 0.5, 0.75)
-    valid = np.isfinite(warped)
-    edges = np.zeros(warped.shape, dtype=bool)
-    for lvl in contour_levels:
-        above = (warped > lvl) & valid
-        # 4-neighbor edge: True where `above` differs from any neighbor
-        e = np.zeros_like(above)
-        e[1:, :]  |= above[1:, :]  & ~above[:-1, :]
-        e[:-1, :] |= above[:-1, :] & ~above[1:, :]
-        e[:, 1:]  |= above[:, 1:]  & ~above[:, :-1]
-        e[:, :-1] |= above[:, :-1] & ~above[:, 1:]
-        edges |= e
-    # Dark grey, fully opaque — readable on any basemap
-    rgba[edges] = [0.15, 0.15, 0.15, 1.0]
+    if contours:
+        contour_levels = (0.25, 0.5, 0.75)
+        valid = np.isfinite(warped)
+        edges = np.zeros(warped.shape, dtype=bool)
+        for lvl in contour_levels:
+            above = (warped > lvl) & valid
+            e = np.zeros_like(above)
+            e[1:, :]  |= above[1:, :]  & ~above[:-1, :]
+            e[:-1, :] |= above[:-1, :] & ~above[1:, :]
+            e[:, 1:]  |= above[:, 1:]  & ~above[:, :-1]
+            e[:, :-1] |= above[:, :-1] & ~above[:, 1:]
+            edges |= e
+        rgba[edges] = [0.15, 0.15, 0.15, 1.0]
 
     img = Image.fromarray((rgba * 255).astype(np.uint8))
     buffer = io.BytesIO()

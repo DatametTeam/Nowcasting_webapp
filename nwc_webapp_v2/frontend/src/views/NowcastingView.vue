@@ -60,7 +60,7 @@
       <!-- Ensemble mode: single probability colorbar. Normal: SRI + optional IR. -->
       <div class="absolute right-[10px] z-[1001]
                   top-16 sm:top-auto
-                  bottom-[calc(105px+env(safe-area-inset-bottom))] sm:bottom-[110px]
+                  bottom-[calc(80px+env(safe-area-inset-bottom))] sm:bottom-[110px]
                   flex flex-col justify-end gap-1.5 items-end
                   max-h-[calc(100dvh-15rem)] sm:max-h-none
                   overflow-y-auto">
@@ -395,9 +395,21 @@
           </span>
         </div>
 
-        <p v-if="ensembleActive" class="text-[10px] text-purple-400 mt-2">
-          Using {{ ensembleModels.length }} / {{ models.filter(m => m !== 'Test').length }} models
-        </p>
+        <div v-if="ensembleActive" class="flex items-center justify-between mt-2 gap-2">
+          <p class="text-[10px] text-purple-400">
+            Using {{ ensembleModels.length }} / {{ models.filter(m => m !== 'Test').length }} models
+          </p>
+          <button
+            @click="ensembleContours = !ensembleContours"
+            class="text-[10px] px-2 py-0.5 rounded-full font-medium transition-colors flex-shrink-0"
+            :class="ensembleContours
+              ? 'bg-purple-600 text-white'
+              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'"
+            title="Toggle dark probability contour lines"
+          >
+            {{ ensembleContours ? 'Hide contours' : 'Show contours' }}
+          </button>
+        </div>
       </div>
 
       <!-- Radar SRI Overlay -->
@@ -512,6 +524,7 @@ const irOpacity = ref(0.75)
 const ensembleActive = ref(false)
 const ensembleModels = ref([])     // populated in onMounted once model list is loaded
 const ensembleThreshold = ref(2.0) // default: 2 mm/h
+const ensembleContours = ref(false) // dark contour overlay (off by default)
 
 // Probability colorbar legend: Oranges palette (matplotlib), ticks in percent.
 // Stays legible on dark, OSM, and satellite basemaps alike.
@@ -817,7 +830,8 @@ async function preloadAllFrames({ keepPredictions = false } = {}) {
       if (ensembleActive.value && ensembleModels.value.length > 0) {
         return api.ensembleOverlayUrl(
           latestTimestamp.value, leadTimeIndex,
-          ensembleThreshold.value, ensembleModels.value
+          ensembleThreshold.value, ensembleModels.value,
+          ensembleContours.value,
         )
       }
       // Single model mode
@@ -905,6 +919,7 @@ watch(irEnabled, async (enabled) => {
 // Ensemble: any change to active state, models, or threshold → reload frames
 watch(ensembleActive, () => { preloadAllFrames() })
 watch(ensembleModels, () => { preloadAllFrames() }, { deep: true })
+watch(ensembleContours, () => { if (ensembleActive.value) preloadAllFrames() })
 
 // Threshold slider fires on every step — debounce so we don't flood the
 // backend with reload requests while the user is dragging.
