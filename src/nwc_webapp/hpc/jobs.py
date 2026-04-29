@@ -124,9 +124,14 @@ def submit_date_range_prediction_job(model_name: str, start_dt: datetime, end_dt
             "python", server_cfg.inference_script_path,
             "--cfg_path", str(config_path),
         ]
+        log_dir = Path.home() / "inference_logs"
+        log_dir.mkdir(exist_ok=True)
+        log_file = log_dir / f"{model_name}_range_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
         logger.info(f"Command: {' '.join(cmd)}")
+        logger.info(f"Inference log: {log_file}")
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            with open(log_file, "w") as lf:
+                proc = subprocess.Popen(cmd, stdout=lf, stderr=subprocess.STDOUT)
             job_id = f"server_{proc.pid}"
             logger.info(f"✅ Inference process started! PID: {proc.pid}, job_id: {job_id}")
             return job_id
@@ -295,6 +300,10 @@ def start_realtime_prediction_server(model: str, latest_sri: str) -> Optional[st
     """
     Launch a real-time inference subprocess on a GPU server (no job scheduler).
 
+    Output is written to ~/inference_logs/ to avoid pipe buffer deadlock
+    (inference scripts are verbose; stdout=PIPE with no reader causes the
+    process to block once the buffer fills, making the PID appear alive forever).
+
     Args:
         model: Model name (e.g. 'ConvLSTM')
         latest_sri: SRI filename (e.g. '12-04-2026-15-00.hdf')
@@ -313,6 +322,10 @@ def start_realtime_prediction_server(model: str, latest_sri: str) -> Optional[st
         logger.error(f"Real-time config not found for {model}: {config_path}")
         return None
 
+    log_dir = Path.home() / "inference_logs"
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / f"{model}_realtime_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
     server_cfg = config.server
     cmd = [
         "conda", "run", "-n", server_cfg.conda_env, "--no-capture-output",
@@ -320,8 +333,10 @@ def start_realtime_prediction_server(model: str, latest_sri: str) -> Optional[st
         "--cfg_path", str(config_path),
     ]
     logger.info(f"[{model}] Launching real-time inference: {' '.join(cmd)}")
+    logger.info(f"[{model}] Inference log: {log_file}")
     try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        with open(log_file, "w") as lf:
+            proc = subprocess.Popen(cmd, stdout=lf, stderr=subprocess.STDOUT)
         job_id = f"server_{proc.pid}"
         logger.info(f"✅ [{model}] Inference started, PID: {proc.pid}")
         return job_id
