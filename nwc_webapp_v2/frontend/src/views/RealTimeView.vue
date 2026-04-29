@@ -28,12 +28,16 @@
         </svg>
       </button>
 
-      <!-- Stacked colorbars — bottom right, above timeline -->
+      <!-- Stacked colorbars — bottom right, above timeline.
+           top-16 on mobile keeps the column below the sidebar toggle (top-3 + h-10);
+           overflow-y scrolls if too many products are enabled. -->
       <div
         class="absolute right-[10px] z-[1001]
+               top-16 sm:top-auto
                bottom-[calc(130px+env(safe-area-inset-bottom))] sm:bottom-[110px]
                flex flex-col gap-1.5 items-end
-               max-h-[calc(100vh-18rem)] overflow-y-auto"
+               max-h-[calc(100dvh-15rem)] sm:max-h-[calc(100vh-18rem)]
+               overflow-y-auto"
       >
         <ColorBar
           v-for="product in visibleProducts"
@@ -72,8 +76,9 @@
           </button>
         </div>
 
-        <!-- Slider row -->
-        <div class="flex items-center gap-3">
+        <!-- Slider row — items-start so the slider thumb (centered inside its own
+             h-9 wrapper) lines up vertically with the play button center. -->
+        <div class="flex items-start gap-3">
           <button
             @click="togglePlay"
             :disabled="!isLoaded || timestamps.length === 0"
@@ -89,28 +94,31 @@
             </svg>
           </button>
 
-          <div class="flex-1 relative">
-            <input
-              type="range"
-              :min="0"
-              :max="Math.max(0, timestamps.length - 1)"
-              :value="frameIndex"
-              @input="onSliderInput"
-              :disabled="!isLoaded || timestamps.length === 0"
-              class="w-full h-1.5 rounded-full appearance-none cursor-pointer timeline-slider
-                     disabled:opacity-40 disabled:cursor-not-allowed"
-            />
-            <div v-if="hourTicks.length" class="relative mt-1 h-4">
+          <div class="flex-1 min-w-0">
+            <div class="h-9 flex items-center">
+              <input
+                type="range"
+                :min="0"
+                :max="Math.max(0, timestamps.length - 1)"
+                :value="frameIndex"
+                @input="onSliderInput"
+                :disabled="!isLoaded || timestamps.length === 0"
+                class="w-full h-1.5 rounded-full appearance-none cursor-pointer timeline-slider
+                       disabled:opacity-40 disabled:cursor-not-allowed"
+              />
+            </div>
+            <div v-if="hourTicks.length" class="relative h-4">
               <span
                 v-for="tick in hourTicks"
-                :key="tick.label"
+                :key="tick.pct"
                 class="absolute text-[9px] text-gray-400 -translate-x-1/2"
+                :class="tick.hideOnMobile ? 'hidden sm:inline' : ''"
                 :style="{ left: tick.pct + '%' }"
               >{{ tick.label }}</span>
             </div>
           </div>
 
-          <div class="text-xs text-gray-400 flex-shrink-0 tabular-nums">
+          <div class="h-9 flex items-center text-xs text-gray-400 flex-shrink-0 tabular-nums">
             {{ timestamps.length ? `${frameIndex + 1}/${timestamps.length}` : '0/0' }}
           </div>
         </div>
@@ -468,23 +476,32 @@ const currentTimestampDisplay = computed(() => {
   return `${get('day')}/${get('month')}/${get('year')} - ${get('hour')}:${get('minute')}`
 })
 
+// Slider tick labels — 5 evenly-spaced points (including first and last).
+// On mobile only 3 are visible (first, middle, last) via the hideOnMobile flag,
+// so the labels never overlap on a narrow screen but desktop gets the full set.
 const hourTicks = computed(() => {
-  if (timestamps.value.length < 2) return []
-  const ticks = []
-  const seen = new Set()
-  timestamps.value.forEach((ts, i) => {
-    // Parse as UTC, display in Rome time
-    const dt = new Date(ts + 'Z')
-    const romeMinute = Number(new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', minute: 'numeric' }).format(dt))
-    const romeHour   = new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', hour: '2-digit', hour12: false }).format(dt)
-    if (romeMinute === 0) {
-      const label = `${romeHour}:00`
-      if (!seen.has(label)) {
-        seen.add(label)
-        ticks.push({ label, pct: (i / (timestamps.value.length - 1)) * 100 })
-      }
-    }
+  const n = timestamps.value.length
+  if (n < 2) return []
+  const fmt = new Intl.DateTimeFormat('it-IT', {
+    timeZone: 'Europe/Rome',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
   })
+  const COUNT = 5
+  const ticks = []
+  const seenIdx = new Set()
+  for (let k = 0; k < COUNT; k++) {
+    const i = Math.round((k / (COUNT - 1)) * (n - 1))
+    if (seenIdx.has(i)) continue   // skip duplicate when n < COUNT
+    seenIdx.add(i)
+    const dt = new Date(timestamps.value[i] + 'Z')
+    ticks.push({
+      label: fmt.format(dt),
+      pct: (i / (n - 1)) * 100,
+      hideOnMobile: k === 1 || k === 3,
+    })
+  }
   return ticks
 })
 

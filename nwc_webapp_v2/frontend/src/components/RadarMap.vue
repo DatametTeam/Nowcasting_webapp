@@ -590,6 +590,14 @@ defineExpose({
   }
 }
 
+/* When the layers control is expanded, lift it above the search bar that
+   shares the top-left corner — otherwise the search input overlaps the
+   layer options. */
+.leaflet-control-layers-expanded {
+  z-index: 1100;
+  position: relative;
+}
+
 /*
   image-rendering: pixelated — tells the browser NOT to smooth/blur
   the radar image when zoomed in. Instead you see crisp grid cells.

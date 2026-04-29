@@ -58,8 +58,11 @@
       <!-- Colorbars — floating on the map, bottom right (above the timeline bar) -->
       <!-- Ensemble mode: single probability colorbar. Normal: SRI + optional IR. -->
       <div class="absolute right-[10px] z-[1001]
+                  top-16 sm:top-auto
                   bottom-[calc(130px+env(safe-area-inset-bottom))] sm:bottom-[110px]
-                  flex flex-col gap-1.5 items-end">
+                  flex flex-col gap-1.5 items-end
+                  max-h-[calc(100dvh-15rem)] sm:max-h-none
+                  overflow-y-auto">
         <template v-if="ensembleActive">
           <ColorBar :legend="probLegend" product-name="P(%)" />
         </template>
@@ -123,14 +126,15 @@
           </div>
         </div>
 
-        <!-- Timeline slider -->
-        <div class="flex items-center gap-2 sm:gap-4">
+        <!-- Timeline slider — items-start so the slider thumb (centered inside its
+             own h-10 wrapper) lines up vertically with the play/speed buttons. -->
+        <div class="flex items-start gap-2 sm:gap-4">
           <!-- Play/Pause button -->
           <button
             @click="togglePlay"
             class="w-10 h-10 flex items-center justify-center rounded-full
                    bg-white/20 hover:bg-white/30 text-white transition-colors
-                   backdrop-blur-sm"
+                   backdrop-blur-sm flex-shrink-0"
             :title="playing ? 'Pause' : 'Play'"
           >
             <!-- Pause icon -->
@@ -145,24 +149,26 @@
           </button>
 
           <!-- Timeline slider (0-24, representing -60 to +60 min) -->
-          <div class="flex-1 relative">
-            <input
-              type="range"
-              v-model.number="frameIndex"
-              min="0"
-              max="24"
-              step="1"
-              class="w-full h-2 appearance-none cursor-pointer rounded-full
-                     bg-white/20 accent-blue-400
-                     [&::-webkit-slider-thumb]:appearance-none
-                     [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
-                     [&::-webkit-slider-thumb]:rounded-full
-                     [&::-webkit-slider-thumb]:bg-blue-400
-                     [&::-webkit-slider-thumb]:shadow-lg
-                     [&::-webkit-slider-thumb]:shadow-blue-400/50"
-            />
+          <div class="flex-1 min-w-0">
+            <div class="h-10 flex items-center">
+              <input
+                type="range"
+                v-model.number="frameIndex"
+                min="0"
+                max="24"
+                step="1"
+                class="w-full h-2 appearance-none cursor-pointer rounded-full
+                       bg-white/20 accent-blue-400
+                       [&::-webkit-slider-thumb]:appearance-none
+                       [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
+                       [&::-webkit-slider-thumb]:rounded-full
+                       [&::-webkit-slider-thumb]:bg-blue-400
+                       [&::-webkit-slider-thumb]:shadow-lg
+                       [&::-webkit-slider-thumb]:shadow-blue-400/50"
+              />
+            </div>
             <!-- Tick marks — show every 15 minutes for readability -->
-            <div class="flex justify-between mt-1 px-0.5">
+            <div class="flex justify-between px-0.5">
               <span
                 v-for="i in 25"
                 :key="i"
@@ -175,14 +181,16 @@
           </div>
 
           <!-- Speed control -->
-          <button
-            @click="cycleSpeed"
-            class="px-3 py-1.5 rounded-full bg-white/20 hover:bg-white/30
-                   text-white text-xs font-medium transition-colors backdrop-blur-sm"
-            title="Animation speed"
-          >
-            {{ speedLabel }}
-          </button>
+          <div class="h-10 flex items-center flex-shrink-0">
+            <button
+              @click="cycleSpeed"
+              class="px-3 py-1.5 rounded-full bg-white/20 hover:bg-white/30
+                     text-white text-xs font-medium transition-colors backdrop-blur-sm"
+              title="Animation speed"
+            >
+              {{ speedLabel }}
+            </button>
+          </div>
 
         </div>
       </div>
