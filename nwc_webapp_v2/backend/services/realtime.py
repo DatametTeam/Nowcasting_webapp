@@ -369,8 +369,8 @@ class RealtimeService:
                             self._models[model]["status"] = "failed"
                 break
 
-            # Wait 5s between status checks
-            if self._stop_event.wait(timeout=5):
+            # Wait 1s between status checks
+            if self._stop_event.wait(timeout=1):
                 break
 
     # ------------------------------------------------------------------
