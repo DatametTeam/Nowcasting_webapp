@@ -214,7 +214,30 @@
 
       <!-- Start / Pause Real Time Button -->
       <div class="p-4 border-b border-gray-700">
+        <!-- Server mode: always-on, locked indicator -->
+        <div
+          v-if="configStore.isServer"
+          class="w-full py-3 px-4 rounded-lg font-semibold text-sm
+                 flex items-center justify-center gap-2
+                 bg-green-900/40 text-green-400 border border-green-700 cursor-not-allowed select-none"
+          title="Real-time predictions are always running in server mode"
+        >
+          <!-- Pulse dot -->
+          <span class="relative flex h-2.5 w-2.5">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+          </span>
+          NWC Running
+          <!-- Lock icon -->
+          <svg class="w-3.5 h-3.5 ml-auto opacity-50" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+        </div>
+
+        <!-- Normal mode: interactive start/stop button -->
         <button
+          v-else
           @click="toggleRealTime"
           class="w-full py-3 px-4 rounded-lg font-semibold text-sm transition-all
                  flex items-center justify-center gap-2"
@@ -222,18 +245,16 @@
             ? 'bg-red-900/40 text-red-400 border border-red-700 hover:bg-red-900/60'
             : 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm'"
         >
-          <!-- Pause icon -->
           <svg v-if="realTimeActive" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <rect x="6" y="4" width="4" height="16" rx="1" />
             <rect x="14" y="4" width="4" height="16" rx="1" />
           </svg>
-          <!-- Play icon -->
           <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M5 3l14 9-14 9V3z" />
           </svg>
           {{ realTimeActive ? 'Pause Real Time' : 'Start Real Time' }}
         </button>
-        <p v-if="realTimeActive" class="text-[10px] text-center text-gray-400 mt-1.5">
+        <p v-if="realTimeActive && !configStore.isServer" class="text-[10px] text-center text-gray-400 mt-1.5">
           Polling every 3s
         </p>
       </div>

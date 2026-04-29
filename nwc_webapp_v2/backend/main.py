@@ -122,14 +122,14 @@ if static_dir.exists():
 async def startup_event():
     """Runs once when the server starts."""
     from nwc_webapp.config.config import get_config
-    from nwc_webapp.config.environment import is_hpc
+    from nwc_webapp.config.environment import is_hpc, is_server
 
     # Initialise the config singleton with the explicit path before any
     # route handler calls get_config(). This makes nwc_webapp_v2/cfg.yaml
     # the single source of truth for the new backend.
     cfg_path = Path(__file__).parent.parent / "cfg.yaml"
     config = get_config(config_path=cfg_path)
-    env = "HPC" if is_hpc() else "Local"
+    env = "HPC" if is_hpc() else ("Server" if is_server() else "Local")
 
     print("=" * 60)
     print(f"  Weather Nowcasting API v2.0 ({env} mode)")
@@ -137,3 +137,11 @@ async def startup_event():
     print(f"  Docs:   http://localhost:8000/docs")
     print(f"  Health: http://localhost:8000/api/health")
     print("=" * 60)
+
+    # In server mode, auto-start the real-time loop so it's always running.
+    # Users only view predictions — no start/stop controls are shown in the UI.
+    if is_server():
+        from services.realtime import RealtimeService
+        result = RealtimeService().start()
+        print(f"  Real-time loop: auto-started ({result})")
+        print("=" * 60)
