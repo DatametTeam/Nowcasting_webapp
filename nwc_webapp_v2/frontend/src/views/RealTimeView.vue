@@ -15,11 +15,11 @@
     <div class="flex-1 flex flex-col relative min-w-0">
       <RadarMap ref="radarMap" class="flex-1" />
 
-      <!-- Mobile sidebar toggle (top-left so it doesn't overlap the Leaflet layer/search controls at top-right) -->
+      <!-- Mobile sidebar toggle — top-right (Leaflet layer/search controls now live on top-left) -->
       <button
         v-if="!sidebarOpen"
         @click="sidebarOpen = true"
-        class="absolute top-3 left-3 z-[1001] lg:hidden
+        class="absolute top-3 right-3 z-[1001] lg:hidden
                w-10 h-10 flex items-center justify-center rounded-full
                bg-white shadow-lg border border-gray-200 text-gray-600"
       >
@@ -133,11 +133,10 @@
              lg:static lg:translate-x-0 lg:z-auto"
       :class="sidebarOpen ? 'translate-x-0' : 'translate-x-full'"
     >
-      <!-- Close (mobile) — top-left of the sidebar so a ghost-tap on close
-           doesn't pass through to the Leaflet layer control on the map's top-right. -->
+      <!-- Close (mobile) — top-right; Leaflet controls moved to map's top-left so no ghost-tap collision. -->
       <button
         @click="sidebarOpen = false"
-        class="lg:hidden absolute top-2 left-2 w-8 h-8 flex items-center justify-center
+        class="lg:hidden absolute top-2 right-2 w-8 h-8 flex items-center justify-center
                rounded-full text-gray-400 hover:text-gray-200 hover:bg-white/10 transition-colors"
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">

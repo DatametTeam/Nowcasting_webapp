@@ -5,18 +5,18 @@
     { label, unit, thresholds: number[], colors: string[] }
 
   Accepts an optional `productName` prop (e.g. "SRI", "VMI") displayed as a
-  vertical label on the LEFT of the gradient (used in DataExplorerView stacking).
+  horizontal label on TOP of the gradient.
 
   Falls back to hardcoded SRI defaults when no prop is provided (RealTimeView
   backward compat — no changes needed there).
 -->
 <template>
   <div class="colorbar-container">
+    <!-- Product name on top (horizontal) -->
+    <div v-if="productName" class="colorbar-label">
+      {{ productName }}
+    </div>
     <div class="colorbar-body">
-      <!-- Left label: product name (vertical) -->
-      <div v-if="productName" class="colorbar-label">
-        {{ productName }}
-      </div>
       <!-- Gradient bar -->
       <div class="colorbar-gradient" :style="{ background: gradient }" />
       <!-- Tick labels on the right -->
@@ -49,7 +49,7 @@ const DEFAULT_UNIT = 'mm/h'
 
 const props = defineProps({
   legend: { type: Object, default: null },
-  /** Short product name shown as a vertical label on the left (e.g. "SRI"). */
+  /** Short product name shown as a horizontal label on top (e.g. "SRI"). */
   productName: { type: String, default: null },
 })
 
@@ -108,50 +108,14 @@ const gradient = computed(() => {
   gap: 3px;
 }
 
-/* Mobile: smaller colorbar so it doesn't dominate the screen */
-@media (max-width: 640px) {
-  .colorbar-container {
-    padding: 3px 2px;
-    gap: 1px;
-  }
-  .colorbar-body {
-    height: 90px;
-    gap: 2px;
-  }
-  .colorbar-label {
-    width: 8px;
-    font-size: 7px;
-    letter-spacing: 0.3px;
-  }
-  .colorbar-gradient {
-    width: 7px;
-  }
-  /* Tick column narrower since labels are now compact (12k vs 12000) */
-  .colorbar-ticks {
-    width: 14px;
-  }
-  .colorbar-tick {
-    font-size: 7px;
-    left: 1px;
-  }
-  .colorbar-unit {
-    font-size: 7px;
-  }
-}
-
-/* Vertical product label (e.g. "SRI") */
+/* Horizontal product label (e.g. "SRI") on top of the gradient */
 .colorbar-label {
-  width: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 9px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 1px;
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
+  letter-spacing: 0.5px;
   white-space: nowrap;
+  text-align: center;
 }
 
 .colorbar-gradient {
@@ -180,5 +144,35 @@ const gradient = computed(() => {
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.5px;
+}
+
+/* Mobile: even smaller and slimmer so the stack doesn't dominate the screen */
+@media (max-width: 640px) {
+  .colorbar-container {
+    padding: 2px 3px;
+    gap: 1px;
+  }
+  .colorbar-body {
+    height: 70px;
+    gap: 1px;
+  }
+  .colorbar-label {
+    font-size: 8px;
+    letter-spacing: 0.3px;
+  }
+  .colorbar-gradient {
+    width: 5px;
+  }
+  /* Tick column narrower since labels are now compact (12k vs 12000) */
+  .colorbar-ticks {
+    width: 13px;
+  }
+  .colorbar-tick {
+    font-size: 7px;
+    left: 1px;
+  }
+  .colorbar-unit {
+    font-size: 7px;
+  }
 }
 </style>

@@ -136,7 +136,7 @@ onMounted(() => {
   BASE_MAPS['Dark'].addTo(map)
 
   L.control.layers(BASE_MAPS, null, {
-    position: 'topright',
+    position: 'topleft',
     collapsed: true,
   }).addTo(map)
 
@@ -144,7 +144,7 @@ onMounted(() => {
   const searchControl = new GeoSearchControl({
     provider: new OpenStreetMapProvider(),
     style: 'bar',
-    position: 'topright',
+    position: 'topleft',
     showMarker: true,
     showPopup: false,
     autoClose: true,
