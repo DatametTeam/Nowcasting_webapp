@@ -35,7 +35,7 @@
         class="absolute right-[10px] z-[1001]
                top-16 sm:top-auto
                bottom-[calc(130px+env(safe-area-inset-bottom))] sm:bottom-[110px]
-               flex flex-col gap-1.5 items-end
+               flex flex-col justify-end gap-1.5 items-end
                max-h-[calc(100dvh-15rem)] sm:max-h-[calc(100vh-18rem)]
                overflow-y-auto"
       >

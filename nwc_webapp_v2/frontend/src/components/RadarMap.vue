@@ -590,12 +590,17 @@ defineExpose({
   }
 }
 
-/* When the layers control is expanded, lift it above the search bar that
-   shares the top-left corner — otherwise the search input overlaps the
-   layer options. */
-.leaflet-control-layers-expanded {
-  z-index: 1100;
+/* The layers control and the geosearch bar share the top-left corner.
+   Without explicit z-index they stack by DOM order and the geosearch form
+   (which has a backdrop-filter, creating its own stacking context) wins
+   over the expanded layers panel. Force layers above, geosearch below. */
+.leaflet-control-layers {
   position: relative;
+  z-index: 1100 !important;
+}
+.leaflet-control-geosearch {
+  position: relative;
+  z-index: 900;
 }
 
 /*

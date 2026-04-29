@@ -19,7 +19,7 @@
   - <router-view />     → displays the current page's component
 -->
 <template>
-  <div class="min-h-screen bg-gray-50">
+  <div class="min-h-dvh bg-gray-50">
     <!-- Top Navigation Bar — Leonardo red (#E4002B) -->
     <nav class="bg-[#C8102E] text-white shadow-lg">
       <div class="px-2 sm:px-4">
