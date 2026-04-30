@@ -19,19 +19,23 @@
       <button
         v-if="!sidebarOpen"
         @click="sidebarOpen = true"
-        class="absolute top-3 right-3 z-[1001] lg:hidden
-               w-10 h-10 flex items-center justify-center rounded-full
-               bg-white shadow-lg border border-gray-200 text-gray-600"
+        class="absolute top-3 right-3 z-[1001]
+               flex items-center gap-1.5 px-3 h-9 rounded-full
+               bg-white shadow-lg border border-gray-200 text-gray-600
+               hover:bg-gray-50 transition-colors"
+        title="Open panel"
       >
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
+        <span class="text-sm font-medium hidden sm:inline">Menu</span>
       </button>
 
       <!-- Stacked colorbars — bottom right, above timeline.
            top-16 on mobile keeps the column below the sidebar toggle (top-3 + h-10);
            overflow-y scrolls if too many products are enabled. -->
       <div
+        v-if="settings.showColorbars"
         class="colorbar-stack absolute right-[10px] z-[1001]
                flex flex-col justify-end gap-1.5 items-end
                overflow-y-auto"
@@ -136,14 +140,13 @@
     <div
       class="bg-gray-900 border-l border-gray-700 flex flex-col
              fixed right-0 top-12 sm:top-14 bottom-0 z-[1101] w-72
-             transform transition-transform duration-200 ease-out overflow-y-auto
-             lg:static lg:translate-x-0 lg:z-auto"
+             transform transition-transform duration-200 ease-out overflow-y-auto"
       :class="sidebarOpen ? 'translate-x-0' : 'translate-x-full'"
     >
-      <!-- Close (mobile) — top-right; Leaflet controls moved to map's top-left so no ghost-tap collision. -->
+      <!-- Close button -->
       <button
         @click="sidebarOpen = false"
-        class="lg:hidden absolute top-2 right-2 w-8 h-8 flex items-center justify-center
+        class="absolute top-2 right-2 w-8 h-8 flex items-center justify-center
                rounded-full text-gray-400 hover:text-gray-200 hover:bg-white/10 transition-colors"
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -369,14 +372,17 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from 'vue'
 import { useConfigStore } from '../stores/config.js'
+import { useSettingsStore } from '../stores/settings.js'
 import api from '../api.js'
 import RadarMap from '../components/RadarMap.vue'
 import ColorBar from '../components/ColorBar.vue'
 import { useRealtimeWs } from '../composables/useRealtimeWs.js'
 
 const configStore = useConfigStore()
+const settings = useSettingsStore()
 const radarMap = ref(null)
-const sidebarOpen = ref(false)
+// Default open on desktop, closed on mobile
+const sidebarOpen = ref(typeof window !== 'undefined' && window.innerWidth >= 1024)
 
 const SHORT_NAMES = { SRI_adj: 'SRI', VMI: 'VMI', ETM: 'ETM', VIL: 'VIL', IR_108: 'IR' }
 // Ordered top-to-bottom on the map (index 0 = topmost layer). IR_108 is last = bottommost.
@@ -386,7 +392,7 @@ const POLL_MS = 5 * 60 * 1000  // 5-minute polling
 
 // ---- Speed ----
 const speeds = [0.5, 1, 2, 4]
-const playSpeed = ref(1)
+const playSpeed = ref(settings.defaultSpeed)
 function cycleSpeed() {
   const idx = speeds.indexOf(playSpeed.value)
   playSpeed.value = speeds[(idx + 1) % speeds.length]
@@ -394,7 +400,7 @@ function cycleSpeed() {
 }
 
 // ---- Live state ----
-const lookbackHours = ref(1)
+const lookbackHours = ref(settings.defaultLookback)
 const followLive    = ref(true)
 const isUpdating    = ref(false)    // true during a background poll reload
 const nextUpdateSecs = ref(POLL_MS / 1000)
@@ -492,23 +498,26 @@ const visibleProducts = computed(() =>
   isLoaded.value ? productOrder.value.filter(p => layerConfig.value[p].enabled) : []
 )
 
-// Rome timezone formatter — data timestamps are UTC, display in local (Rome) time
-const romeFormatter = new Intl.DateTimeFormat('it-IT', {
-  timeZone: 'Europe/Rome',
+// Timezone-aware formatter — switches between Europe/Rome and UTC per settings
+const displayTz = computed(() =>
+  settings.timeZone === 'utc' ? 'UTC' : 'Europe/Rome'
+)
+
+const tsFormatter = computed(() => new Intl.DateTimeFormat('it-IT', {
+  timeZone: displayTz.value,
   day: '2-digit', month: '2-digit', year: 'numeric',
   hour: '2-digit', minute: '2-digit', hour12: false,
-})
+}))
 
 const currentTimestampDisplay = computed(() => {
   if (!timestamps.value.length) return '--/--/---- - --:--'
   const ts = timestamps.value[frameIndex.value]
   if (!ts) return '--/--/---- - --:--'
-  // Append 'Z' so the browser parses the backend's naive UTC string as UTC,
-  // then Intl converts to Rome time (UTC+1 winter, UTC+2 summer).
   const dt = new Date(ts + 'Z')
-  const parts = romeFormatter.formatToParts(dt)
+  const parts = tsFormatter.value.formatToParts(dt)
   const get = type => parts.find(p => p.type === type)?.value ?? '00'
-  return `${get('day')}/${get('month')}/${get('year')} - ${get('hour')}:${get('minute')}`
+  const suffix = settings.timeZone === 'utc' ? ' UTC' : ''
+  return `${get('day')}/${get('month')}/${get('year')} - ${get('hour')}:${get('minute')}${suffix}`
 })
 
 // Slider tick labels — 5 evenly-spaced points (including first and last).
@@ -518,7 +527,7 @@ const hourTicks = computed(() => {
   const n = timestamps.value.length
   if (n < 2) return []
   const fmt = new Intl.DateTimeFormat('it-IT', {
-    timeZone: 'Europe/Rome',
+    timeZone: displayTz.value,
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
@@ -641,6 +650,7 @@ async function onMapClick(latlng) {
   if (products.length === 0) return
 
   // Loading placeholder — popup opens immediately so the click feels responsive.
+  const tzLabel = settings.timeZone === 'utc' ? 'UTC' : 'Local'
   const loadingHtml = `
     <div class="pi-header">${ts.replace('T', ' ')} (UTC)</div>
     <div class="pi-row"><span class="pi-label">Loading…</span></div>
@@ -677,7 +687,7 @@ async function onMapClick(latlng) {
     }
 
     const html = `
-      <div class="pi-header">${ts.replace('T', ' ')} (UTC)</div>
+      <div class="pi-header">${ts.replace('T', ' ')} (${tzLabel})</div>
       ${body}
     `
     radarMap.value.showPopup(latlng, html)
@@ -1116,7 +1126,7 @@ async function runSearch() {
     }
     if (!searchFoundAny && hitMaxMs) {
       const mark = new Date(searchStart).toLocaleTimeString('it-IT', {
-        hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome',
+        hour: '2-digit', minute: '2-digit', timeZone: displayTz.value,
       })
       loadError.value = `No new data arrived within 5 minutes past the ${mark} mark — the server may be having issues.`
     }
