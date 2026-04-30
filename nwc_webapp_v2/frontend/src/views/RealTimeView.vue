@@ -1091,6 +1091,14 @@ async function runSearch() {
   const hitMaxMs        = elapsed >= SEARCH_MAX_MS
 
   if (allHaveExpected || reachedNextMark || hitMaxMs) {
+    // Edge case: a product landed late enough that COMMIT_DELAY_MS hadn't
+    // elapsed before nextMarkAt fired. Force-commit so we don't silently
+    // drop the frame just because the first arrival was near the boundary.
+    if (!expectedCommitted.value && firstArrivalAt > 0 && expectedTs.value) {
+      await commitExpectedFrame()
+      expectedCommitted.value = true
+      searchFoundAny = true
+    }
     if (!searchFoundAny && hitMaxMs) {
       const mark = new Date(searchStart).toLocaleTimeString('it-IT', {
         hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome',
