@@ -60,7 +60,7 @@
       <!-- Ensemble mode: single probability colorbar. Normal: SRI + optional IR. -->
       <div class="absolute right-[10px] z-[1001]
                   top-16 sm:top-auto
-                  bottom-[calc(80px+env(safe-area-inset-bottom))] sm:bottom-[110px]
+                  bottom-[calc(20px+env(safe-area-inset-bottom))] sm:bottom-[110px]
                   flex flex-col justify-end gap-1.5 items-end
                   max-h-[calc(100dvh-15rem)] sm:max-h-none
                   overflow-y-auto">
@@ -382,9 +382,14 @@
         <!-- Threshold slider (0–50 mm/h, step 0.5) -->
         <div class="flex items-center gap-2">
           <span class="text-xs text-gray-400 flex-shrink-0">Threshold</span>
+          <!-- Bind input event to update the live label, but only fire the
+               heavy reload on `change` (slider release) so we don't flood
+               the backend while the user is still picking a value. -->
           <input
             type="range"
-            v-model.number="ensembleThreshold"
+            :value="ensembleThreshold"
+            @input="ensembleThreshold = parseFloat($event.target.value)"
+            @change="onThresholdCommit"
             min="0"
             max="50"
             step="0.5"
@@ -921,14 +926,13 @@ watch(ensembleActive, () => { preloadAllFrames() })
 watch(ensembleModels, () => { preloadAllFrames() }, { deep: true })
 watch(ensembleContours, () => { if (ensembleActive.value) preloadAllFrames() })
 
-// Threshold slider fires on every step — debounce so we don't flood the
-// backend with reload requests while the user is dragging.
-let thresholdReloadTimer = null
-watch(ensembleThreshold, () => {
-  if (!ensembleActive.value) return
-  if (thresholdReloadTimer) clearTimeout(thresholdReloadTimer)
-  thresholdReloadTimer = setTimeout(() => { preloadAllFrames() }, 300)
-})
+// Threshold slider fires reload only on release (`change` event) — see the
+// onThresholdCommit handler below. The intermediate `input` events still
+// update the displayed value live, so the label tracks the slider, but no
+// network request is sent until the user lets go.
+function onThresholdCommit() {
+  if (ensembleActive.value) preloadAllFrames()
+}
 
 // IR opacity: update the currently visible IR frame
 watch(irOpacity, (opacity) => {
