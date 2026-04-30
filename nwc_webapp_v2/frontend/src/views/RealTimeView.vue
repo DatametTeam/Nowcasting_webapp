@@ -962,7 +962,12 @@ async function pollForNewData() {
           productStats.value[product].missingSet.add(ts)
         }
       })
-      if (resolveOk.some(Boolean)) goToFrame(frameIndex.value)
+      if (resolveOk.some(Boolean)) {
+        // Newly-added Leaflet ImageOverlays sit on top by DOM order — restore
+        // the configured product stacking so IR_108 stays bottommost, etc.
+        radarMap.value?.setProductOrder(productOrder.value)
+        goToFrame(frameIndex.value)
+      }
     }
 
     // ---- Phase B: expectedTs lifecycle ----
@@ -1010,7 +1015,10 @@ async function pollForNewData() {
                 markProductFound(product)
               }
             })
-            if (okList.some(Boolean)) goToFrame(frameIndex.value)
+            if (okList.some(Boolean)) {
+              radarMap.value?.setProductOrder(productOrder.value)
+              goToFrame(frameIndex.value)
+            }
           }
         }
       }
