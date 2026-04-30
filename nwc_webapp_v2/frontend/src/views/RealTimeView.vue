@@ -179,6 +179,12 @@
                   class="ml-auto text-[10px] text-gray-500 tabular-nums">
               next: {{ nextUpdateText }}
             </span>
+            <span
+              v-if="isLoaded"
+              :title="wsConnected ? 'WebSocket connected — instant updates' : 'WebSocket offline — using 5-min poll'"
+              class="text-[10px] ml-1"
+              :class="wsConnected ? 'text-green-500' : 'text-gray-600'"
+            >⚡</span>
           </div>
 
           <!-- Follow Live toggle -->
@@ -366,6 +372,7 @@ import { useConfigStore } from '../stores/config.js'
 import api from '../api.js'
 import RadarMap from '../components/RadarMap.vue'
 import ColorBar from '../components/ColorBar.vue'
+import { useRealtimeWs } from '../composables/useRealtimeWs.js'
 
 const configStore = useConfigStore()
 const radarMap = ref(null)
@@ -1233,6 +1240,33 @@ function formatMissingTs(isoTs) {
   const pad = n => String(n).padStart(2, '0')
   return `${pad(dt.getDate())}-${pad(dt.getMonth()+1)}-${dt.getFullYear()}-${pad(dt.getHours())}-${pad(dt.getMinutes())}.hdf`
 }
+
+// ---- WebSocket: instant kick when backend sees new SRI data ----
+// When the WS delivers a state_update we check whether the latest_sri_timestamp
+// is newer than anything we currently have in our timeline.  If so (and we're
+// not already in the middle of a search), we fire startDataSearch() immediately
+// instead of waiting for the next 5-min clock mark.
+//
+// The WS is purely a "wake-up" signal — the full data fetch still goes through
+// the existing pollForNewData / search-state-machine path, unchanged.
+// If the WS is unavailable the 5-min poll continues to work as before.
+let lastKnownSriTs = ''
+
+function onWsStateUpdate(state) {
+  const sriTs = state?.latest_sri_timestamp ?? ''
+  if (!sriTs || sriTs === lastKnownSriTs) return
+  lastKnownSriTs = sriTs
+
+  // Only kick a search if data has been loaded and we're not already searching.
+  // The search window itself handles the case where the file isn't on the
+  // image-rendering server yet (it retries every 1s for up to 5 min).
+  if (!isLoaded.value) return
+  if (isSearching.value) return
+
+  startDataSearch()
+}
+
+const { connected: wsConnected } = useRealtimeWs({ onStateUpdate: onWsStateUpdate })
 
 // ---- Lifecycle ----
 onMounted(async () => {

@@ -31,6 +31,7 @@ import numpy as np
 
 from nwc_webapp.config.config import get_config
 from nwc_webapp.config.environment import is_hpc, is_server
+from ws.manager import ws_manager
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +171,10 @@ class RealtimeService:
                 "models": self._models,
             })
 
+    def _broadcast(self):
+        """Broadcast current state to all WebSocket clients (called from background thread)."""
+        ws_manager.broadcast_sync({"type": "state_update", "data": self.get_state()})
+
     # ------------------------------------------------------------------
     # HPC loop — real PBS jobs
     # ------------------------------------------------------------------
@@ -232,6 +237,7 @@ class RealtimeService:
                     self._latest_sri = latest
                     self._latest_sri_timestamp = sri_dt.isoformat() if sri_dt else None
                     self._notification = f"New data found! {self._format_display(latest)}"
+                self._broadcast()
 
                 # --- Submit PBS jobs for models that need predictions ---
                 sri_stem = latest.replace(".hdf", "")
@@ -266,6 +272,7 @@ class RealtimeService:
 
                 # Monitor all jobs until resolved
                 self._monitor_hpc_jobs(config.models)
+                self._broadcast()
 
                 # Re-evaluate timing from the top of the loop after monitoring
                 continue
@@ -467,6 +474,7 @@ class RealtimeService:
                         self._models[model] = {"status": "ready", "job_id": None}
                     else:
                         self._models[model] = {"status": "queued", "job_id": None}
+            self._broadcast()
 
             # --- 5s: all models → "computing" (skip Test) ---
             if self._stop_event.wait(timeout=5):
@@ -491,6 +499,7 @@ class RealtimeService:
                         )
                 # Clear the notification now that results are in
                 self._notification = ""
+            self._broadcast()
 
             # --- 30s later (45s total): next cycle ---
             if self._stop_event.wait(timeout=30):
