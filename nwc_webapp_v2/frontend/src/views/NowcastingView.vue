@@ -60,9 +60,8 @@
       <!-- Ensemble mode: single probability colorbar. Normal: SRI + optional IR. -->
       <div class="absolute right-[10px] z-[1001]
                   top-16 sm:top-auto
-                  bottom-[calc(20px+env(safe-area-inset-bottom))] sm:bottom-[110px]
+                  bottom-[calc(140px+env(safe-area-inset-bottom))] sm:bottom-[110px]
                   flex flex-col justify-end gap-1.5 items-end
-                  max-h-[calc(100dvh-15rem)] sm:max-h-none
                   overflow-y-auto">
         <template v-if="ensembleActive">
           <ColorBar :legend="probLegend" product-name="P(%)" />
