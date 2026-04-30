@@ -193,9 +193,11 @@
             <span
               v-if="isLoaded"
               :title="wsConnected ? 'WebSocket connected — instant updates' : 'WebSocket offline — using 5-min poll'"
-              class="text-[10px] ml-1"
-              :class="wsConnected ? 'text-green-500' : 'text-gray-600'"
-            >⚡</span>
+              class="ml-1 flex items-center gap-0.5"
+            >
+              <span class="w-1.5 h-1.5 rounded-full" :class="wsConnected ? 'bg-green-400' : 'bg-gray-600'" />
+              <span class="text-[10px]" :class="wsConnected ? 'text-green-400' : 'text-gray-600'">WS</span>
+            </span>
           </div>
 
           <!-- Follow Live toggle -->
