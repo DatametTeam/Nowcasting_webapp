@@ -272,7 +272,7 @@
                 class="text-green-400 text-xs font-bold flex-shrink-0"
               >✓</span>
               <svg
-                v-else-if="isSearching && (!searchWindowTs.length || searchingProducts.has(product))"
+                v-else-if="isSearching && searchingProducts.has(product) && !revealMissingForExpected"
                 class="animate-spin h-3 w-3 text-blue-400 flex-shrink-0"
                 viewBox="0 0 24 24"
               >
@@ -316,9 +316,12 @@
             <div v-if="productStats[product]" class="text-xs">
               <span class="text-green-400 font-medium">{{ productStats[product].found }}</span>
               <span class="text-gray-500">/{{ productStats[product].expected }} frames</span>
-              <!-- Hide "N missing" while actively searching for this product's data -->
+              <!-- Hide "N missing" while we're still actively waiting on this
+                   product's expectedTs (within REVEAL_MISSING_DELAY_MS). After
+                   that timer fires (or once expectedTs is no longer pending
+                   for the product) the badge surfaces normally. -->
               <button
-                v-if="timelineMissingTs[product]?.length > 0 && !(isSearching && (!searchWindowTs.length || searchingProducts.has(product)))"
+                v-if="timelineMissingTs[product]?.length > 0 && (revealMissingForExpected || !(isSearching && searchingProducts.has(product)))"
                 @click="toggleMissing(product)"
                 class="text-amber-400 hover:text-amber-300 ml-1.5 underline underline-offset-2"
               >
@@ -415,22 +418,51 @@ let pollTimer       = null   // setInterval — fires every 5 min after alignmen
 let countdownTimer  = null
 let searchTimer     = null   // setTimeout — drives the sequential search loop
 
-// Poll every 1s for up to 3 min past each 5-min mark. A listdir on the server
-// is cheap and data typically lands ~1:30 past the mark, so 1s gets us the
-// file within a second of arrival.
-// Hold-back window (first 10s): don't commit a frame with any missing products
-// — wait until all products have arrived or the window expires.
-// After 10s: commit whatever is available; late products get resolved in place
-// via resolveProductFrame when their files eventually arrive.
-const SEARCH_HOLDBACK_MS = 10  * 1000       // no-commit window at start
-const SEARCH_INTERVAL    = 1   * 1000       // 1s throughout
-const SEARCH_MAX_MS      = 3   * 60 * 1000  // raise error after 3 minutes
+// Search-window tuning.
+//
+// At each 5-min clock mark we compute `expectedTs` = (mark − 5 min), the
+// timestamp that *should* arrive in this window, and run a 1s poll loop until
+// it (or its 5 s grace window) lands. Late files for OLDER timestamps are
+// resolved in place but no longer trigger early exit — that was the bug
+// where a late IR for 13:50 caused the search at 14:00 to give up before
+// 13:55 ever arrived.
+//
+// Phases of one search window:
+//   1. WAITING       — no product has expectedTs yet; just poll.
+//   2. ARRIVING      — first product reported expectedTs; wait COMMIT_DELAY_MS
+//                       so other products that are about to land get bundled.
+//   3. COMMITTED     — appended expectedTs to the timeline; for products that
+//                       haven't arrived yet we substitute the previous frame's
+//                       URL (closest-frame fallback) so the layer doesn't go
+//                       blank. Keep polling — when a real file lands, we swap
+//                       it in via resolveProductFrame.
+//   4. END           — exit when (a) all products have expectedTs, (b) the
+//                       next 5-min clock mark fires, or (c) SEARCH_MAX_MS hits.
+const SEARCH_INTERVAL          = 1   * 1000       // poll every 1 s
+const SEARCH_MAX_MS            = 5   * 60 * 1000  // hard cap (= one full mark)
+const COMMIT_DELAY_MS          = 5   * 1000       // pre-commit grace after first arrival
+const REVEAL_MISSING_DELAY_MS  = 60  * 1000       // surface "missing" badge after 60 s
 
 const isSearching    = ref(false)  // true while the search window is active
 const searchJustFound = ref(false) // true for 5s after a successful data find
 let   searchStart    = 0           // Date.now() when the current search began
-let   searchFoundAny = false       // true if any data was committed in this window
+let   searchFoundAny = false       // true if expectedTs was committed in this window
 let   successTimer   = null
+
+// Per-search state for the expectedTs lifecycle.
+const expectedTs        = ref('')   // ISO timestamp this window is targeting (with seconds)
+let   firstArrivalAt    = 0          // Date.now() of first product arrival for expectedTs
+const expectedCommitted = ref(false) // true once expectedTs is appended to timestamps.value
+let   nextMarkAt        = 0          // Date.now() of next 5-min clock mark — hard end
+
+// Products whose expectedTs slot has been resolved to its real image post-commit.
+// Used to skip redundant resolveProductFrame calls inside the 1s poll loop.
+const resolvedAtCommit  = new Set()
+
+// Toggled true REVEAL_MISSING_DELAY_MS after firstArrivalAt so the per-product
+// "missing" badge appears even while the search is still polling for stragglers.
+const revealMissingForExpected = ref(false)
+let   revealMissingTimer = null
 
 // Per-product "just found" state: true for 5s after new data lands for that product.
 // Used to show a ✓ next to the product name instead of the spinner.
@@ -444,10 +476,7 @@ function markProductFound(product) {
   }, 5000)
 }
 
-// Timestamps committed to the timeline in this search window.
-// Used to detect when all newly-added frames are fully resolved so we can
-// stop early instead of running the full 3 minutes.
-const searchWindowTs = ref([])
+// (Removed legacy searchWindowTs — replaced by expectedTs + expectedCommitted.)
 
 // ---- Computed ----
 const radarProducts = computed(() => configStore.radarProducts)
@@ -518,15 +547,18 @@ const timelineMissingTs = computed(() => {
   return result
 })
 
-// Products that still have unresolved frames in the current search window.
-// Used to show a per-product spinner and hide the "N missing" count while polling.
+// Products that still don't have data for expectedTs (the timestamp this
+// search window is targeting). Used to:
+//   - show a per-product spinner while we wait for that product's file
+//   - hide the "N missing" count until either the file arrives or the
+//     REVEAL_MISSING_DELAY_MS timer fires
 const searchingProducts = computed(() => {
-  if (!isSearching.value || searchWindowTs.value.length === 0) return new Set()
+  if (!isSearching.value || !expectedTs.value) return new Set()
   const pending = new Set()
   for (const product of productOrder.value) {
     const missing = productStats.value[product]?.missingSet
     if (!missing) continue
-    if (searchWindowTs.value.some(ts => missing.has(ts))) pending.add(product)
+    if (missing.has(expectedTs.value)) pending.add(product)
   }
   return pending
 })
@@ -777,6 +809,73 @@ async function setLookback(hours) {
   await loadData({ preserve: false })
 }
 
+// Return the most recent timestamp's overlay URL for a product, or null if
+// the product has nothing usable yet. Used as a "closest-frame" fallback when
+// committing expectedTs while a product hasn't arrived — we keep showing its
+// previous image instead of going blank, then swap to the real one once it
+// lands via resolveProductFrame.
+function fallbackUrlFor(product) {
+  const stats = productStats.value[product]
+  for (let i = timestamps.value.length - 1; i >= 0; i--) {
+    const ts = timestamps.value[i]
+    if (!stats?.missingSet?.has(ts)) {
+      return api.explorerOverlayUrl(product, ts)
+    }
+  }
+  return null
+}
+
+// Append expectedTs to the timeline + RadarMap layers. Products that don't yet
+// have the file land in the slot with a fallback URL (closest-frame); the rest
+// get their real image. Caller flips expectedCommitted = true on success.
+async function commitExpectedFrame() {
+  const ts = expectedTs.value
+  if (!ts || timestamps.value.includes(ts)) return
+
+  // One URL per product — real if available, otherwise closest-frame fallback.
+  const urls = productOrder.value.map(product => {
+    const stats = productStats.value[product]
+    return stats?.missingSet?.has(ts)
+      ? fallbackUrlFor(product)
+      : api.explorerOverlayUrl(product, ts)
+  })
+
+  await Promise.all(productOrder.value.map(async (product, i) => {
+    await radarMap.value?.appendProductFrames(product, [urls[i]])
+    const stats = productStats.value[product]
+    if (!stats?.missingSet?.has(ts)) markProductFound(product)
+  }))
+
+  // Append + sort (expectedTs is the newest, so it goes last anyway).
+  timestamps.value = [...timestamps.value, ts].sort()
+
+  // Track which products are already resolved so the post-commit poll can skip
+  // them. Anything missing now goes through Phase B's resolveProductFrame swap.
+  resolvedAtCommit.clear()
+  productOrder.value.forEach(p => {
+    if (!productStats.value[p]?.missingSet?.has(ts)) resolvedAtCommit.add(p)
+  })
+
+  if (followLive.value) goToFrame(timestamps.value.length - 1)
+  radarMap.value?.setProductOrder(productOrder.value)
+
+  // Schedule the "missing" badge reveal — caller may also have set this on
+  // first-arrival; idempotent so doing it twice is fine.
+  scheduleMissingReveal()
+}
+
+// Schedule the per-product "missing" badge to surface after REVEAL_MISSING_DELAY_MS
+// from firstArrivalAt. Called when first arrival is detected; idempotent.
+function scheduleMissingReveal() {
+  if (revealMissingTimer || firstArrivalAt === 0) return
+  const elapsed = Date.now() - firstArrivalAt
+  const remaining = Math.max(0, REVEAL_MISSING_DELAY_MS - elapsed)
+  revealMissingTimer = setTimeout(() => {
+    revealMissingForExpected.value = true
+    revealMissingTimer = null
+  }, remaining)
+}
+
 // ---- Polling: sliding window ----
 // Each poll: append new frames at the end, drop old frames from the front.
 // Typically 1 new frame per product (4 PNG requests total) — stays fast.
@@ -796,62 +895,49 @@ async function pollForNewData() {
       )
     )
 
+    // First-load fallback — no timeline yet, do a full reload.
+    if (!isLoaded.value) {
+      results.forEach((r, i) => {
+        productStats.value[productOrder.value[i]] = {
+          found: r.total_found, expected: r.total_expected,
+          missingTs: r.missing, missingSet: new Set(r.missing),
+        }
+      })
+      await loadData({ preserve: false })
+      return true
+    }
+
+    // Build helper sets for sliding-window logic + late-resolve.
     const tsSet = new Set()
     results.forEach(r => {
       r.timestamps.forEach(ts => tsSet.add(ts))
       r.missing.forEach(ts => tsSet.add(ts))
     })
-    const newRangeTs = Array.from(tsSet).sort()
-    if (newRangeTs.length === 0) return false
-
-    if (!isLoaded.value) {
-      await loadData({ preserve: false })
-      return true
-    }
-
-    const newMissingAll = new Set()
-    results.forEach(r => r.missing.forEach(ts => newMissingAll.add(ts)))
-
-    const newRangeSet  = new Set(newRangeTs)
+    const newRangeSet  = new Set(tsSet)
     const currentSet   = new Set(timestamps.value)
-    const addedTs      = newRangeTs.filter(ts => !currentSet.has(ts))
     const droppedCount = timestamps.value.filter(ts => !newRangeSet.has(ts)).length
 
-    // ---- Resolved frames: previously missing, now found, already in the timeline ----
-    // Only care about in-timeline null slots (added after 90s timeout) — these need
-    // resolveProductFrame to patch the slot in place.
-    // Timestamps held back by the 90s delay are NOT in timestamps.value, so they
-    // appear in addedTs as new entries and are handled by the addedFoundTs path below.
-    // Compute BEFORE updating productStats (need to compare old vs new missing sets).
+    // ---- Phase A: late files for OLDER timestamps (resolve in place) ----
+    // A file that was missing for an already-committed timestamp (other than
+    // expectedTs — which Phase B handles separately) is patched into its slot.
+    // This NEVER triggers the search to exit — that was the bug fixed here.
+    // Compute BEFORE updating productStats (needs prev vs new missing sets).
     const resolvedInTimeline = []   // { product, ts, idx }
     productOrder.value.forEach((product, i) => {
       const prevMissing = productStats.value[product]?.missingSet
       if (!prevMissing || prevMissing.size === 0) return
       const newMissingSet = new Set(results[i].missing)
       for (const ts of prevMissing) {
+        // Skip expectedTs — Phase B owns its lifecycle.
+        if (ts === expectedTs.value) continue
         if (!newMissingSet.has(ts) && currentSet.has(ts)) {
           const idx = timestamps.value.indexOf(ts)
           if (idx !== -1) resolvedInTimeline.push({ product, ts, idx })
         }
       }
     })
-    const hasResolved = resolvedInTimeline.length > 0
 
-    // ---- New timestamps: split into found vs still-missing ----
-    const addedFoundTs   = addedTs.filter(ts => !newMissingAll.has(ts))
-    const addedMissingTs = addedTs.filter(ts =>  newMissingAll.has(ts))
-
-    // Hold-back: during the first SEARCH_HOLDBACK_MS don't commit any empty
-    // frames — give all products a chance to arrive before showing blank slots.
-    // After that, commit whatever is available; late products get resolved in
-    // place via resolveProductFrame when their files eventually arrive.
-    const elapsed      = searchStart > 0 ? Date.now() - searchStart : Infinity
-    const delayMissing = addedFoundTs.length === 0 && addedMissingTs.length > 0
-                         && !hasResolved && elapsed < SEARCH_HOLDBACK_MS
-
-    if (addedTs.length === 0 && droppedCount === 0 && !hasResolved) return false
-
-    // ---- Update productStats (after resolved computation) ----
+    // Update productStats unconditionally — UI binds reactively.
     results.forEach((r, i) => {
       productStats.value[productOrder.value[i]] = {
         found:      r.total_found,
@@ -861,102 +947,91 @@ async function pollForNewData() {
       }
     })
 
-    // ---- Timestamps we're committing to the timeline this tick ----
-    // Must be sorted chronologically so RadarMap layer indices match timestamps.value.
-    // Without sort, found-first concat ([16:05, 16:10, 16:00]) would misalign layers.
-    //
-    // Never commit a timestamp that has ZERO products loaded for it — jumping
-    // to an all-null frame hides every layer and leaves the map blank.
-    // A timestamp is safe to commit once at least one product has real data.
-    const hasAnyProduct = ts => productOrder.value.some(
-      p => !productStats.value[p]?.missingSet?.has(ts)
-    )
-    const toAppend = (delayMissing
-      ? addedFoundTs
-      : [...addedFoundTs, ...addedMissingTs.filter(hasAnyProduct)]
-    ).sort()
-
-    // ---- Fix null slots already in the timeline ----
+    // Apply Phase A resolutions.
     if (resolvedInTimeline.length > 0) {
       const resolveOk = await Promise.all(resolvedInTimeline.map(({ product, ts, idx }) =>
         radarMap.value?.resolveProductFrame(product, idx, api.explorerOverlayUrl(product, ts))
           ?? Promise.resolve(false)
       ))
-
-      // Mark products whose frame actually loaded; re-add failures to missingSet
-      // so the next 1s poll retries via resolvedInTimeline instead of giving up.
       resolvedInTimeline.forEach(({ product, ts }, i) => {
         if (resolveOk[i]) {
           markProductFound(product)
-        } else {
-          if (productStats.value[product]) {
-            productStats.value[product].missingSet.add(ts)
-          }
+        } else if (productStats.value[product]) {
+          // Failed to load (file probably mid-write) — re-mark missing so the
+          // next 1s poll retries via this same path.
+          productStats.value[product].missingSet.add(ts)
         }
       })
+      if (resolveOk.some(Boolean)) goToFrame(frameIndex.value)
+    }
 
-      const actuallyResolved = resolvedInTimeline.filter((_, i) => resolveOk[i])
-      if (actuallyResolved.length > 0) {
-        const resolvedTsSet = new Set(actuallyResolved.map(r => r.ts))
-        const stillPending = productOrder.value.some(p =>
-          [...resolvedTsSet].some(ts => productStats.value[p]?.missingSet?.has(ts))
-        )
-        if (!stillPending) {
-          searchWindowTs.value = searchWindowTs.value.filter(ts => !resolvedTsSet.has(ts))
-          if (searchWindowTs.value.length === 0 && isSearching.value) {
-            stopSearching(true)
+    // ---- Phase B: expectedTs lifecycle ----
+    // Decide commit vs swap based on the search-window state machine.
+    if (expectedTs.value) {
+      const productsHaveExpected = productOrder.value.filter(p =>
+        !productStats.value[p].missingSet.has(expectedTs.value)
+      )
+      const allHaveExpected = productsHaveExpected.length === productOrder.value.length
+
+      if (!expectedCommitted.value) {
+        // Track first arrival → start the COMMIT_DELAY_MS grace window.
+        if (firstArrivalAt === 0 && productsHaveExpected.length > 0) {
+          firstArrivalAt = Date.now()
+          scheduleMissingReveal()
+        }
+        const commitDeadlineHit = firstArrivalAt > 0
+                                && (Date.now() - firstArrivalAt) >= COMMIT_DELAY_MS
+        if (allHaveExpected || commitDeadlineHit) {
+          await commitExpectedFrame()
+          expectedCommitted.value = true
+          searchFoundAny = true
+        }
+      } else {
+        // Post-commit: swap fallback URLs for newly-arrived real images.
+        const expectedIdx = timestamps.value.indexOf(expectedTs.value)
+        if (expectedIdx !== -1) {
+          const swaps = []
+          for (const product of productOrder.value) {
+            if (resolvedAtCommit.has(product)) continue
+            const stats = productStats.value[product]
+            if (stats && !stats.missingSet.has(expectedTs.value)) {
+              swaps.push({ product, idx: expectedIdx })
+            }
+          }
+          if (swaps.length > 0) {
+            const okList = await Promise.all(swaps.map(({ product, idx }) =>
+              radarMap.value?.resolveProductFrame(
+                product, idx, api.explorerOverlayUrl(product, expectedTs.value)
+              ) ?? Promise.resolve(false)
+            ))
+            swaps.forEach(({ product }, i) => {
+              if (okList[i]) {
+                resolvedAtCommit.add(product)
+                markProductFound(product)
+              }
+            })
+            if (okList.some(Boolean)) goToFrame(frameIndex.value)
           }
         }
       }
     }
 
-    // ---- Append new timestamps to RadarMap ----
-    if (toAppend.length > 0) {
-      await Promise.all(productOrder.value.map(async (product) => {
-        const stats = productStats.value[product]
-        const urls  = toAppend.map(ts =>
-          stats?.missingSet?.has(ts) ? null : api.explorerOverlayUrl(product, ts)
-        )
-        await radarMap.value?.appendProductFrames(product, urls)
-        // Mark product as just-found if it has at least one non-null frame appended
-        if (toAppend.some(ts => !stats?.missingSet?.has(ts))) markProductFound(product)
-      }))
-    }
-
-    // ---- Drop old frames from the front ----
+    // ---- Phase C: drop old frames from the front (sliding window) ----
     if (droppedCount > 0) {
       for (const product of productOrder.value) {
         radarMap.value?.trimProductFrames(product, droppedCount)
       }
+      const prevFrameIndex = frameIndex.value
+      timestamps.value = timestamps.value.filter(ts => newRangeSet.has(ts))
+      const adjustedIndex = Math.max(0, prevFrameIndex - droppedCount)
+      if (followLive.value) {
+        goToFrame(timestamps.value.length - 1)
+      } else {
+        goToFrame(Math.min(adjustedIndex, timestamps.value.length - 1))
+      }
     }
 
-    // ---- Update timeline and frame pointer ----
-    const prevFrameIndex = frameIndex.value
-    const retained = timestamps.value.filter(ts => newRangeSet.has(ts))
-    timestamps.value = [...retained, ...toAppend].sort()
-    const adjustedIndex = Math.max(0, prevFrameIndex - droppedCount)
-
-    if (followLive.value) {
-      goToFrame(timestamps.value.length - 1)
-    } else {
-      goToFrame(Math.min(adjustedIndex, timestamps.value.length - 1))
-    }
-
-    radarMap.value?.setProductOrder(productOrder.value)
-
-    // Refresh current frame so resolved images become visible
-    if (hasResolved) goToFrame(frameIndex.value)
-
-    // Track newly-committed timestamps so runSearch can stop early when resolved
-    if (toAppend.length > 0) {
-      const merged = new Set([...searchWindowTs.value, ...toAppend])
-      searchWindowTs.value = [...merged]
-    }
-
-    const dataFound = addedFoundTs.length > 0 || hasResolved
-    if (dataFound) searchFoundAny = true
-    return dataFound
-
+    return expectedCommitted.value
   } catch (e) {
     console.error('LiveView poll error:', e)
     return false
@@ -973,11 +1048,18 @@ function msUntilNextFiveMinMark() {
   return POLL_MS - ms
 }
 
-// Stop the within-minute retry loop.
-// Pass success=true when stopping because data was found (not timeout/error).
+// Stop the within-window retry loop and clean up per-search state.
+// Pass success=true when stopping because expectedTs was committed (or fully
+// resolved); false for timeouts / forced stops.
 function stopSearching(success = false) {
   if (searchTimer) { clearTimeout(searchTimer); searchTimer = null }
+  if (revealMissingTimer) { clearTimeout(revealMissingTimer); revealMissingTimer = null }
   isSearching.value = false
+  expectedTs.value = ''
+  expectedCommitted.value = false
+  firstArrivalAt = 0
+  revealMissingForExpected.value = false
+  resolvedAtCommit.clear()
   if (success) {
     searchJustFound.value = true
     if (successTimer) clearTimeout(successTimer)
@@ -987,46 +1069,64 @@ function stopSearching(success = false) {
 
 // One search attempt: poll, then schedule the next one only after this one completes.
 // Recursive setTimeout guarantees no concurrent polls.
-// Keeps running until SEARCH_MAX_MS so late products still get resolved in place;
-// raises a visible error if nothing new arrived by the timeout.
+//
+// Exit conditions (whichever comes first):
+//   1. expectedTs is committed AND every product has it       → success, stop
+//   2. We reach the next 5-min clock mark                     → stop, the next
+//      mark's setInterval will start a fresh search
+//   3. SEARCH_MAX_MS hit without any commit                   → error, stop
 async function runSearch() {
   if (!isSearching.value) return
-  const elapsed = Date.now() - searchStart
-  if (elapsed >= SEARCH_MAX_MS) {
-    if (!searchFoundAny) {
+
+  const now = Date.now()
+  const elapsed = now - searchStart
+
+  const expected = expectedTs.value
+  const allHaveExpected = expectedCommitted.value && expected !== '' &&
+    productOrder.value.every(p => !productStats.value[p]?.missingSet?.has(expected))
+
+  // Hit the next clock mark — the upcoming startDataSearch() will take over.
+  // Also catches SEARCH_MAX_MS as a hard cap in case nextMarkAt drifted.
+  const reachedNextMark = nextMarkAt > 0 && now >= nextMarkAt
+  const hitMaxMs        = elapsed >= SEARCH_MAX_MS
+
+  if (allHaveExpected || reachedNextMark || hitMaxMs) {
+    if (!searchFoundAny && hitMaxMs) {
       const mark = new Date(searchStart).toLocaleTimeString('it-IT', {
         hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome',
       })
-      loadError.value = `No new data arrived within 3 minutes past the ${mark} mark — the server may be having issues.`
+      loadError.value = `No new data arrived within 5 minutes past the ${mark} mark — the server may be having issues.`
     }
-    stopSearching()
+    stopSearching(allHaveExpected || searchFoundAny)
     return
   }
 
   await pollForNewData()
-
   if (!isSearching.value) return
-
-  // Stop early if all search-window timestamps are resolved across all products
-  if (elapsed >= SEARCH_HOLDBACK_MS && searchWindowTs.value.length > 0) {
-    const allResolved = searchWindowTs.value.every(ts =>
-      productOrder.value.every(p => !productStats.value[p]?.missingSet?.has(ts))
-    )
-    if (allResolved) { stopSearching(true); return }
-  }
-
   searchTimer = setTimeout(runSearch, SEARCH_INTERVAL)
 }
 
-// Start a search window: kick off the first attempt immediately, then retry
-// every 1s for up to 3 minutes.
+// Start a search window: target = the latest 5-min boundary (mark - 5 min),
+// then poll every 1s until that timestamp arrives or the next mark fires.
 function startDataSearch() {
   stopSearching()
   loadError.value = ''
   isSearching.value = true
   searchStart = Date.now()
   searchFoundAny = false
-  searchWindowTs.value = []
+
+  // Target this window: the most recent 5-min boundary computeRange(true) will
+  // settle on. Pad to ISO with seconds so it matches what the API returns.
+  const range = computeRange(true)
+  expectedTs.value = `${range.end}:00`
+  firstArrivalAt = 0
+  expectedCommitted.value = false
+  resolvedAtCommit.clear()
+  revealMissingForExpected.value = false
+
+  // Hard end: the next 5-min clock mark (whichever is sooner than SEARCH_MAX_MS).
+  nextMarkAt = searchStart + msUntilNextFiveMinMark()
+
   runSearch()
 }
 
