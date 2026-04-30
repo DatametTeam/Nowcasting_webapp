@@ -58,9 +58,7 @@
 
       <!-- Colorbars — floating on the map, bottom right (above the timeline bar) -->
       <!-- Ensemble mode: single probability colorbar. Normal: SRI + optional IR. -->
-      <div class="absolute right-[10px] z-[1001]
-                  top-16 sm:top-auto
-                  bottom-[calc(140px+env(safe-area-inset-bottom))] sm:bottom-[110px]
+      <div class="colorbar-stack absolute right-[10px] z-[1001]
                   flex flex-col justify-end gap-1.5 items-end
                   overflow-y-auto">
         <template v-if="ensembleActive">
@@ -1301,5 +1299,19 @@ onUnmounted(() => {
 }
 .animate-spin-slow {
   animation: spin-slow 2s linear infinite;
+}
+
+/* Colorbar stack — vertical position via plain CSS so we bypass any
+   Tailwind v4 arbitrary-value parsing flakiness with calc(...env(...)). */
+.colorbar-stack {
+  /* Mobile (default): hug the timeline slider */
+  top: 64px;
+  bottom: calc(75px + env(safe-area-inset-bottom));
+}
+@media (min-width: 640px) {
+  .colorbar-stack {
+    top: auto;
+    bottom: 110px;
+  }
 }
 </style>

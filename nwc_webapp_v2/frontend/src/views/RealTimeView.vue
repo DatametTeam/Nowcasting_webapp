@@ -32,11 +32,8 @@
            top-16 on mobile keeps the column below the sidebar toggle (top-3 + h-10);
            overflow-y scrolls if too many products are enabled. -->
       <div
-        class="absolute right-[10px] z-[1001]
-               top-16 sm:top-auto
-               bottom-[calc(140px+env(safe-area-inset-bottom))] sm:bottom-[80px]
+        class="colorbar-stack absolute right-[10px] z-[1001]
                flex flex-col justify-end gap-1.5 items-end
-               sm:max-h-[calc(100vh-18rem)]
                overflow-y-auto"
       >
         <ColorBar
@@ -1189,5 +1186,19 @@ onUnmounted(() => {
   cursor: pointer;
   border: none;
   box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+
+/* Colorbar stack — plain CSS to bypass any Tailwind v4 arbitrary-value
+   parsing issue with calc(...env(...)). Mobile sits just above the slider. */
+.colorbar-stack {
+  top: 64px;
+  bottom: calc(70px + env(safe-area-inset-bottom));
+}
+@media (min-width: 640px) {
+  .colorbar-stack {
+    top: auto;
+    bottom: 80px;
+    max-height: calc(100vh - 18rem);
+  }
 }
 </style>
