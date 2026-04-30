@@ -137,12 +137,20 @@
       @click="sidebarOpen = false"
     />
 
+    <!-- On mobile: fixed overlay (translate in/out).
+         On desktop (lg+): in-flow flex child — map shrinks when open.
+         Width on desktop transitions 0→18rem; mobile always w-72 (translate hides it). -->
     <div
-      class="bg-gray-900 border-l border-gray-700 flex flex-col
+      class="bg-gray-900 flex-shrink-0 overflow-hidden
              fixed right-0 top-12 sm:top-14 bottom-0 z-[1101] w-72
-             transform transition-transform duration-200 ease-out overflow-y-auto"
-      :class="sidebarOpen ? 'translate-x-0' : 'translate-x-full'"
+             lg:relative lg:top-auto lg:right-auto lg:bottom-auto lg:z-auto
+             transition-all duration-200 ease-out"
+      :class="sidebarOpen
+        ? 'translate-x-0 border-l border-gray-700 lg:w-72'
+        : 'translate-x-full lg:translate-x-0 lg:w-0 border-l-0'"
     >
+      <!-- Inner wrapper keeps content at w-72 so it doesn't reflow during width animation -->
+      <div class="w-72 h-full flex flex-col overflow-y-auto">
       <!-- Close button -->
       <button
         @click="sidebarOpen = false"
@@ -365,7 +373,8 @@
         </div>
 
       </div>
-    </div>
+    </div><!-- /inner wrapper -->
+    </div><!-- /sidebar outer -->
   </div>
 </template>
 
@@ -382,7 +391,7 @@ const configStore = useConfigStore()
 const settings = useSettingsStore()
 const radarMap = ref(null)
 // Default open on desktop, closed on mobile
-const sidebarOpen = ref(typeof window !== 'undefined' && window.innerWidth >= 1024)
+const sidebarOpen = ref(false)
 
 const SHORT_NAMES = { SRI_adj: 'SRI', VMI: 'VMI', ETM: 'ETM', VIL: 'VIL', IR_108: 'IR' }
 // Ordered top-to-bottom on the map (index 0 = topmost layer). IR_108 is last = bottommost.

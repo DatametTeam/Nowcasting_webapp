@@ -212,11 +212,15 @@
       @click="sidebarOpen = false"
     />
     <div
-      class="bg-gray-900 border-l border-gray-700 flex flex-col overflow-y-auto
+      class="bg-gray-900 flex-shrink-0 overflow-hidden
              fixed right-0 top-12 sm:top-14 bottom-0 z-[1101] w-72
-             transform transition-transform duration-200 ease-out"
-      :class="sidebarOpen ? 'translate-x-0' : 'translate-x-full'"
+             lg:relative lg:top-auto lg:right-auto lg:bottom-auto lg:z-auto
+             transition-all duration-200 ease-out"
+      :class="sidebarOpen
+        ? 'translate-x-0 border-l border-gray-700 lg:w-72'
+        : 'translate-x-full lg:translate-x-0 lg:w-0 border-l-0'"
     >
+      <div class="w-72 h-full flex flex-col overflow-y-auto">
       <!-- Close button -->
       <button
         @click="sidebarOpen = false"
@@ -474,7 +478,8 @@
           Status updated {{ lastRefresh }}
         </p>
       </div>
-    </div>
+    </div><!-- /inner wrapper -->
+    </div><!-- /sidebar outer -->
   </div>
 </template>
 
@@ -514,7 +519,7 @@ const formatDateTimeInRome = formatDateTimeInTz
 
 // ---- State ----
 const radarMap = ref(null)
-const sidebarOpen = ref(typeof window !== 'undefined' && window.innerWidth >= 1024)
+const sidebarOpen = ref(false)
 const selectedModel = ref('')
 
 // Cached prediction URLs (frames 13-24) from the last successful full load.
