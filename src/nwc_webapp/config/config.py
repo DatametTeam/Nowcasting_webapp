@@ -252,7 +252,6 @@ class Config:
         return Path(resolved)
 
     @property
-    @property
     def amv_folder(self) -> Optional[Path]:
         """Get AMV shapefile folder path (one .shp per 20-min timestamp)."""
         folder = self.get_paths().get("amv_folder", "")
