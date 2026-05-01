@@ -1360,12 +1360,26 @@ async function fetchWindTimestamps() {
   try {
     const { timestamps: ts } = await api.windTimestamps()
     windTimestamps.value = ts
+    // Pre-warm the cache for all timestamps in the background so slider
+    // transitions between AMV snapshots are instant (no per-boundary fetch wait).
+    prefetchWindData()
     // If wind is on and the new list includes a more recent snapshot than
     // what's currently showing, update the layer immediately.
     if (windEnabled.value) updateWindLayer()
   } catch (e) {
     console.warn('Could not fetch wind timestamps:', e)
   }
+}
+
+// Fetch all uncached AMV timestamps in parallel, silently, in the background.
+// Each response is ~25 KB; a full 4-hour window is ~12 timestamps = ~300 KB total.
+function prefetchWindData() {
+  const toFetch = windTimestamps.value.filter(ts => !windDataCache[ts])
+  toFetch.forEach(ts => {
+    api.windData(ts)
+      .then(data => { windDataCache[ts] = data })
+      .catch(() => {})   // silently ignore — will retry on demand
+  })
 }
 
 // Re-render wind layer when the slider moves.

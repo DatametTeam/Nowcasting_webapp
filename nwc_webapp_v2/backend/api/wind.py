@@ -29,6 +29,11 @@ from fastapi.responses import JSONResponse
 
 router = APIRouter(prefix="/api/wind", tags=["wind"])
 
+# In-memory cache: timestamp string → velocity JSON list.
+# Populated on first request; lives for the lifetime of the server process.
+# Eliminates repeated shapefile reads and scipy interpolation for the same file.
+_velocity_cache: dict = {}
+
 # Shapefile filename pattern: DD-MM-YYYY-HH-MM.shp
 _FILENAME_RE = re.compile(
     r"^(\d{2})-(\d{2})-(\d{4})-(\d{2})-(\d{2})\.shp$"
@@ -173,10 +178,11 @@ async def get_wind_data(timestamp: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"No AMV data for {timestamp}.")
 
-    try:
-        ref_time = dt.strftime("%Y-%m-%d %H:%M:%S")
-        payload = _shapefile_to_velocity(path, ref_time)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to process AMV file: {exc}")
+    if timestamp not in _velocity_cache:
+        try:
+            ref_time = dt.strftime("%Y-%m-%d %H:%M:%S")
+            _velocity_cache[timestamp] = _shapefile_to_velocity(path, ref_time)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to process AMV file: {exc}")
 
-    return JSONResponse(content=payload)
+    return JSONResponse(content=_velocity_cache[timestamp])
