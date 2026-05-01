@@ -833,6 +833,12 @@ async function loadData({ preserve = false } = {}) {
 
     isLoaded.value = true
 
+    // Apply stacking order BEFORE showing the first frame so that layers are
+    // already in the correct z-order when goToFrame triggers CSS transitions.
+    // Calling setProductOrder after goToFrame re-inserts IR_108's DOM element
+    // at the bottom which restarts its opacity transition, making it appear late.
+    radarMap.value?.setProductOrder(productOrder.value)
+
     if (followLive.value) {
       goToFrame(sortedTs.length - 1)
     } else if (preserve && prevLen > 0) {
@@ -845,9 +851,6 @@ async function loadData({ preserve = false } = {}) {
     } else {
       goToFrame(0)
     }
-
-    // Apply stacking order: IR_108 is last in productOrder → bottommost on map
-    radarMap.value?.setProductOrder(productOrder.value)
 
   } catch (e) {
     console.error('LiveView: failed to load data:', e)

@@ -257,6 +257,7 @@ class Config:
         folder = self.get_paths().get("amv_folder", "")
         return Path(folder) if folder else None
 
+    @property
     def data_archive_folder(self) -> Optional[Path]:
         """
         Get the archive base folder for radar products older than ~3 days.
