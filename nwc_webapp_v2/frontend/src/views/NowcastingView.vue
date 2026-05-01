@@ -58,9 +58,12 @@
 
       <!-- Colorbars — floating on the map, bottom right (above the timeline bar) -->
       <!-- Ensemble mode: single probability colorbar. Normal: SRI + optional IR. -->
-      <div class="colorbar-stack absolute right-[10px] z-[1001]
-                  flex flex-col justify-end gap-1.5 items-end
-                  overflow-y-auto">
+      <div
+        v-if="settings.showColorbars"
+        class="colorbar-stack absolute right-[10px] z-[1001]
+               flex flex-col justify-end gap-1.5 items-end
+               overflow-y-auto"
+      >
         <template v-if="ensembleActive">
           <ColorBar :legend="probLegend" product-name="P(%)" />
         </template>
@@ -77,20 +80,20 @@
       <!-- ============================================================ -->
       <!-- BOTTOM BAR: Timeline controls (floating over the map)        -->
       <!-- ============================================================ -->
-      <!-- Sidebar toggle button (visible on small screens when sidebar is hidden) -->
+      <!-- Sidebar toggle button -->
       <button
         v-if="!sidebarOpen"
         @click="sidebarOpen = true"
-        class="absolute top-3 right-3 z-[1001] lg:hidden
-               w-10 h-10 flex items-center justify-center rounded-full
+        class="absolute top-3 right-3 z-[1001]
+               flex items-center gap-1.5 px-3 h-9 rounded-full
                bg-white shadow-lg border border-gray-200 text-gray-600
                hover:bg-gray-50 transition-colors"
         title="Open panel"
       >
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" stroke-linecap="round" stroke-linejoin="round" />
-          <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round" />
+        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
+        <span class="text-sm font-medium hidden sm:inline">Menu</span>
       </button>
 
       <div class="absolute bottom-0 left-0 right-0 z-[1000]
@@ -202,24 +205,26 @@
     <!-- ================================================================ -->
     <!-- RIGHT: Sidebar panel (drawer on mobile, fixed on desktop)        -->
     <!-- ================================================================ -->
-    <!-- Backdrop (mobile only) -->
+    <!-- Backdrop -->
     <div
       v-if="sidebarOpen"
       class="fixed inset-0 bg-black/40 z-[1100] lg:hidden"
       @click="sidebarOpen = false"
     />
     <div
-      class="bg-gray-900 border-l border-gray-700 flex flex-col overflow-y-auto
+      class="bg-gray-900 flex-shrink-0 overflow-hidden
              fixed right-0 top-12 sm:top-14 bottom-0 z-[1101] w-72
-             transform transition-transform duration-200 ease-out
-             lg:static lg:translate-x-0 lg:z-auto"
-      :class="sidebarOpen ? 'translate-x-0' : 'translate-x-full'"
+             lg:relative lg:top-auto lg:right-auto lg:bottom-auto lg:z-auto
+             transition-all duration-200 ease-out"
+      :class="sidebarOpen
+        ? 'translate-x-0 border-l border-gray-700 lg:w-72'
+        : 'translate-x-full lg:translate-x-0 lg:w-0 border-l-0'"
     >
-      <!-- Close button (mobile only) -->
-      <!-- Close (mobile) — top-right; Leaflet controls moved to map's top-left so no ghost-tap collision. -->
+      <div class="w-72 h-full flex flex-col overflow-y-auto">
+      <!-- Close button -->
       <button
         @click="sidebarOpen = false"
-        class="lg:hidden absolute top-2 right-2 w-8 h-8 flex items-center justify-center
+        class="absolute top-2 right-2 w-8 h-8 flex items-center justify-center
                rounded-full text-gray-400 hover:text-gray-200 hover:bg-white/10 transition-colors"
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -473,7 +478,8 @@
           Status updated {{ lastRefresh }}
         </p>
       </div>
-    </div>
+    </div><!-- /inner wrapper -->
+    </div><!-- /sidebar outer -->
   </div>
 </template>
 
@@ -481,31 +487,39 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import api from '../api.js'
 import { useConfigStore } from '../stores/config.js'
+import { useSettingsStore } from '../stores/settings.js'
 import RadarMap from '../components/RadarMap.vue'
 import ColorBar from '../components/ColorBar.vue'
 
 const configStore = useConfigStore()
+const settings = useSettingsStore()
 const models = computed(() => configStore.models)
 
 // ---- Timezone helpers (display only — all data stays UTC) ----
-const TIMEZONE = 'Europe/Rome'
+const displayTz = computed(() =>
+  settings.timeZone === 'utc' ? 'UTC' : 'Europe/Rome'
+)
 
-function formatTimeInRome(date) {
+function formatTimeInTz(date) {
   return date.toLocaleTimeString('it-IT', {
-    timeZone: TIMEZONE, hour: '2-digit', minute: '2-digit', hour12: false
+    timeZone: displayTz.value, hour: '2-digit', minute: '2-digit', hour12: false
   })
 }
 
-function formatDateTimeInRome(date) {
+function formatDateTimeInTz(date) {
   return date.toLocaleString('it-IT', {
-    timeZone: TIMEZONE, day: '2-digit', month: '2-digit', year: 'numeric',
+    timeZone: displayTz.value, day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit', hour12: false
   })
 }
 
+// Legacy aliases kept for existing call sites
+const formatTimeInRome = formatTimeInTz
+const formatDateTimeInRome = formatDateTimeInTz
+
 // ---- State ----
 const radarMap = ref(null)
-const sidebarOpen = ref(false)  // Mobile sidebar drawer
+const sidebarOpen = ref(false)
 const selectedModel = ref('')
 
 // Cached prediction URLs (frames 13-24) from the last successful full load.

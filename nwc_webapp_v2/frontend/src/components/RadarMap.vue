@@ -34,11 +34,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { GeoSearchControl, OpenStreetMapProvider } from 'leaflet-geosearch'
 import 'leaflet-geosearch/dist/geosearch.css'
+import { useSettingsStore } from '../stores/settings.js'
 
 const props = defineProps({
   center: { type: Array, default: () => [42.0, 12.5] },
@@ -54,7 +55,10 @@ const loading = ref(false)
 const loadedCount = ref(0)
 const totalCount = ref(0)
 
+const settings = useSettingsStore()
+
 let map = null
+let activeBaseLayer = null
 // Array of Leaflet ImageOverlay layers (one per frame) — used by single-product API
 let frameLayers = []
 let activeFrameIndex = -1
@@ -136,12 +140,30 @@ onMounted(() => {
     zoomAnimation: true,
   })
 
-  BASE_MAPS['Dark'].addTo(map)
+  // Use the saved setting (falls back to Dark if key not found)
+  const initialLayer = BASE_MAPS[settings.baseLayer] ?? BASE_MAPS['Dark']
+  initialLayer.addTo(map)
+  activeBaseLayer = initialLayer
 
   L.control.layers(BASE_MAPS, null, {
     position: 'topleft',
     collapsed: true,
   }).addTo(map)
+
+  // Sync when user switches base layer in Settings modal
+  watch(() => settings.baseLayer, (name) => {
+    const next = BASE_MAPS[name]
+    if (!next || !map) return
+    if (activeBaseLayer) map.removeLayer(activeBaseLayer)
+    next.addTo(map)
+    activeBaseLayer = next
+    // dark-basemap class drives colorbar/overlay CSS
+    if (name === 'Dark') {
+      mapContainer.value?.classList.add('dark-basemap')
+    } else {
+      mapContainer.value?.classList.remove('dark-basemap')
+    }
+  })
 
   // Place search bar — uses OpenStreetMap's free Nominatim geocoder
   const searchControl = new GeoSearchControl({
@@ -176,9 +198,10 @@ onMounted(() => {
       .addTo(map)
   }
 
-  // Dark map is the default — mark the container so CSS can invert icons
   const DARK_LAYERS = new Set(['Dark', 'Satellite'])
-  mapContainer.value.classList.add('dark-basemap')
+  if (DARK_LAYERS.has(settings.baseLayer)) {
+    mapContainer.value.classList.add('dark-basemap')
+  }
 
   // Click → emit (lat, lon) so the parent view can fetch pixel values and
   // display a popup. Skip clicks on existing popups, controls, or markers.
