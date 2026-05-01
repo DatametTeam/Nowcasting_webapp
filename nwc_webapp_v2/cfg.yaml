@@ -8,7 +8,7 @@ mode: server
 
 # Server-mode inference settings (used only when mode: server)
 server:
-  inference_script_path: "/home/ubuntu/spatiotemporal-nowcast/spatiotemporal_forecast/scripts/webapp_predictions.py"
+  inference_script_path: "/home/ubuntu/projects/spatiotemporal-nowcast/spatiotemporal_forecast/scripts/webapp_predictions.py"
   conda_env: "nowcasting3.12_webapp"
 
 # Tabs shown in the navigation bar.
@@ -26,9 +26,6 @@ models:
   - ConvLSTM
   - IAM4VP
   - SPROG
-  - ConvLSTM_SSIM
-  - ConvLSTM_v2
-  - Test
 
 # Metrics thresholds
 csi_threshold: [1, 5, 10, 20, 50]
@@ -43,13 +40,15 @@ hpc_paths:
   prediction_output: "/davinci-1/work/protezionecivile/nwc_webapp/"
   real_time_pred: "/davinci-1/work/protezionecivile/nwc_webapp/real_time_results"
   archive_folder: "/davinci-1/work/protezionecivile/data"
+  amv_folder: "/davinci-1/work/protezionecivile/data1/AMV"
 
 # Server paths (used when running on a dedicated GPU server without job scheduler)
 server_paths:
-  data_root: "/home/ubuntu/data1"
-  prediction_output: "/home/ubuntu/data1/nwc_webapp/"
-  real_time_pred: "/home/ubuntu/data1/nwc_webapp/real_time_results"
-  archive_folder: "/home/ubuntu/data"
+  data_root: "/data"
+  prediction_output: "/data/nwc_webapp/"
+  real_time_pred: "/data/nwc_webapp/real_time_results"
+  archive_folder: "/data"
+  amv_folder: "/data/AMV"
 
 # Local paths (used for local development with mock data)
 local_paths:
@@ -57,6 +56,7 @@ local_paths:
   prediction_output: "data/predictions"
   real_time_pred: "data/predictions/real_time_pred"
   archive_folder: ""
+  amv_folder: "data/AMV"
 
 # Radar mask (relative to package root)
 radar_mask_path: "resources/mask/mask_correct.hdf"

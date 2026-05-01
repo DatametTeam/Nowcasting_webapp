@@ -192,4 +192,8 @@ export default {
    */
   fitDiagram: (models, pod_values, far_values, csi_values, threshold) =>
     postBlob('/metrics/fit-diagram', { models, pod_values, far_values, csi_values, threshold }),
+
+  // --- Wind / AMV ---
+  windTimestamps: () => get('/wind/timestamps'),
+  windData: (timestamp) => get(`/wind/data?timestamp=${encodeURIComponent(timestamp)}`),
 }

@@ -252,6 +252,12 @@ class Config:
         return Path(resolved)
 
     @property
+    @property
+    def amv_folder(self) -> Optional[Path]:
+        """Get AMV shapefile folder path (one .shp per 20-min timestamp)."""
+        folder = self.get_paths().get("amv_folder", "")
+        return Path(folder) if folder else None
+
     def data_archive_folder(self) -> Optional[Path]:
         """
         Get the archive base folder for radar products older than ~3 days.

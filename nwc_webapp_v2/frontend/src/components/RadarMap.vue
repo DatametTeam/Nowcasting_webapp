@@ -37,6 +37,8 @@
 import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import 'leaflet-velocity/dist/leaflet-velocity.css'
+import 'leaflet-velocity'
 import { GeoSearchControl, OpenStreetMapProvider } from 'leaflet-geosearch'
 import 'leaflet-geosearch/dist/geosearch.css'
 import { useSettingsStore } from '../stores/settings.js'
@@ -633,6 +635,42 @@ function setProductOrder(topToBottom) {
   }
 }
 
+// ---- Wind / AMV velocity layer ----
+let velocityLayer = null
+
+/**
+ * Render (or update) the leaflet-velocity wind layer with new data.
+ * `velocityData` is the two-element array [U, V] from /api/wind/data.
+ */
+function setWindLayer(velocityData) {
+  if (!map) return
+  if (velocityLayer) {
+    map.removeLayer(velocityLayer)
+    velocityLayer = null
+  }
+  velocityLayer = L.velocityLayer({
+    displayValues: true,
+    displayOptions: {
+      velocityType: 'Wind',
+      position: 'bottomleft',
+      emptyString: 'No wind data',
+      angleConvention: 'bearingCW',   // clockwise from north (matches meteorological)
+      speedUnit: 'm/s',
+    },
+    data: velocityData,
+    maxVelocity: 25,    // m/s — caps the color scale (~50 kt)
+    velocityScale: 0.005,
+  })
+  velocityLayer.addTo(map)
+}
+
+/** Remove the wind layer (called when the user toggles it off). */
+function clearWindLayer() {
+  if (!map || !velocityLayer) return
+  map.removeLayer(velocityLayer)
+  velocityLayer = null
+}
+
 // Expose methods for the parent component to call
 defineExpose({
   // Single-product (backward compat — used by RealTimeView)
@@ -642,6 +680,8 @@ defineExpose({
   showAllAtFrame, setProductOpacity, removeProduct, clearAllProducts, setProductOrder,
   // Utility
   invalidateSize, showPopup, closePopup,
+  // Wind / AMV
+  setWindLayer, clearWindLayer,
 })
 </script>
 

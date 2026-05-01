@@ -35,6 +35,7 @@ from api.jobs import router as jobs_router
 from api.rendering import router as rendering_router
 from api.metrics import router as metrics_router
 from api.realtime import router as realtime_router
+from api.wind import router as wind_router
 
 # Create the FastAPI application instance
 app = FastAPI(
@@ -73,6 +74,7 @@ app.include_router(jobs_router)
 app.include_router(rendering_router)
 app.include_router(metrics_router)
 app.include_router(realtime_router)
+app.include_router(wind_router)
 
 
 # ============================================================================
