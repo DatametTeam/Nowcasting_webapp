@@ -80,11 +80,12 @@ def _shapefile_to_velocity(path: Path, ref_time: str) -> list[dict]:
     speed = gdf["AMV"].values * 0.51444          # knots → m/s
     direc = np.radians(gdf["Dir"].values)        # meteorological degrees → radians
 
-    # Meteorological convention: direction is FROM which compass point the wind blows.
-    # u (eastward)  = −speed · sin(dir)
-    # v (northward) = −speed · cos(dir)
-    u = -speed * np.sin(direc)
-    v = -speed * np.cos(direc)
+    # AMV Dir = direction of motion (where the wind vector is going TO),
+    # clockwise from North.  Standard vector decomposition (no negation):
+    # u (eastward)  = speed · sin(dir)
+    # v (northward) = speed · cos(dir)
+    u = speed * np.sin(direc)
+    v = speed * np.cos(direc)
 
     # Regular grid: top (LA1) → bottom (LA2), left (LO1) → right (LO2)
     grid_lons = np.linspace(_LO1, _LO2, _NX)

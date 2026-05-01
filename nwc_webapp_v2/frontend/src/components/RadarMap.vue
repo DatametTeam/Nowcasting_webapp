@@ -654,19 +654,37 @@ function setWindLayer(velocityData) {
       velocityType: 'Wind',
       position: 'bottomleft',
       emptyString: 'No wind data',
-      angleConvention: 'bearingCW',   // clockwise from north (matches meteorological)
+      angleConvention: 'bearingCW',
       speedUnit: 'm/s',
     },
     data: velocityData,
-    maxVelocity: 25,    // m/s — caps the color scale (~50 kt)
+    maxVelocity: 25,        // m/s — caps the color scale (~50 kt)
     velocityScale: 0.005,
+    particleAge: 64,        // frames before a particle is reset (fewer = less overdraw)
+    particleMultiplier: 1 / 400,  // lower = fewer simultaneous particles
+    lineWidth: 1.5,
+    frameRate: 15,          // cap at 15 fps — smoother perceived perf on low-end GPUs
   })
   velocityLayer.addTo(map)
+
+  // Pause particle animation during pan/zoom so the canvas doesn't partially
+  // redraw mid-interaction (main source of the visual "delay").
+  map.on('movestart zoomstart', _pauseWind)
+  map.on('moveend zoomend',     _resumeWind)
+}
+
+function _pauseWind() {
+  if (velocityLayer?._windy) velocityLayer._windy.stop()
+}
+function _resumeWind() {
+  if (velocityLayer?._windy) velocityLayer._windy.start()
 }
 
 /** Remove the wind layer (called when the user toggles it off). */
 function clearWindLayer() {
   if (!map || !velocityLayer) return
+  map.off('movestart zoomstart', _pauseWind)
+  map.off('moveend zoomend',     _resumeWind)
   map.removeLayer(velocityLayer)
   velocityLayer = null
 }
