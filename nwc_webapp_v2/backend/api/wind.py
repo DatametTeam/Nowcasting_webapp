@@ -77,11 +77,13 @@ def _shapefile_to_velocity(path: Path, ref_time: str) -> list[dict]:
 
     lons  = gdf.geometry.x.values
     lats  = gdf.geometry.y.values
-    speed = gdf["AMV"].values * 0.51444          # knots → m/s
-    direc = np.radians(gdf["Dir"].values)        # meteorological degrees → radians
+    # AMV pipeline (readLastAMV with as_is=False) converts knots → km/h (* 1.852)
+    # and FROM direction → TO direction (+ 180°).  So the shapefile already
+    # contains km/h velocities and direction-of-motion (not meteorological FROM).
+    speed = gdf["AMV"].values / 3.6              # km/h → m/s
+    direc = np.radians(gdf["Dir"].values)        # direction of motion, clockwise from North
 
-    # AMV Dir = direction of motion (where the wind vector is going TO),
-    # clockwise from North.  Standard vector decomposition (no negation):
+    # Standard vector decomposition for a TO-direction:
     # u (eastward)  = speed · sin(dir)
     # v (northward) = speed · cos(dir)
     u = speed * np.sin(direc)
