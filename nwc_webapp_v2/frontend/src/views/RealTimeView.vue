@@ -1203,6 +1203,11 @@ function startDataSearch() {
   // Hard end: the next 5-min clock mark (whichever is sooner than SEARCH_MAX_MS).
   nextMarkAt = searchStart + msUntilNextFiveMinMark()
 
+  // Refresh AMV timestamp list at every clock mark so newly arrived shapefiles
+  // are picked up without requiring a page reload (AMV cadence is 20 min but
+  // we refresh every 5 min to keep latency low).
+  fetchWindTimestamps()
+
   runSearch()
 }
 
@@ -1348,11 +1353,16 @@ async function updateWindLayer() {
   }
 }
 
-// Fetch the list of available AMV timestamps once on mount.
+// Fetch (or refresh) the list of available AMV timestamps.
+// Called on mount and at every 5-min clock mark so newly arrived shapefiles
+// are discovered within 5 minutes of landing on disk.
 async function fetchWindTimestamps() {
   try {
     const { timestamps: ts } = await api.windTimestamps()
     windTimestamps.value = ts
+    // If wind is on and the new list includes a more recent snapshot than
+    // what's currently showing, update the layer immediately.
+    if (windEnabled.value) updateWindLayer()
   } catch (e) {
     console.warn('Could not fetch wind timestamps:', e)
   }
