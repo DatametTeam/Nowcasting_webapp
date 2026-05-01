@@ -1314,6 +1314,10 @@ async function updateWindLayer() {
   if (!windEnabled.value || !radarMap.value) return
 
   const radarTs = timestamps.value[frameIndex.value] ?? ''
+  // If timestamps are temporarily empty (timeline mid-reset during loadData),
+  // leave the current wind layer in place and wait for the next update.
+  if (!radarTs) return
+
   // Strip seconds if present (radar timestamps may have ":00" suffix).
   const radarTsShort = radarTs.slice(0, 16)
   const target = nearestWindTs(radarTsShort)
