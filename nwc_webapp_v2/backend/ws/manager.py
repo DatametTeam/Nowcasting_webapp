@@ -18,6 +18,15 @@ logger = logging.getLogger(__name__)
 class ConnectionManager:
     def __init__(self):
         self._connections: list[WebSocket] = []
+        # Captured once from the async startup context so background threads
+        # can schedule coroutines onto the correct (running) uvicorn event loop.
+        # In Python 3.10+, asyncio.get_event_loop() from a background thread
+        # returns a new non-running loop, making broadcast_sync a silent no-op.
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Call once from an async context (e.g. FastAPI startup) to capture the loop."""
+        self._loop = loop
 
     async def connect(self, ws: WebSocket):
         await ws.accept()
@@ -45,12 +54,10 @@ class ConnectionManager:
         """Thread-safe broadcast from the RealtimeService background thread."""
         if not self._connections:
             return
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.run_coroutine_threadsafe(self.broadcast(message), loop)
-        except RuntimeError:
-            pass  # No event loop — server shutting down
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            return
+        asyncio.run_coroutine_threadsafe(self.broadcast(message), loop)
 
 
 ws_manager = ConnectionManager()

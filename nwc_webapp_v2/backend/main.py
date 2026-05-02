@@ -123,8 +123,16 @@ if static_dir.exists():
 @app.on_event("startup")
 async def startup_event():
     """Runs once when the server starts."""
+    import asyncio
     from nwc_webapp.config.config import get_config
     from nwc_webapp.config.environment import is_hpc, is_server
+
+    # Capture the running uvicorn event loop so broadcast_sync (called from
+    # background threads) can schedule coroutines onto it correctly.
+    # asyncio.get_event_loop() from a non-async thread returns a new
+    # non-running loop in Python 3.10+, making it a silent no-op.
+    from ws.manager import ws_manager
+    ws_manager.set_event_loop(asyncio.get_running_loop())
 
     # Initialise the config singleton with the explicit path before any
     # route handler calls get_config(). This makes nwc_webapp_v2/cfg.yaml
