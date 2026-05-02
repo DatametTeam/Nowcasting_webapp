@@ -18,6 +18,7 @@ from top-left / highest latitude to bottom-right / lowest latitude).
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +27,8 @@ from typing import Optional
 import numpy as np
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/wind", tags=["wind"])
 
@@ -183,6 +186,7 @@ async def get_wind_data(timestamp: str):
             ref_time = dt.strftime("%Y-%m-%d %H:%M:%S")
             _velocity_cache[timestamp] = _shapefile_to_velocity(path, ref_time)
         except Exception as exc:
+            logger.error("Failed to process AMV file %s: %s", path, exc, exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to process AMV file: {exc}")
 
     return JSONResponse(content=_velocity_cache[timestamp])

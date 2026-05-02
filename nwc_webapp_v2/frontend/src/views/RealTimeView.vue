@@ -1306,14 +1306,15 @@ const windTimestamps = ref([])   // sorted list of "YYYY-MM-DDTHH:MM" strings
 const activeWindTs   = ref('')   // the AMV timestamp currently on the map
 let   windDataCache  = {}        // ts → velocity JSON (avoid re-fetching same file)
 
-/** Return the most recent AMV timestamp ≤ `radarTs`, or '' if none. */
+/** Return the most recent AMV timestamp ≤ `radarTs` that loaded successfully, or '' if none. */
 function nearestWindTs(radarTs) {
   if (!radarTs || windTimestamps.value.length === 0) return ''
   // Both are "YYYY-MM-DDTHH:MM" — lexicographic comparison works for ISO strings.
+  // Skip timestamps that are known-broken (cached as null).
   let best = ''
   for (const ts of windTimestamps.value) {
-    if (ts <= radarTs) best = ts
-    else break
+    if (ts > radarTs) break
+    if (windDataCache[ts] !== null) best = ts
   }
   return best
 }
@@ -1340,8 +1341,13 @@ async function updateWindLayer() {
 
   windLoading.value = true
   try {
+    if (!(target in windDataCache)) {
+      windDataCache[target] = await api.windData(target).catch(() => null)
+    }
     if (!windDataCache[target]) {
-      windDataCache[target] = await api.windData(target)
+      radarMap.value.clearWindLayer()
+      activeWindTs.value = ''
+      return
     }
     radarMap.value.setWindLayer(windDataCache[target])
     activeWindTs.value = target
@@ -1373,12 +1379,13 @@ async function fetchWindTimestamps() {
 
 // Fetch all uncached AMV timestamps in parallel, silently, in the background.
 // Each response is ~25 KB; a full 4-hour window is ~12 timestamps = ~300 KB total.
+// Failures are cached as null so the same broken timestamp is never retried.
 function prefetchWindData() {
-  const toFetch = windTimestamps.value.filter(ts => !windDataCache[ts])
+  const toFetch = windTimestamps.value.filter(ts => !(ts in windDataCache))
   toFetch.forEach(ts => {
     api.windData(ts)
-      .then(data => { windDataCache[ts] = data })
-      .catch(() => {})   // silently ignore — will retry on demand
+      .then(data  => { windDataCache[ts] = data })
+      .catch(() => { windDataCache[ts] = null })
   })
 }
 
