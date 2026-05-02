@@ -645,8 +645,11 @@ let velocityLayer = null
 function setWindLayer(velocityData) {
   if (!map) return
   if (velocityLayer) {
-    map.removeLayer(velocityLayer)
-    velocityLayer = null
+    // Update in-place: setData clears the canvas and rebuilds the Windy grid
+    // without removing/re-adding the DOM element, so the blank is much shorter
+    // than a full destroy+recreate cycle.
+    velocityLayer.setData(velocityData)
+    return
   }
   velocityLayer = L.velocityLayer({
     displayValues: true,
