@@ -1377,11 +1377,13 @@ async function fetchWindTimestamps() {
   }
 }
 
-// Fetch all uncached AMV timestamps in parallel, silently, in the background.
-// Each response is ~25 KB; a full 4-hour window is ~12 timestamps = ~300 KB total.
+// Fetch uncached AMV timestamps that fall within the current radar lookback window,
+// in parallel, silently, in the background.
 // Failures are cached as null so the same broken timestamp is never retried.
 function prefetchWindData() {
-  const toFetch = windTimestamps.value.filter(ts => !(ts in windDataCache))
+  const { start } = computeRange()
+  const windowStart = start.slice(0, 16)   // "YYYY-MM-DDTHH:MM"
+  const toFetch = windTimestamps.value.filter(ts => ts >= windowStart && !(ts in windDataCache))
   toFetch.forEach(ts => {
     api.windData(ts)
       .then(data  => { windDataCache[ts] = data })
