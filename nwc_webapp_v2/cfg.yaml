@@ -115,7 +115,7 @@ pbs:
   # Set to false to disable job submission entirely (watch-folder mode).
   # Use this when predictions are generated externally (e.g. on HPC) and
   # delivered to the predictions folder via rsync/NFS.
-  submit_jobs: true
+  submit_jobs: false
 
   # Path to the inference script in the spatiotemporal-nowcast repository
   inference_script_path: "/home/ubuntu/spatiotemporal-nowcast/spatiotemporal_forecast/scripts/webapp_predictions.py"

@@ -255,6 +255,12 @@ class RealtimeService:
                             self._models[model] = {"status": "ready", "job_id": None}
                         continue
 
+                    if not config.submit_jobs:
+                        with self._lock:
+                            self._models[model] = {"status": "idle", "job_id": None}
+                        logger.info("submit_jobs=false: skipping job for %s", model)
+                        continue
+
                     with self._lock:
                         self._models[model] = {"status": "queued", "job_id": None}
                     try:
