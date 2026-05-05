@@ -364,7 +364,7 @@ const isPlaying = ref(false)
 let   _animTimer = null
 
 // ---- Sidebar ----
-const sidebarOpen = ref(window.innerWidth >= 1024)
+const sidebarOpen = ref(false)
 
 // ---- Lookback ----
 const lookbackHours = ref(settings.defaultLookback ?? 1)
