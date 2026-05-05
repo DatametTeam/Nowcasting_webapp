@@ -36,6 +36,7 @@ from api.rendering import router as rendering_router
 from api.metrics import router as metrics_router
 from api.realtime import router as realtime_router
 from api.wind import router as wind_router
+from api.wr10 import router as wr10_router, wr10_ws_manager
 
 # Create the FastAPI application instance
 app = FastAPI(
@@ -75,6 +76,7 @@ app.include_router(rendering_router)
 app.include_router(metrics_router)
 app.include_router(realtime_router)
 app.include_router(wind_router)
+app.include_router(wr10_router)
 
 
 # ============================================================================
@@ -133,6 +135,7 @@ async def startup_event():
     # non-running loop in Python 3.10+, making it a silent no-op.
     from ws.manager import ws_manager
     ws_manager.set_event_loop(asyncio.get_running_loop())
+    wr10_ws_manager.set_event_loop(asyncio.get_running_loop())
 
     # Initialise the config singleton with the explicit path before any
     # route handler calls get_config(). This makes nwc_webapp_v2/cfg.yaml
@@ -154,4 +157,8 @@ async def startup_event():
         from services.realtime import RealtimeService
         result = RealtimeService().start()
         print(f"  Real-time loop: auto-started ({result})")
+
+        from services.wr10 import WR10Service
+        WR10Service().start()
+        print(f"  WR10 watcher:   auto-started")
         print("=" * 60)

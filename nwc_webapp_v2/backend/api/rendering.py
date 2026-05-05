@@ -46,6 +46,156 @@ router = APIRouter(prefix="/api/render", tags=["rendering"])
 
 
 # ==========================================================================
+# WR10 polar → Cartesian → Web Mercator rendering
+# ==========================================================================
+
+# WR10 radar parameters (from HDF5 where/what attributes)
+_WR10_RADAR_LAT = 41.84239959716797
+_WR10_RADAR_LON = 12.646699905395508
+_WR10_N_RAYS = 360
+_WR10_N_BINS = 480
+_WR10_RSCALE = 150.0   # metres per range bin
+_WR10_MAX_RANGE_M = _WR10_N_BINS * _WR10_RSCALE   # 72 000 m
+_WR10_IMG_SIZE = 600   # pixels in the output PNG (each side)
+
+_wr10_warp_lookup = None  # (ray_idx, bin_idx, valid_mask) — computed once
+
+
+def _get_wr10_warp_lookup():
+    """
+    Precompute and cache the polar→Cartesian→WebMercator lookup table.
+
+    For each pixel (row, col) of the _WR10_IMG_SIZE × _WR10_IMG_SIZE output PNG:
+      1. Convert pixel position → Web Mercator metres
+      2. Web Mercator → lat/lon
+      3. lat/lon → metres (dx, dy) in azimuthal-equidistant projection centred on the radar
+      4. (dx, dy) → (azimuth, range) → polar (ray_idx, bin_idx)
+
+    Returns (ray_idx, bin_idx, valid_mask), all shape (_WR10_IMG_SIZE, _WR10_IMG_SIZE).
+    """
+    global _wr10_warp_lookup
+    if _wr10_warp_lookup is not None:
+        return _wr10_warp_lookup
+
+    from pyproj import Proj
+
+    R = 6378137.0  # WGS84 equatorial radius (Web Mercator)
+
+    # Coverage bounding box in Web Mercator, centred on the radar
+    proj_aeqd = Proj(proj="aeqd", lat_0=_WR10_RADAR_LAT, lon_0=_WR10_RADAR_LON, ellps="WGS84")
+    # SW and NE corners of the ±max_range square in lat/lon
+    lon_sw, lat_sw = proj_aeqd(-_WR10_MAX_RANGE_M, -_WR10_MAX_RANGE_M, inverse=True)
+    lon_ne, lat_ne = proj_aeqd(+_WR10_MAX_RANGE_M, +_WR10_MAX_RANGE_M, inverse=True)
+
+    # Web Mercator bounds
+    x_sw = R * np.radians(lon_sw)
+    y_sw = R * np.log(np.tan(np.pi / 4 + np.radians(lat_sw) / 2))
+    x_ne = R * np.radians(lon_ne)
+    y_ne = R * np.log(np.tan(np.pi / 4 + np.radians(lat_ne) / 2))
+
+    # Destination grid: uniform in Web Mercator (north→south rows, west→east cols)
+    dest_x = np.linspace(x_sw, x_ne, _WR10_IMG_SIZE)
+    dest_y = np.linspace(y_ne, y_sw, _WR10_IMG_SIZE)   # y_ne > y_sw → top = north
+    dest_xm, dest_ym = np.meshgrid(dest_x, dest_y)
+
+    # Web Mercator → lat/lon
+    dest_lon = np.degrees(dest_xm / R)
+    dest_lat = np.degrees(2 * np.arctan(np.exp(dest_ym / R)) - np.pi / 2)
+
+    # lat/lon → aeqd metres (dx=East, dy=North) relative to radar centre
+    dx, dy = proj_aeqd(dest_lon, dest_lat)
+
+    # Polar coordinates: azimuth (0° = North, clockwise), range in metres
+    range_m = np.sqrt(dx ** 2 + dy ** 2)
+    azimuth_deg = np.degrees(np.arctan2(dx, dy)) % 360.0  # arctan2(East, North)
+
+    # Map to integer polar indices
+    ray_idx = (azimuth_deg * _WR10_N_RAYS / 360.0).astype(int) % _WR10_N_RAYS
+    bin_idx = (range_m / _WR10_RSCALE).astype(int)
+
+    # Valid only within the radar's measurement range
+    valid = (range_m < _WR10_MAX_RANGE_M) & (bin_idx >= 0) & (bin_idx < _WR10_N_BINS)
+
+    _wr10_warp_lookup = (ray_idx, bin_idx, valid)
+    return _wr10_warp_lookup
+
+
+def _render_wr10_frame(file_path: Path, legend_name: str) -> bytes:
+    """
+    Load a WR10 HDF5 file and return a Web-Mercator PNG overlay.
+
+    Steps:
+      1. Read uint8 polar data (360 × 480)
+      2. Read gain/offset from HDF5 attributes and convert to physical values
+      3. Mark no-data pixels (raw == nodata) as NaN
+      4. Reproject via cached lookup table → _WR10_IMG_SIZE × _WR10_IMG_SIZE
+      5. Apply colormap and encode as PNG
+    """
+    import h5py
+
+    with h5py.File(file_path, "r") as f:
+        raw = f["dataset1/data1/data"][()].astype(float)
+        what = f["dataset1/data1/what"]
+        gain = float(what.attrs.get("gain", 0.5))
+        offset = float(what.attrs.get("offset", -32.0))
+        nodata = float(what.attrs.get("nodata", 0.0))
+        undetect = float(what.attrs.get("undetect", 0.0))
+
+    # Convert to physical values; mark no-data/undetect as NaN
+    no_signal = (raw == nodata) | (raw == undetect)
+    physical = offset + gain * raw
+    physical[no_signal] = np.nan
+
+    # Polar → Web Mercator (nearest-neighbour lookup)
+    ray_idx, bin_idx, valid = _get_wr10_warp_lookup()
+    warped = np.full((_WR10_IMG_SIZE, _WR10_IMG_SIZE), np.nan, dtype=float)
+    warped[valid] = physical[ray_idx[valid], bin_idx[valid]]
+
+    frame_cmap, frame_norm = _get_product_cmap_norm(legend_name)
+    return _frame_to_png_bytes(warped, frame_cmap, frame_norm, transparent_zero=False)
+
+
+@router.get("/overlay/wr10/{timestamp}")
+async def get_wr10_overlay(
+    timestamp: str,
+    product: str = Query("SRI", description="WR10 product: SRI or VMI"),
+):
+    """
+    Generate a WR10 polar radar overlay (RGBA PNG) for the map.
+
+    Converts the polar HDF5 scan (360 rays × 480 bins) to a Web-Mercator
+    Cartesian PNG sized _WR10_IMG_SIZE × _WR10_IMG_SIZE pixels, covering the
+    radar's full ±72 km range circle.  The frontend stretches this PNG between
+    the bounds returned by GET /api/wr10/config.
+    """
+    from api.wr10 import find_wr10_file, _wr10_cfg
+
+    try:
+        dt = datetime.fromisoformat(timestamp)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid datetime: {e}")
+
+    file_path = find_wr10_file(product, dt)
+    if file_path is None:
+        raise HTTPException(status_code=404, detail=f"WR10 file not found: {product} @ {timestamp}")
+
+    cfg = _wr10_cfg()
+    legend_name = cfg.get("products", {}).get(product, {}).get("legend", "CZ")
+
+    try:
+        # Warm the warp lookup cache if needed (cheap if already done)
+        _get_wr10_warp_lookup()
+        png_bytes = _render_wr10_frame(file_path, legend_name)
+    except OSError as e:
+        raise HTTPException(
+            status_code=404,
+            detail=f"File not yet readable (possibly still being written): {e}",
+        )
+
+    return Response(content=png_bytes, media_type="image/png", headers=_CACHE_HEADERS)
+
+
+# ==========================================================================
 # Cached helpers — loaded once, reused for every request
 # ==========================================================================
 

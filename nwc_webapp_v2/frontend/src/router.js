@@ -24,6 +24,7 @@ import NowcastingView from './views/NowcastingView.vue'
 import DataExplorerView from './views/DataExplorerView.vue'
 import ModelComparisonView from './views/ModelComparisonView.vue'
 import MetricsView from './views/MetricsView.vue'
+import WR10View from './views/WR10View.vue'
 
 const routes = [
   { path: '/', redirect: '/realtime' },
@@ -32,6 +33,11 @@ const routes = [
     path: '/realtime',
     name: 'Real Time',
     component: RealTimeView,
+  },
+  {
+    path: '/wr10',
+    name: 'WR10',
+    component: WR10View,
   },
   {
     path: '/nowcasting',

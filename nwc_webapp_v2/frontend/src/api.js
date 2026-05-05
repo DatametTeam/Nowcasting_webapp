@@ -196,4 +196,11 @@ export default {
   // --- Wind / AMV ---
   windTimestamps: () => get('/wind/timestamps'),
   windData: (timestamp) => get(`/wind/data?timestamp=${encodeURIComponent(timestamp)}`),
+
+  // --- WR10 small radar ---
+  wr10Config: () => get('/wr10/config'),
+  wr10Timestamps: (product, lookbackMinutes) =>
+    get(`/wr10/timestamps?product=${product}&lookback_minutes=${lookbackMinutes}`),
+  wr10OverlayUrl: (timestamp, product) =>
+    `/api/render/overlay/wr10/${encodeURIComponent(timestamp)}?product=${product}`,
 }

@@ -16,6 +16,7 @@ server:
 # Available values: realtime, nowcasting, explorer, comparison, metrics
 enabled_tabs:
   - realtime
+  - wr10
   - nowcasting
   - explorer
   - comparison
@@ -133,6 +134,30 @@ logging:
   level: "INFO"
   log_to_file: false
   log_to_console: true
+
+# WR10 small X-band radar configuration
+wr10:
+  # Radar location (from HDF5 where/lat, where/lon attributes)
+  radar_lat: 41.84239959716797
+  radar_lon: 12.646699905395508
+  # Polar scan geometry (from HDF5 dataset1/where attributes)
+  n_rays: 360
+  n_bins: 480
+  rscale: 150.0  # meters per range bin
+  # Data root: {mode}_data_root/{product}/
+  server_data_root: "/data/wr10"
+  local_data_root: "data/wr10"
+  # Output image size (pixels) for polar→Cartesian reprojection
+  img_size: 600
+  products:
+    SRI:
+      legend: "CZ"
+      label: "Rain Rate"
+      unit: "dBZ"
+    VMI:
+      legend: "CZ"
+      label: "Max Reflectivity"
+      unit: "dBZ"
 
 # Radar products for the Data Explorer tab.
 # 'folder' supports {data_root} which is resolved from the active paths section.

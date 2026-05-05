@@ -213,6 +213,7 @@ const settingsOpen = ref(false)
 
 const ALL_TABS = [
   { key: 'realtime',   path: '/realtime',   label: 'Real Time' },
+  { key: 'wr10',       path: '/wr10',       label: 'WR10' },
   { key: 'nowcasting', path: '/nowcasting', label: 'Nowcasting' },
   { key: 'explorer',   path: '/explorer',   label: 'Data Explorer' },
   { key: 'comparison', path: '/comparison', label: 'Model Comparison' },
