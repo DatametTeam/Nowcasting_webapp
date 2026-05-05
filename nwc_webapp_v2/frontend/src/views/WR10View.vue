@@ -59,10 +59,10 @@
         class="absolute right-[10px] bottom-24 z-[1001] flex flex-col gap-1.5 items-end"
       >
         <ColorBar
-          v-for="product in visibleProducts"
+          v-for="product in colorbarsToShow"
           :key="product"
           :legend="productMeta[product]"
-          :product-name="product"
+          :product-name="PRODUCT_LABELS[product] || product"
         />
       </div>
 
@@ -78,7 +78,7 @@
       >
         <div class="flex items-center justify-between text-white mb-2">
           <div class="text-xs font-medium text-gray-300 hidden sm:block truncate max-w-[160px]">
-            {{ visibleProducts.join(' + ') || '—' }}
+            {{ visibleProducts.map(p => PRODUCT_LABELS[p]).join(' + ') || '—' }}
           </div>
           <div class="text-center">
             <span class="text-xs sm:text-xl font-bold tabular-nums tracking-tight">
@@ -259,9 +259,9 @@
 
           <!-- Layers -->
           <div class="space-y-2">
-            <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Layers</h3>
+            <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">WR10 Layers</h3>
             <div
-              v-for="product in PRODUCTS"
+              v-for="product in WR10_PRODUCTS"
               :key="product"
               class="bg-gray-800 rounded-lg p-3 space-y-2"
             >
@@ -273,7 +273,44 @@
                   class="w-4 h-4 rounded accent-blue-500 cursor-pointer flex-shrink-0"
                 />
                 <label :for="`layer-${product}`" class="text-white text-sm font-bold cursor-pointer flex-1">
-                  {{ product }}
+                  {{ PRODUCT_LABELS[product] }}
+                </label>
+                <span class="text-gray-400 text-xs">
+                  {{ productMeta[product]?.unit || 'dBZ' }}
+                </span>
+              </div>
+              <div v-if="productFrameCount[product] > 0" class="text-xs text-green-400">
+                {{ productFrameCount[product] }} frames
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-gray-400 text-xs w-12 flex-shrink-0">Opacity</span>
+                <input
+                  type="range" min="0" max="1" step="0.05"
+                  v-model.number="layerConfig[product].opacity"
+                  class="flex-1 h-1 accent-blue-400 cursor-pointer"
+                />
+                <span class="text-gray-400 text-xs w-8 text-right tabular-nums">
+                  {{ Math.round(layerConfig[product].opacity * 100) }}%
+                </span>
+              </div>
+            </div>
+
+            <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider pt-1">Mosaic Layers</h3>
+            <p class="text-gray-500 text-xs -mt-1">National HDF composite (full Italy)</p>
+            <div
+              v-for="product in MOSAIC_PRODUCTS"
+              :key="product"
+              class="bg-gray-800 rounded-lg p-3 space-y-2"
+            >
+              <div class="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  :id="`layer-${product}`"
+                  v-model="layerConfig[product].enabled"
+                  class="w-4 h-4 rounded accent-blue-500 cursor-pointer flex-shrink-0"
+                />
+                <label :for="`layer-${product}`" class="text-white text-sm font-bold cursor-pointer flex-1">
+                  {{ PRODUCT_LABELS[product] }}
                 </label>
                 <span class="text-gray-400 text-xs">
                   {{ productMeta[product]?.unit || 'dBZ' }}
@@ -329,19 +366,47 @@ const settings  = useSettingsStore()
 const configStore = useConfigStore()
 
 // ---- Products ----
-const PRODUCTS = ['SRI', 'VMI']
+// WR10_PRODUCTS: local X-band radar (WR10 bounds)
+// MOSAIC_PRODUCTS: national mosaic from HDF files (Italy bounds)
+const WR10_PRODUCTS    = ['SRI', 'VMI']
+const MOSAIC_PRODUCTS  = ['SRI_MOSAIC', 'VMI_MOSAIC']
+const PRODUCTS         = [...WR10_PRODUCTS, ...MOSAIC_PRODUCTS]
+
+// Maps each mosaic layer key to the product name used by the groundtruth endpoint
+const MOSAIC_API_PRODUCT = { SRI_MOSAIC: 'SRI_adj', VMI_MOSAIC: 'VMI' }
+
+// Display labels for the timeline and layer headings
+const PRODUCT_LABELS = { SRI: 'SRI', VMI: 'VMI', SRI_MOSAIC: 'SRI Mosaic', VMI_MOSAIC: 'VMI Mosaic' }
+
+// National mosaic overlay bounds (same as the full Italian radar composite)
+const ITALY_BOUNDS = [[35.0623, 4.51987], [47.5730, 20.4801]]
 
 const layerConfig = ref({
-  SRI: { enabled: true,  opacity: 0.8 },
-  VMI: { enabled: false, opacity: 0.7 },
+  SRI:       { enabled: false, opacity: 0.8 },
+  VMI:       { enabled: true,  opacity: 1.0 },
+  SRI_MOSAIC: { enabled: false, opacity: 0.7 },
+  VMI_MOSAIC: { enabled: false, opacity: 0.7 },
 })
 
 const visibleProducts = computed(() =>
   PRODUCTS.filter(p => layerConfig.value[p].enabled)
 )
 
+// SRI and SRI_MOSAIC share the same colormap; same for VMI/VMI_MOSAIC.
+// Show at most one colorbar per colormap type.
+const COLORBAR_PRODUCT = { SRI: 'SRI', VMI: 'VMI', SRI_MOSAIC: 'SRI', VMI_MOSAIC: 'VMI' }
+const colorbarsToShow = computed(() => {
+  const seen = new Set()
+  const result = []
+  for (const p of visibleProducts.value) {
+    const key = COLORBAR_PRODUCT[p] || p
+    if (!seen.has(key)) { seen.add(key); result.push(key) }
+  }
+  return result
+})
+
 const productMeta     = ref({})    // { SRI: { legend, label, unit }, … }
-const productFrameCount = ref({ SRI: 0, VMI: 0 })
+const productFrameCount = ref({ SRI: 0, VMI: 0, SRI_MOSAIC: 0, VMI_MOSAIC: 0 })
 
 // ---- Map ----
 const radarMap     = ref(null)
@@ -445,6 +510,23 @@ function _scheduleNextPoll() {
   }, delay)
 }
 
+// ---- Helpers ----
+
+/**
+ * Given a sorted array of ISO timestamps and a target ISO timestamp,
+ * return the largest element that is <= target, or null if none exists.
+ * Used to snap each WR10 slot to the closest previous mosaic frame.
+ */
+function findPreviousOrEqualTs(sortedTs, target) {
+  let lo = 0, hi = sortedTs.length - 1, result = null
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    if (sortedTs[mid] <= target) { result = sortedTs[mid]; lo = mid + 1 }
+    else hi = mid - 1
+  }
+  return result
+}
+
 // ---- Core load ----
 async function loadData() {
   isLoading.value = true
@@ -453,18 +535,35 @@ async function loadData() {
   try {
     const lookbackMinutes = lookbackHours.value * 60
 
-    const results = await Promise.all(
-      PRODUCTS.map(product =>
+    // WR10 timestamps — these drive the timeline slider
+    const wr10Results = await Promise.all(
+      WR10_PRODUCTS.map(product =>
         api.wr10Timestamps(product, lookbackMinutes).catch(err => {
-          console.error(`[WR10View] timestamps failed for ${product}:`, err)
+          console.error(`[WR10View] WR10 timestamps failed for ${product}:`, err)
           return { timestamps: [], total: 0 }
         })
       )
     )
 
-    // Union of all timestamps across products, sorted
+    // Mosaic timestamps — fetch a slightly extended window (+15 min) so the oldest
+    // WR10 slot always has a previous mosaic frame to snap to.
+    const now = new Date()
+    const MOSAIC_EXTRA_MIN = 15
+    const mosaicStart = new Date(now - (lookbackMinutes + MOSAIC_EXTRA_MIN) * 60 * 1000)
+    const startISO = mosaicStart.toISOString().slice(0, 16)
+    const endISO   = now.toISOString().slice(0, 16)
+    const mosaicResults = await Promise.all(
+      MOSAIC_PRODUCTS.map(product =>
+        api.explorerTimestamps(startISO, endISO, MOSAIC_API_PRODUCT[product]).catch(err => {
+          console.error(`[WR10View] mosaic timestamps failed for ${product}:`, err)
+          return { timestamps: [], total_found: 0 }
+        })
+      )
+    )
+
+    // Timeline is driven by WR10 only — union of SRI + VMI WR10 timestamps
     const tsSet = new Set()
-    results.forEach(r => r.timestamps.forEach(ts => tsSet.add(ts)))
+    wr10Results.forEach(r => r.timestamps.forEach(ts => tsSet.add(ts)))
     const sortedTs = Array.from(tsSet).sort()
 
     if (sortedTs.length === 0) {
@@ -480,17 +579,37 @@ async function loadData() {
     timestamps.value = sortedTs
 
     // Track frame counts per product
-    results.forEach((r, i) => {
-      productFrameCount.value[PRODUCTS[i]] = r.total
+    wr10Results.forEach((r, i) => {
+      productFrameCount.value[WR10_PRODUCTS[i]] = r.total
+    })
+    mosaicResults.forEach((r, i) => {
+      productFrameCount.value[MOSAIC_PRODUCTS[i]] = r.total_found ?? r.total ?? 0
     })
 
-    // Load overlays for each product
+    // Load overlays — WR10 layers with WR10 bounds, mosaic layers with Italy bounds.
+    // For each WR10 slot, the mosaic layer shows the closest previous mosaic frame
+    // (same frame repeats until the next mosaic timestamp arrives).
     radarMap.value?.clearAllProducts()
-    await Promise.all(PRODUCTS.map(async (product, i) => {
-      const found  = new Set(results[i].timestamps)
-      const urls   = sortedTs.map(ts => found.has(ts) ? api.wr10OverlayUrl(ts, product) : null)
-      await radarMap.value?.loadProductFrames(product, urls, layerConfig.value[product].opacity)
-    }))
+    const wr10Bounds = overlayBounds.value || undefined
+
+    await Promise.all([
+      // WR10 products — one URL per WR10 timestamp (null if that product lacks the slot)
+      ...WR10_PRODUCTS.map(async (product, i) => {
+        const found = new Set(wr10Results[i].timestamps)
+        const urls  = sortedTs.map(ts => found.has(ts) ? api.wr10OverlayUrl(ts, product) : null)
+        await radarMap.value?.loadProductFrames(product, urls, layerConfig.value[product].opacity, wr10Bounds)
+      }),
+      // Mosaic products — snap each WR10 slot to the closest previous mosaic timestamp
+      ...MOSAIC_PRODUCTS.map(async (product, i) => {
+        const apiProduct  = MOSAIC_API_PRODUCT[product]
+        const mosaicSorted = [...mosaicResults[i].timestamps].sort()
+        const urls = sortedTs.map(ts => {
+          const closest = findPreviousOrEqualTs(mosaicSorted, ts)
+          return closest ? api.explorerOverlayUrl(apiProduct, closest) : null
+        })
+        await radarMap.value?.loadProductFrames(product, urls, layerConfig.value[product].opacity, ITALY_BOUNDS)
+      }),
+    ])
 
     isLoaded.value = true
 
@@ -516,7 +635,7 @@ function goToFrame(idx) {
   if (!radarMap.value || !isLoaded.value) return
   const opacities = {}
   for (const product of PRODUCTS) {
-    opacities[product] = layerConfig.value[product].enabled
+    opacities[product] = layerConfig.value[product]?.enabled
       ? layerConfig.value[product].opacity
       : 0
   }
@@ -586,8 +705,9 @@ async function onMapClick(latlng) {
   const ts = timestamps.value[frameIndex.value]
   if (!ts) return
 
-  const products = PRODUCTS.filter(p => layerConfig.value[p].enabled)
-  if (products.length === 0) return
+  const enabledWr10    = WR10_PRODUCTS.filter(p => layerConfig.value[p].enabled)
+  const enabledMosaic  = MOSAIC_PRODUCTS.filter(p => layerConfig.value[p].enabled)
+  if (enabledWr10.length === 0 && enabledMosaic.length === 0) return
 
   const tzLabel = settings.timeZone === 'utc' ? 'UTC' : 'Local'
   radarMap.value.showPopup(latlng, `
@@ -596,32 +716,66 @@ async function onMapClick(latlng) {
   `)
 
   try {
-    const data = await api.wr10SamplePixel({ lat: latlng.lat, lon: latlng.lng, timestamp: ts, products })
+    // Run both sampling calls in parallel (skipping if no enabled products)
+    const [wr10Data, mosaicData] = await Promise.all([
+      enabledWr10.length > 0
+        ? api.wr10SamplePixel({ lat: latlng.lat, lon: latlng.lng, timestamp: ts, products: enabledWr10 })
+        : Promise.resolve(null),
+      enabledMosaic.length > 0
+        ? api.samplePixel({
+            lat: latlng.lat,
+            lon: latlng.lng,
+            timestamp: ts,
+            products: enabledMosaic.map(p => MOSAIC_API_PRODUCT[p]),
+          }).catch(() => null)
+        : Promise.resolve(null),
+    ])
 
-    let body
-    if (!data.in_bounds) {
-      body = `<div class="pi-row"><span class="pi-label">Outside radar coverage</span></div>`
-    } else {
-      const rows = products.map(p => {
-        const v = data.values?.[p]
-        const u = productMeta.value[p]?.unit || ''
-        return `
-          <div class="pi-row">
-            <span class="pi-label">${p}</span>
-            <span class="pi-value">${fmtValue(v)}${v != null && u ? ' ' + u : ''}</span>
+    let body = ''
+
+    // WR10 section
+    if (wr10Data) {
+      if (!wr10Data.in_bounds) {
+        body += `<div class="pi-row"><span class="pi-label">WR10: outside coverage</span></div>`
+      } else {
+        body += `
+          <div class="pi-row" style="margin-bottom:4px;">
+            <span class="pi-label">range / az</span>
+            <span class="pi-value">${wr10Data.range_km} km / ${wr10Data.azimuth_deg}°</span>
           </div>`
-      }).join('')
-      body = `
-        <div class="pi-row" style="margin-bottom:4px;">
-          <span class="pi-label">range / az</span>
-          <span class="pi-value">${data.range_km} km / ${data.azimuth_deg}°</span>
-        </div>
-        ${rows}`
+        for (const p of enabledWr10) {
+          const v = wr10Data.values?.[p]
+          const u = productMeta.value[p]?.unit || ''
+          body += `
+            <div class="pi-row">
+              <span class="pi-label">${PRODUCT_LABELS[p]}</span>
+              <span class="pi-value">${fmtValue(v)}${v != null && u ? ' ' + u : ''}</span>
+            </div>`
+        }
+      }
+    }
+
+    // Mosaic section
+    if (mosaicData) {
+      if (!mosaicData.in_bounds) {
+        body += `<div class="pi-row"><span class="pi-label">Mosaic: outside coverage</span></div>`
+      } else {
+        for (const p of enabledMosaic) {
+          const apiKey = MOSAIC_API_PRODUCT[p]
+          const v = mosaicData.values?.[apiKey]
+          const u = productMeta.value[p]?.unit || ''
+          body += `
+            <div class="pi-row">
+              <span class="pi-label">${PRODUCT_LABELS[p]}</span>
+              <span class="pi-value">${fmtValue(v)}${v != null && u ? ' ' + u : ''}</span>
+            </div>`
+        }
+      }
     }
 
     radarMap.value.showPopup(latlng, `
       <div class="pi-header">${ts.replace('T', ' ')} (${tzLabel})</div>
-      ${body}
+      ${body || '<div class="pi-row"><span class="pi-label">No data</span></div>'}
     `)
   } catch (e) {
     radarMap.value.showPopup(latlng,
@@ -634,13 +788,17 @@ onMounted(async () => {
   // Fetch WR10 config (radar centre, overlay bounds, product metadata)
   try {
     const cfg = await api.wr10Config()
-    radarCenter.value  = cfg.center
-    radarZoom.value    = cfg.zoom ?? 10
+    radarCenter.value   = cfg.center
+    radarZoom.value     = cfg.zoom ?? 10
     overlayBounds.value = cfg.overlay_bounds
-    productMeta.value  = cfg.products ?? {}
+    productMeta.value   = cfg.products ?? {}
   } catch (e) {
     console.warn('[WR10View] Failed to fetch config, using defaults:', e)
   }
+
+  // Add metadata for mosaic layers (reuse WR10 legends since they share the same products)
+  productMeta.value['SRI_MOSAIC'] = { unit: 'mm/h', legend: 'R',  label: 'SRI Mosaic', thresholds: [], colors: [] }
+  productMeta.value['VMI_MOSAIC'] = { unit: 'dBZ',  legend: 'CZ', label: 'VMI Mosaic', thresholds: [], colors: [] }
 
   await loadData()
   _scheduleNextPoll()

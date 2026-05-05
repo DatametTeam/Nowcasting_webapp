@@ -429,8 +429,12 @@ function clearAllProducts() {
  * @param {string} product - Product key (e.g. 'SRI_adj', 'VMI')
  * @param {string[]} urls - Array of image URLs, one per unified timestamp
  * @param {number} opacity - Initial opacity for visible frames
+ * @param {Array|null} bounds - Optional [[lat_sw,lon_sw],[lat_ne,lon_ne]].
+ *   When null, falls back to props.overlayBounds or the default Italian radar bounds.
+ *   Pass explicit bounds when a product covers a different area than the default
+ *   (e.g. WR10 local radar vs. the full national mosaic).
  */
-async function loadProductFrames(product, urls, opacity = 0.7) {
+async function loadProductFrames(product, urls, opacity = 0.7, bounds = null) {
   if (!map) return
 
   // Use per-product generation so parallel loads of different products
@@ -441,6 +445,7 @@ async function loadProductFrames(product, urls, opacity = 0.7) {
   removeProduct(product)
 
   const layers = new Array(urls.length).fill(null)
+  const productBounds = bounds || effectiveBounds()
 
   const promises = urls.map((url, index) => {
     if (!url) return Promise.resolve({ index, success: false })
@@ -459,14 +464,14 @@ async function loadProductFrames(product, urls, opacity = 0.7) {
 
   for (const result of results) {
     if (result.success) {
-      layers[result.index] = L.imageOverlay(result.url, effectiveBounds(), {
+      layers[result.index] = L.imageOverlay(result.url, productBounds, {
         opacity: 0,
         interactive: false,
       }).addTo(map)
     }
   }
 
-  productLayerMap[product] = { layers, activeIndex: -1, opacity }
+  productLayerMap[product] = { layers, activeIndex: -1, opacity, bounds: productBounds }
 }
 
 /**
@@ -560,7 +565,7 @@ async function appendProductFrames(product, urls) {
       img.crossOrigin = 'anonymous'
       img.onload = () => {
         if (productLayerMap[product]) {
-          entry.layers[globalIndex] = L.imageOverlay(url, effectiveBounds(), {
+          entry.layers[globalIndex] = L.imageOverlay(url, entry.bounds || effectiveBounds(), {
             opacity: 0,
             interactive: false,
           }).addTo(map)
@@ -602,7 +607,7 @@ async function resolveProductFrame(product, index, url) {
       img.crossOrigin = 'anonymous'
       img.onload = () => {
         if (productLayerMap[product]) {
-          entry.layers[index] = L.imageOverlay(src, effectiveBounds(), {
+          entry.layers[index] = L.imageOverlay(src, entry.bounds || effectiveBounds(), {
             opacity: 0,
             interactive: false,
           }).addTo(map)
