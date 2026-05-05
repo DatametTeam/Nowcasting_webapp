@@ -394,24 +394,23 @@
           </label>
         </div>
 
-        <!-- Threshold slider (0–50 mm/h, step 0.5) -->
+        <!-- Threshold slider — non-linear discrete steps (0.5–50 mm/h).
+             Fine resolution at low values where 1→2 mm/h matters;
+             coarser at high values where 30→35 is nearly irrelevant. -->
         <div class="flex items-center gap-2">
           <span class="text-xs text-gray-400 flex-shrink-0">Threshold</span>
-          <!-- Bind input event to update the live label, but only fire the
-               heavy reload on `change` (slider release) so we don't flood
-               the backend while the user is still picking a value. -->
           <input
             type="range"
-            :value="ensembleThreshold"
-            @input="ensembleThreshold = parseFloat($event.target.value)"
+            :value="thresholdIndex(ensembleThreshold)"
+            @input="ensembleThreshold = THRESHOLD_STEPS[parseInt($event.target.value)]"
             @change="onThresholdCommit"
             min="0"
-            max="50"
-            step="0.5"
+            :max="THRESHOLD_STEPS.length - 1"
+            step="1"
             class="flex-1 accent-purple-500 cursor-pointer"
           />
           <span class="text-xs font-semibold text-purple-300 tabular-nums w-16 text-right">
-            {{ ensembleThreshold.toFixed(1) }} mm/h
+            {{ fmtThreshold(ensembleThreshold) }} mm/h
           </span>
         </div>
 
@@ -552,13 +551,26 @@ const irOpacity = ref(0.75)
 // ---- Probabilistic ensemble ----
 const ensembleActive = ref(false)
 const ensembleModels = ref([])     // populated in onMounted once model list is loaded
-const ensembleThreshold = ref(2.0) // default: 2 mm/h
 const ensembleContours = ref(false) // dark contour overlay (off by default)
+
+// Non-linear threshold steps: fine resolution at low rain rates where 1→2 mm/h
+// matters a lot, coarser at high rates where 30→35 is nearly irrelevant.
+const THRESHOLD_STEPS = [0.5, 1, 1.5, 2, 3, 4, 5, 7.5, 10, 15, 20, 25, 30, 40, 50]
+const ensembleThreshold = ref(2)   // default: 2 mm/h (must be a value in THRESHOLD_STEPS)
+
+function fmtThreshold(v) {
+  return v % 1 === 0 ? String(v) : v.toFixed(1)
+}
+function thresholdIndex(v) {
+  const i = THRESHOLD_STEPS.indexOf(v)
+  return i !== -1 ? i : THRESHOLD_STEPS.reduce((best, s, i) =>
+    Math.abs(s - v) < Math.abs(THRESHOLD_STEPS[best] - v) ? i : best, 0)
+}
 
 // Probability colorbar legend: Oranges palette (matplotlib), ticks in percent.
 // Stays legible on dark, OSM, and satellite basemaps alike.
 const probLegend = computed(() => ({
-  unit: `P > ${ensembleThreshold.value.toFixed(1)} mm/h`,
+  unit: `P > ${fmtThreshold(ensembleThreshold.value)} mm/h`,
   thresholds: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
   colors: [
     'rgb(255,245,235)', 'rgb(254,230,206)', 'rgb(253,208,162)',
@@ -714,7 +726,7 @@ async function onMapClick(latlng) {
         // Header summary + per-model breakdown.
         const summary = `
           <div class="pi-row" style="margin-bottom:4px;">
-            <span class="pi-label">P &gt; ${thr.toFixed(1)} mm/h</span>
+            <span class="pi-label">P &gt; ${fmtThreshold(thr)} mm/h</span>
             <span class="pi-value" style="color:#fdba74;">
               ${probPct === null ? 'N/A' : probPct + '%'}
               ${valid.length ? `<span style="color:rgba(255,255,255,0.5);font-weight:400;">&nbsp;(${exceed.length}/${valid.length})</span>` : ''}
