@@ -40,7 +40,7 @@
         <span class="text-sm font-medium hidden sm:inline">Menu</span>
       </button>
 
-      <!-- Loading indicator — only when sidebar is closed (sidebar already shows loading state) -->
+      <!-- Loading indicator — visible on the map when sidebar is closed -->
       <div
         v-if="isLoading && !sidebarOpen"
         class="absolute top-14 right-3 z-[1000] flex items-center gap-2 px-3 h-9 rounded-full

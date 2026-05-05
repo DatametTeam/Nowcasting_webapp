@@ -31,6 +31,19 @@
         <span class="text-sm font-medium hidden sm:inline">Menu</span>
       </button>
 
+      <!-- Loading indicator — visible on the map when sidebar is closed -->
+      <div
+        v-if="isLoading && !sidebarOpen"
+        class="absolute top-14 right-3 z-[1000] flex items-center gap-2 px-3 h-9 rounded-full
+               bg-white/90 shadow-lg border border-gray-200 text-gray-600 text-sm"
+      >
+        <svg class="animate-spin h-4 w-4 text-blue-500 flex-shrink-0" viewBox="0 0 24 24" fill="none">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+        <span class="text-xs font-medium">Loading…</span>
+      </div>
+
       <!-- Stacked colorbars — bottom right, above timeline.
            top-16 on mobile keeps the column below the sidebar toggle (top-3 + h-10);
            overflow-y scrolls if too many products are enabled. -->
