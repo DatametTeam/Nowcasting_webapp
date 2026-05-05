@@ -244,7 +244,7 @@ async def get_wr10_timestamps(
         return {"product": product, "timestamps": [], "total": 0}
 
     now = datetime.utcnow()
-    cutoff = now - timedelta(minutes=lookback_minutes)
+    cutoff = now - timedelta(minutes=lookback_minutes + 6)  # extra interval so boundary frames aren't dropped
 
     found: list[tuple[datetime, str]] = []
     try:
