@@ -151,9 +151,9 @@ wr10:
   img_size: 600
   products:
     SRI:
-      legend: "CZ"
+      legend: "R"
       label: "Rain Rate"
-      unit: "dBZ"
+      unit: "mm/h"
     VMI:
       legend: "CZ"
       label: "Max Reflectivity"
