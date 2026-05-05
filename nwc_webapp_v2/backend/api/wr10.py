@@ -158,6 +158,28 @@ def get_overlay_bounds() -> list:
 
 
 # ==========================================================================
+# Pixel sampling helper
+# ==========================================================================
+
+def _sample_wr10_pixel(file_path: Path, ray_idx: int, bin_idx: int) -> float | None:
+    """Read one polar pixel from a WR10 HDF5 file and return the physical value."""
+    import h5py
+    try:
+        with h5py.File(file_path, "r") as f:
+            raw = float(f["dataset1/data1/data"][ray_idx, bin_idx])
+            what = f["dataset1/data1/what"]
+            gain   = float(what.attrs.get("gain",    0.5))
+            offset = float(what.attrs.get("offset", -32.0))
+            nodata   = float(what.attrs.get("nodata",   0.0))
+            undetect = float(what.attrs.get("undetect", 0.0))
+        if raw == nodata or raw == undetect:
+            return None
+        return offset + gain * raw
+    except Exception:
+        return None
+
+
+# ==========================================================================
 # API endpoints
 # ==========================================================================
 
@@ -240,6 +262,76 @@ async def get_wr10_timestamps(
         "timestamps": [dt.isoformat() for dt, _ in found],
         "total": len(found),
     }
+
+
+@router.get("/sample")
+async def sample_wr10_pixel(
+    lat: float = Query(..., description="Latitude (WGS84)"),
+    lon: float = Query(..., description="Longitude (WGS84)"),
+    timestamp: str = Query(..., description="Datetime ISO (YYYY-MM-DDTHH:MM)"),
+    products: str = Query("SRI", description="Comma-separated: SRI, VMI"),
+):
+    """
+    Sample WR10 polar radar values at a clicked (lat, lon) for the current frame.
+
+    Converts lat/lon to azimuthal-equidistant metres relative to the radar
+    centre, then to (ray_idx, bin_idx) in the 360×480 polar grid.
+    Returns physical values (gain/offset applied) or null for no-data pixels.
+    """
+    import math
+
+    try:
+        dt = datetime.fromisoformat(timestamp)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid datetime: {e}")
+
+    cfg = _wr10_cfg()
+    radar_lat = cfg.get("radar_lat", 41.84239959716797)
+    radar_lon = cfg.get("radar_lon", 12.646699905395508)
+    n_rays    = cfg.get("n_rays",  360)
+    n_bins    = cfg.get("n_bins",  480)
+    rscale    = cfg.get("rscale",  150.0)
+    max_range_m = n_bins * rscale
+
+    # lat/lon → metres (dx=East, dy=North) relative to radar centre
+    proj = Proj(proj="aeqd", lat_0=radar_lat, lon_0=radar_lon, ellps="WGS84")
+    dx, dy = proj(lon, lat)
+
+    range_m     = math.sqrt(dx ** 2 + dy ** 2)
+    azimuth_deg = math.degrees(math.atan2(dx, dy)) % 360.0
+    ray_idx     = int(azimuth_deg * n_rays / 360.0) % n_rays
+    bin_idx     = int(range_m / rscale)
+    in_bounds   = range_m < max_range_m
+
+    result: dict = {
+        "lat": lat,
+        "lon": lon,
+        "ray": ray_idx,
+        "bin": bin_idx,
+        "range_km": round(range_m / 1000.0, 2),
+        "azimuth_deg": round(azimuth_deg, 1),
+        "in_bounds": in_bounds,
+        "timestamp": timestamp,
+        "values": {},
+    }
+
+    if not in_bounds:
+        return result
+
+    product_list  = [p.strip() for p in products.split(",") if p.strip()]
+    valid_products = list(cfg.get("products", {}).keys()) or ["SRI", "VMI"]
+
+    for product in product_list:
+        if product not in valid_products:
+            result["values"][product] = None
+            continue
+        file_path = find_wr10_file(product, dt)
+        if file_path is None:
+            result["values"][product] = None
+            continue
+        result["values"][product] = _sample_wr10_pixel(file_path, ray_idx, bin_idx)
+
+    return result
 
 
 @router.websocket("/ws")

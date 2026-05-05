@@ -21,6 +21,7 @@
         :zoom="radarZoom"
         :overlay-bounds="overlayBounds"
         class="flex-1"
+        @mapclick="onMapClick"
       />
 
       <!-- Mobile sidebar toggle -->
@@ -559,6 +560,60 @@ function cycleSpeed() {
   const idx = SPEEDS.indexOf(playSpeed.value)
   playSpeed.value = SPEEDS[(idx + 1) % SPEEDS.length]
   if (isPlaying.value) { stopAnimation(); startAnimation() }
+}
+
+// ---- Click-to-inspect popup ----
+function fmtValue(v) {
+  if (v === null || v === undefined || !Number.isFinite(v)) return 'N/A'
+  return Math.abs(v) < 10 ? v.toFixed(2) : v.toFixed(1)
+}
+
+async function onMapClick(latlng) {
+  if (!radarMap.value || !timestamps.value.length) return
+  const ts = timestamps.value[frameIndex.value]
+  if (!ts) return
+
+  const products = PRODUCTS.filter(p => layerConfig.value[p].enabled)
+  if (products.length === 0) return
+
+  const tzLabel = settings.timeZone === 'utc' ? 'UTC' : 'Local'
+  radarMap.value.showPopup(latlng, `
+    <div class="pi-header">${ts.replace('T', ' ')} (UTC)</div>
+    <div class="pi-row"><span class="pi-label">Loading…</span></div>
+  `)
+
+  try {
+    const data = await api.wr10SamplePixel({ lat: latlng.lat, lon: latlng.lng, timestamp: ts, products })
+
+    let body
+    if (!data.in_bounds) {
+      body = `<div class="pi-row"><span class="pi-label">Outside radar coverage</span></div>`
+    } else {
+      const rows = products.map(p => {
+        const v = data.values?.[p]
+        const u = productMeta.value[p]?.unit || ''
+        return `
+          <div class="pi-row">
+            <span class="pi-label">${p}</span>
+            <span class="pi-value">${fmtValue(v)}${v != null && u ? ' ' + u : ''}</span>
+          </div>`
+      }).join('')
+      body = `
+        <div class="pi-row" style="margin-bottom:4px;">
+          <span class="pi-label">range / az</span>
+          <span class="pi-value">${data.range_km} km / ${data.azimuth_deg}°</span>
+        </div>
+        ${rows}`
+    }
+
+    radarMap.value.showPopup(latlng, `
+      <div class="pi-header">${ts.replace('T', ' ')} (${tzLabel})</div>
+      ${body}
+    `)
+  } catch (e) {
+    radarMap.value.showPopup(latlng,
+      `<div class="pi-row"><span class="pi-label">Error: ${e.message || e}</span></div>`)
+  }
 }
 
 // ---- Lifecycle ----

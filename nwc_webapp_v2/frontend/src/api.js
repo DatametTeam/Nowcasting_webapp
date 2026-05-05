@@ -203,4 +203,6 @@ export default {
     get(`/wr10/timestamps?product=${product}&lookback_minutes=${lookbackMinutes}`),
   wr10OverlayUrl: (timestamp, product) =>
     `/api/render/overlay/wr10/${encodeURIComponent(timestamp)}?product=${product}`,
+  wr10SamplePixel: ({ lat, lon, timestamp, products }) =>
+    get(`/wr10/sample?lat=${lat}&lon=${lon}&timestamp=${encodeURIComponent(timestamp)}&products=${products.join(',')}`),
 }
