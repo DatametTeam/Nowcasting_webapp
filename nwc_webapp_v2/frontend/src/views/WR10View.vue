@@ -547,9 +547,14 @@ async function loadData() {
 
     // Mosaic timestamps — fetch a slightly extended window (+15 min) so the oldest
     // WR10 slot always has a previous mosaic frame to snap to.
+    // IMPORTANT: floor start to the nearest 5-minute mark so the backend's
+    // "generate expected timestamps at +5min steps" sequence lands on actual
+    // HDF filenames (DD-MM-YYYY-HH-MM.hdf).  An un-aligned start like 14:07
+    // generates 14:07, 14:12, 14:17 … which never matches files at 14:05, 14:10 …
     const now = new Date()
     const MOSAIC_EXTRA_MIN = 15
     const mosaicStart = new Date(now - (lookbackMinutes + MOSAIC_EXTRA_MIN) * 60 * 1000)
+    mosaicStart.setMinutes(Math.floor(mosaicStart.getMinutes() / 5) * 5, 0, 0)
     const startISO = mosaicStart.toISOString().slice(0, 16)
     const endISO   = now.toISOString().slice(0, 16)
     const mosaicResults = await Promise.all(
