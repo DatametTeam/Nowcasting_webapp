@@ -785,7 +785,13 @@ async function onMapClick(latlng) {
 
 // ---- Lifecycle ----
 onMounted(async () => {
-  // Fetch WR10 config (radar centre, overlay bounds, product metadata)
+  // Block the WebSocket handler from triggering a loadData() while we are
+  // still fetching the WR10 config.  Without this, a WS notification arriving
+  // during the config fetch starts a concurrent load (isLoading is still false
+  // at that point), and the two calls race on clearAllProducts/productGenerations,
+  // leaving stale removed-from-map layers in productLayerMap.
+  isLoading.value = true
+
   try {
     const cfg = await api.wr10Config()
     radarCenter.value   = cfg.center
@@ -800,6 +806,7 @@ onMounted(async () => {
   productMeta.value['SRI_MOSAIC'] = { unit: 'mm/h', legend: 'R',  label: 'SRI Mosaic', thresholds: [], colors: [] }
   productMeta.value['VMI_MOSAIC'] = { unit: 'dBZ',  legend: 'CZ', label: 'VMI Mosaic', thresholds: [], colors: [] }
 
+  isLoading.value = false
   await loadData()
   _scheduleNextPoll()
 })

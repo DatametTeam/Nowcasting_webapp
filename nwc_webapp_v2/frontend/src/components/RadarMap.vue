@@ -419,7 +419,13 @@ function clearAllProducts() {
   for (const product of Object.keys(productLayerMap)) {
     removeProduct(product)
   }
-  productGenerations = {}
+  // Increment every known generation so any in-flight loadProductFrames call
+  // sees myGen !== current and discards its results.  Resetting to {} instead
+  // would give both the old and new load the same generation (1), making the
+  // stale-load check useless and leaving removed layers in productLayerMap.
+  for (const key of Object.keys(productGenerations)) {
+    productGenerations[key]++
+  }
 }
 
 /**
