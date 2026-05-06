@@ -280,7 +280,7 @@ function buildOption(lt, thr) {
       name:         model,
       type:         'line',
       data:         seriesData,
-      lineStyle:    { color, width: 2 },
+      lineStyle:    { color, width: 1.2 },
       itemStyle:    { color },
       showSymbol:   false,
       smooth:       false,
