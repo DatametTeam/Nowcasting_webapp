@@ -170,36 +170,18 @@ const LEAD_TIMES = [15, 30, 45, 60]
 const THRESHOLDS = [5, 10, 25]
 const SCALES     = [1, 5, 20]
 
-// Each model gets a distinct color AND a distinct dash pattern so lines stay
-// distinguishable even when they overlap or on screens with limited color accuracy.
-// dash: ECharts lineStyle.type — 'solid' | [dashLen, gapLen, ...]
-const MODEL_STYLES = {
-  ConvLSTM:    { color: '#2563eb', dash: 'solid' },        // blue   — solid
-  SPROG:       { color: '#dc2626', dash: [9, 4] },         // red    — long dash
-  IAM4VP:      { color: '#16a34a', dash: [3, 3] },         // green  — short dash
-  ED_ConvLSTM: { color: '#d97706', dash: [10, 4, 3, 4] },  // amber  — dash-dot
-  PredFormer:  { color: '#0891b2', dash: 'solid' },        // teal   — solid
-  DynamicUnet: { color: '#7c3aed', dash: [9, 4] },         // violet — long dash
+const MODEL_COLORS = {
+  ConvLSTM:    '#2563eb',  // blue
+  SPROG:       '#dc2626',  // red
+  IAM4VP:      '#16a34a',  // green
+  ED_ConvLSTM: '#d97706',  // amber
+  PredFormer:  '#0891b2',  // teal
+  DynamicUnet: '#7c3aed',  // violet
 }
-// Fallback pool for any model not listed above
-const FALLBACK_STYLES = [
-  { color: '#059669', dash: 'solid' },
-  { color: '#b45309', dash: [9, 4] },
-  { color: '#4f46e5', dash: [3, 3] },
-]
+const FALLBACK_COLORS = ['#059669', '#b45309', '#4f46e5']
 
-function modelStyle(model) {
-  return MODEL_STYLES[model] ?? FALLBACK_STYLES[0]
-}
-function modelColor(model) { return modelStyle(model).color }
-function modelDash(model)  { return modelStyle(model).dash }
-
-// Convert ECharts dash spec to SVG stroke-dasharray string for the legend SVG
-function modelSvgDash(model) {
-  const d = modelStyle(model).dash
-  if (!d || d === 'solid') return null
-  return Array.isArray(d) ? d.join(' ') : (d === 'dashed' ? '8 4' : '3 3')
-}
+function modelColor(model) { return MODEL_COLORS[model] ?? FALLBACK_COLORS[0] }
+function modelSvgDash(_model) { return null }
 
 // ── State ───────────────────────────────────────────────────────────────────
 
@@ -286,7 +268,6 @@ function buildOption(lt, thr) {
   for (const model of (data?.models ?? [])) {
     const points = data?.series?.[model]?.[ltKey]?.[thrKey] ?? []
     const color  = modelColor(model)
-    const dash   = modelDash(model)
 
     // Keep null entries so ECharts can detect and render gaps
     const seriesData = points.map(p => ({
@@ -294,12 +275,12 @@ function buildOption(lt, thr) {
       nValid: p.n ?? null,
     }))
 
-    // Solid/dashed line per model style — breaks at null values
+    // Solid line — breaks at null values
     regularSeries.push({
       name:         model,
       type:         'line',
       data:         seriesData,
-      lineStyle:    { color, width: 2, type: dash },
+      lineStyle:    { color, width: 2 },
       itemStyle:    { color },
       showSymbol:   false,
       smooth:       false,
@@ -307,12 +288,12 @@ function buildOption(lt, thr) {
       z:            3,
     })
 
-    // Gap-bridge — same dash pattern, thinner + transparent, connects through nulls
+    // Gap-bridge — thin + transparent, connects through nulls with a dashed style
     gapSeries.push({
       name:         `__gap_${model}`,
       type:         'line',
       data:         seriesData,
-      lineStyle:    { color, width: 1, type: dash, opacity: 0.35 },
+      lineStyle:    { color, width: 1, type: 'dashed', opacity: 0.35 },
       itemStyle:    { color, opacity: 0 },
       showSymbol:   false,
       smooth:       false,
