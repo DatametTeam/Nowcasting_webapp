@@ -172,7 +172,7 @@ const SCALES     = [1, 5, 20]
 
 const MODEL_COLORS = {
   ConvLSTM:      '#2563eb',  // blue
-  ConvLSTM_v2:   '#0891b2',  // teal
+  ConvLSTM_v2:   '#ea580c',  // orange
   ConvLSTM_ssim: '#db2777',  // magenta
   SPROG:         '#dc2626',  // red
   IAM4VP:        '#16a34a',  // green
