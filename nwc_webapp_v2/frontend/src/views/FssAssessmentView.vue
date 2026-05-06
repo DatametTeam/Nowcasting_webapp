@@ -2,64 +2,80 @@
   <div class="px-4 py-4 space-y-4 min-h-screen bg-gray-50">
 
     <!-- ── Controls bar ─────────────────────────────────────────────────── -->
-    <div class="flex flex-wrap items-center gap-3">
+    <div class="space-y-2">
+      <div class="flex flex-wrap items-center gap-3">
 
-      <!-- Scale selector -->
-      <div class="flex items-center gap-2">
-        <span class="text-sm font-medium text-gray-600">Scale</span>
+        <!-- Scale selector -->
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-medium text-gray-600">Scale</span>
+          <div class="flex rounded-lg overflow-hidden border border-gray-300 bg-white">
+            <button
+              v-for="s in SCALES"
+              :key="s"
+              @click="selectedScale = s"
+              class="px-3 py-1.5 text-xs font-medium transition-colors border-r border-gray-300 last:border-r-0"
+              :class="selectedScale === s
+                ? 'bg-blue-600 text-white'
+                : 'text-gray-600 hover:bg-gray-100'"
+            >{{ s }} km</button>
+          </div>
+        </div>
+
+        <!-- Sub-tab -->
         <div class="flex rounded-lg overflow-hidden border border-gray-300 bg-white">
           <button
-            v-for="s in SCALES"
-            :key="s"
-            @click="selectedScale = s"
-            class="px-3 py-1.5 text-xs font-medium transition-colors border-r border-gray-300 last:border-r-0"
-            :class="selectedScale === s
+            @click="activeTab = 'recent'"
+            class="px-4 py-1.5 text-xs font-medium transition-colors"
+            :class="activeTab === 'recent'
               ? 'bg-blue-600 text-white'
               : 'text-gray-600 hover:bg-gray-100'"
-          >{{ s }} km</button>
+          >Recent (24 h)</button>
+          <button
+            @click="activeTab = 'daily'"
+            class="px-4 py-1.5 text-xs font-medium transition-colors border-l border-gray-300"
+            :class="activeTab === 'daily'
+              ? 'bg-blue-600 text-white'
+              : 'text-gray-600 hover:bg-gray-100'"
+          >Monthly (60 d)</button>
+        </div>
+
+        <!-- WS status dot -->
+        <div
+          class="w-2 h-2 rounded-full flex-shrink-0"
+          :class="wsConnected ? 'bg-green-400' : 'bg-gray-300'"
+          :title="wsConnected ? 'Live updates connected' : 'Live updates disconnected (polling fallback active)'"
+        />
+
+        <!-- Right side: spinner / last-updated -->
+        <div class="ml-auto flex items-center gap-2 text-xs text-gray-500">
+          <template v-if="loading">
+            <svg class="w-3.5 h-3.5 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+            </svg>
+            <span>Loading…</span>
+          </template>
+          <template v-else-if="lastUpdated">
+            <span>Updated {{ formatUpdated(lastUpdated) }}</span>
+          </template>
+          <template v-else-if="error">
+            <span class="text-red-500">{{ error }}</span>
+          </template>
         </div>
       </div>
 
-      <!-- Sub-tab -->
-      <div class="flex rounded-lg overflow-hidden border border-gray-300 bg-white">
+      <!-- Model selector pills -->
+      <div v-if="chartData?.models?.length" class="flex flex-wrap items-center gap-1.5">
+        <span class="text-xs font-medium text-gray-500 mr-0.5">Models:</span>
         <button
-          @click="activeTab = 'recent'"
-          class="px-4 py-1.5 text-xs font-medium transition-colors"
-          :class="activeTab === 'recent'
-            ? 'bg-blue-600 text-white'
-            : 'text-gray-600 hover:bg-gray-100'"
-        >Recent (24 h)</button>
-        <button
-          @click="activeTab = 'daily'"
-          class="px-4 py-1.5 text-xs font-medium transition-colors border-l border-gray-300"
-          :class="activeTab === 'daily'
-            ? 'bg-blue-600 text-white'
-            : 'text-gray-600 hover:bg-gray-100'"
-        >Monthly (90 d)</button>
-      </div>
-
-      <!-- WS status dot -->
-      <div
-        class="w-2 h-2 rounded-full flex-shrink-0"
-        :class="wsConnected ? 'bg-green-400' : 'bg-gray-300'"
-        :title="wsConnected ? 'Live updates connected' : 'Live updates disconnected (polling fallback active)'"
-      />
-
-      <!-- Right side: spinner / last-updated -->
-      <div class="ml-auto flex items-center gap-2 text-xs text-gray-500">
-        <template v-if="loading">
-          <svg class="w-3.5 h-3.5 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-          </svg>
-          <span>Loading…</span>
-        </template>
-        <template v-else-if="lastUpdated">
-          <span>Updated {{ formatUpdated(lastUpdated) }}</span>
-        </template>
-        <template v-else-if="error">
-          <span class="text-red-500">{{ error }}</span>
-        </template>
+          v-for="model in chartData.models"
+          :key="model"
+          @click="toggleModel(model)"
+          class="model-pill"
+          :style="isModelSelected(model)
+            ? { background: modelColor(model), borderColor: modelColor(model), color: 'white' }
+            : { borderColor: modelColor(model), color: modelColor(model) }"
+        >{{ model }}</button>
       </div>
     </div>
 
@@ -99,9 +115,23 @@
             <div
               v-for="thr in THRESHOLDS"
               :key="`${lt}-${thr}`"
-              :ref="el => setChartRef(lt, thr, el)"
-              class="chart-cell rounded border border-gray-200 bg-white"
-            />
+              class="chart-cell-wrapper"
+            >
+              <div
+                :ref="el => setChartRef(lt, thr, el)"
+                class="chart-cell rounded border border-gray-200 bg-white"
+              />
+              <!-- Expand button (visible on hover) -->
+              <button
+                @click.stop="openExpanded(lt, thr)"
+                class="expand-btn"
+                title="Expand chart"
+              >
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+            </div>
           </template>
         </div>
       </div>
@@ -109,7 +139,7 @@
       <!-- ── Shared legend ───────────────────────────────────────────────── -->
       <div v-if="chartData?.models?.length" class="flex flex-wrap justify-center gap-6 pt-1">
         <div
-          v-for="model in chartData.models"
+          v-for="model in (chartData.models).filter(m => isModelSelected(m))"
           :key="model"
           class="flex items-center gap-2 text-sm text-gray-600"
         >
@@ -118,7 +148,6 @@
               x1="0" y1="3" x2="28" y2="3"
               :stroke="modelColor(model)"
               stroke-width="2.5"
-              :stroke-dasharray="modelSvgDash(model) ?? undefined"
             />
           </svg>
           {{ model }}
@@ -156,6 +185,27 @@
     </template>
 
   </div>
+
+  <!-- ── Fullscreen modal ──────────────────────────────────────────────────── -->
+  <Teleport to="body">
+    <div v-if="expanded" class="expanded-overlay" @click.self="closeExpanded">
+      <div class="expanded-panel">
+        <!-- Header -->
+        <div class="expanded-header">
+          <span class="expanded-title">
+            +{{ expanded.lt }} min · {{ expanded.thr }} mm/h · {{ selectedScale }} km
+          </span>
+          <button @click="closeExpanded" class="close-btn" title="Close">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M6 18L18 6M6 6l12 12" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+        <!-- Chart fills the rest of the panel -->
+        <div ref="expandedChartEl" class="expanded-chart-el" />
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -180,22 +230,20 @@ const MODEL_COLORS = {
   PredFormer:    '#7c3aed',  // violet
   DynamicUnet:   '#65a30d',  // lime
 }
-const FALLBACK_COLORS = ['#059669', '#b45309', '#4f46e5']
 
-function modelColor(model) { return MODEL_COLORS[model] ?? FALLBACK_COLORS[0] }
-function modelSvgDash(_model) { return null }
+function modelColor(model) { return MODEL_COLORS[model] ?? '#059669' }
 
 // ── State ───────────────────────────────────────────────────────────────────
 
-const selectedScale = ref(5)
-const activeTab     = ref('recent')
-const loading       = ref(false)
-const error         = ref(null)
-const lastUpdated   = ref(null)
-const chartData     = ref(null)
+const selectedScale   = ref(5)
+const activeTab       = ref('recent')
+const loading         = ref(false)
+const error           = ref(null)
+const lastUpdated     = ref(null)
+const chartData       = ref(null)
+const selectedModels  = ref([])
 
-// Effective date range for the monthly x-axis — spans only actual data, not the full 60-day window.
-// Computed once per fetch; shared across all 12 charts so they stay aligned.
+// Effective date range for the monthly x-axis — spans only actual data.
 const dailyRange = computed(() => {
   if (!chartData.value || activeTab.value !== 'daily') return null
   let minT = Infinity
@@ -217,6 +265,24 @@ const dailyRange = computed(() => {
   return minT === Infinity ? null : { min: minT, max: maxT }
 })
 
+// ── Model selector ───────────────────────────────────────────────────────────
+
+function isModelSelected(model) {
+  return selectedModels.value.includes(model)
+}
+
+function toggleModel(model) {
+  const idx = selectedModels.value.indexOf(model)
+  if (idx >= 0) {
+    if (selectedModels.value.length > 1) {
+      selectedModels.value.splice(idx, 1)
+    }
+  } else {
+    selectedModels.value.push(model)
+  }
+  updateCharts()
+}
+
 // ── Grid layout ─────────────────────────────────────────────────────────────
 
 const gridStyle = computed(() => ({
@@ -228,8 +294,8 @@ const gridStyle = computed(() => ({
 
 // ── ECharts instances ────────────────────────────────────────────────────────
 
-const chartEls       = {}   // { 'lt15-thr5': HTMLElement }
-const chartInstances = {}   // { 'lt15-thr5': echarts instance }
+const chartEls       = {}
+const chartInstances = {}
 
 function chartKey(lt, thr) { return `lt${lt}-thr${thr}` }
 
@@ -256,22 +322,48 @@ function disposeCharts() {
   }
 }
 
+// ── Fullscreen expand ────────────────────────────────────────────────────────
+
+const expanded       = ref(null)
+const expandedChartEl = ref(null)
+let expandedInstance  = null
+
+async function openExpanded(lt, thr) {
+  expanded.value = { lt, thr }
+  await nextTick()
+  if (expandedChartEl.value) {
+    expandedInstance = echarts.init(expandedChartEl.value, null, { renderer: 'canvas' })
+    expandedInstance.setOption(buildOption(lt, thr), { notMerge: true })
+  }
+}
+
+function closeExpanded() {
+  expandedInstance?.dispose()
+  expandedInstance = null
+  expanded.value = null
+}
+
+function handleKeyDown(e) {
+  if (e.key === 'Escape' && expanded.value) closeExpanded()
+}
+
 // ── Build ECharts option for one cell ────────────────────────────────────────
 
 function buildOption(lt, thr) {
-  const data    = chartData.value
+  const data     = chartData.value
   const isRecent = activeTab.value === 'recent'
-  const ltKey   = `lt${lt}`
-  const thrKey  = `thr${thr}`
+  const ltKey    = `lt${lt}`
+  const thrKey   = `thr${thr}`
+
+  const activeModels = (data?.models ?? []).filter(m => selectedModels.value.includes(m))
 
   const regularSeries = []
   const gapSeries     = []
 
-  for (const model of (data?.models ?? [])) {
+  for (const model of activeModels) {
     const points = data?.series?.[model]?.[ltKey]?.[thrKey] ?? []
     const color  = modelColor(model)
 
-    // Keep null entries so ECharts can detect and render gaps
     const seriesData = points.map(p => ({
       value:  [new Date(p.t).getTime(), (p.v !== null && p.v !== undefined) ? p.v : null],
       nValid: p.n ?? null,
@@ -290,7 +382,7 @@ function buildOption(lt, thr) {
       z:            3,
     })
 
-    // Gap-bridge — thin + transparent, connects through nulls with a dashed style
+    // Gap-bridge — dashed, connects through nulls
     gapSeries.push({
       name:         `__gap_${model}`,
       type:         'line',
@@ -305,10 +397,9 @@ function buildOption(lt, thr) {
     })
   }
 
-  // Render gap series first (z:2) so solid line (z:3) overdraws them where data exists
+  // Render gap series first (z:2) so solid (z:3) overdraws where data exists
   const series = [...gapSeries, ...regularSeries]
 
-  // 0.5 skill-score reference line on the first REGULAR series
   if (regularSeries.length > 0) {
     regularSeries[0].markLine = {
       silent:    true,
@@ -340,7 +431,6 @@ function buildOption(lt, thr) {
         const label = isRecent
           ? date.toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
           : date.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: '2-digit' })
-        // Filter out the dashed gap-bridge series from tooltip display
         const visible = params.filter(p => !p.seriesName.startsWith('__gap_'))
         const rows = visible
           .filter(p => p.value?.[1] != null)
@@ -357,69 +447,87 @@ function buildOption(lt, thr) {
       },
     },
     grid: {
-      top:    regularSeries.length > 0 ? 28 : 14,
+      top:    meanRowCount(activeModels) > 0 ? 14 + meanRowCount(activeModels) * 13 : 14,
       right:  6,
       bottom: 24,
       left:   40,
     },
     xAxis: {
-      type:        'time',
-      // Monthly: clamp x range to actual data so charts don't show empty space
+      type: 'time',
       ...((!isRecent && dailyRange.value) ? {
         min:         dailyRange.value.min,
         max:         dailyRange.value.max,
-        maxInterval: 7 * 24 * 3600 * 1000,   // never denser than weekly ticks
+        maxInterval: 7 * 24 * 3600 * 1000,
       } : {}),
-      axisLabel:  {
+      axisLabel: {
         fontSize:  9,
         color:     '#888',
         formatter: isRecent ? '{HH}:{mm}' : xLabelFormat,
         rotate:    isRecent ? 0 : 30,
       },
-      splitLine:  { show: false },
-      axisLine:   { lineStyle: { color: '#e0e0e0' } },
-      axisTick:   { lineStyle: { color: '#e0e0e0' } },
+      splitLine: { show: false },
+      axisLine:  { lineStyle: { color: '#e0e0e0' } },
+      axisTick:  { lineStyle: { color: '#e0e0e0' } },
     },
     yAxis: {
-      type:       'value',
-      min:        0,
-      max:        1,
-      interval:    0.2,
-      axisLabel:  {
+      type:     'value',
+      min:      0,
+      max:      1,
+      interval: 0.2,
+      axisLabel: {
         fontSize:  9,
         color:     '#888',
         formatter: v => v.toFixed(1),
       },
-      splitLine:  { lineStyle: { color: '#f0f0f0' } },
-      axisLine:   { lineStyle: { color: '#e0e0e0' } },
+      splitLine: { lineStyle: { color: '#f0f0f0' } },
+      axisLine:  { lineStyle: { color: '#e0e0e0' } },
     },
     series,
-    // Colored mean annotation: one text element per model
-    graphic: buildMeanGraphics(data, ltKey, thrKey),
+    graphic: buildMeanGraphics(data, ltKey, thrKey, activeModels),
   }
 }
 
-function buildMeanGraphics(data, ltKey, thrKey) {
-  const models = data?.models ?? []
-  const elements = []
-  let xPos = 44  // start just inside the plot area (grid.left = 40)
+const MEANS_PER_ROW = 3
 
-  // μ prefix in neutral gray
+function meanRowCount(activeModels) {
+  const n = activeModels.length
+  return n > 0 ? Math.ceil(n / MEANS_PER_ROW) : 0
+}
+
+function buildMeanGraphics(data, ltKey, thrKey, activeModels) {
+  if (!activeModels || activeModels.length === 0) return []
+
+  const ROW_H   = 13
+  const X_START = 44
+  const X_INDENT = 56
+
+  const elements = []
+  let row     = 0
+  let xPos    = X_START
+  let colInRow = 0
+
   elements.push({
-    type: 'text', left: xPos, top: 5,
+    type: 'text', left: xPos, top: 5 + row * ROW_H,
     style: { text: 'μ ', fontSize: 9, fill: '#aaa' },
   })
   xPos += 12
 
-  for (const model of models) {
+  for (const model of activeModels) {
     const mean = data?.means?.[model]?.[ltKey]?.[thrKey]
     if (mean === null || mean === undefined) continue
+
+    if (colInRow > 0 && colInRow % MEANS_PER_ROW === 0) {
+      row++
+      xPos = X_INDENT
+    }
+
     const label = `${model}: ${mean.toFixed(3)}  `
     elements.push({
-      type: 'text', left: xPos, top: 5,
+      type: 'text', left: xPos, top: 5 + row * ROW_H,
       style: { text: label, fontSize: 9, fill: modelColor(model) },
     })
-    xPos += label.length * 5.3  // ~5.3 px per character at fontSize 9
+    xPos += label.length * 5.3
+    colInRow++
   }
 
   return elements.length > 1 ? elements : []
@@ -435,6 +543,10 @@ function updateCharts() {
       }
     }
   }
+  // Also update expanded modal chart if open
+  if (expanded.value && expandedInstance) {
+    expandedInstance.setOption(buildOption(expanded.value.lt, expanded.value.thr), { notMerge: true })
+  }
 }
 
 // ── Data fetching ────────────────────────────────────────────────────────────
@@ -443,13 +555,22 @@ async function fetchData() {
   loading.value = true
   error.value   = null
   try {
+    let newData
     if (activeTab.value === 'recent') {
-      chartData.value  = await api.fssRecent(selectedScale.value)
-      lastUpdated.value = chartData.value.last_updated
+      newData = await api.fssRecent(selectedScale.value)
+      lastUpdated.value = newData.last_updated
     } else {
-      chartData.value  = await api.fssDaily(selectedScale.value, 60)
+      newData = await api.fssDaily(selectedScale.value, 60)
       lastUpdated.value = null
     }
+
+    chartData.value = newData
+
+    // Init selectedModels on first load (or after reset); preserve user's selection on re-fetches
+    if (selectedModels.value.length === 0) {
+      selectedModels.value = [...(newData.models ?? [])]
+    }
+
     await nextTick()
     initCharts()
     updateCharts()
@@ -471,9 +592,8 @@ let pollTimer = null
 // ── Resize handling ──────────────────────────────────────────────────────────
 
 function handleResize() {
-  for (const inst of Object.values(chartInstances)) {
-    inst?.resize()
-  }
+  for (const inst of Object.values(chartInstances)) inst?.resize()
+  expandedInstance?.resize()
 }
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
@@ -484,19 +604,22 @@ onMounted(async () => {
   await fetchData()
   pollTimer = setInterval(fetchData, 5 * 60 * 1000)
   window.addEventListener('resize', handleResize)
+  window.addEventListener('keydown', handleKeyDown)
 })
 
 onUnmounted(() => {
   clearInterval(pollTimer)
   window.removeEventListener('resize', handleResize)
+  window.removeEventListener('keydown', handleKeyDown)
   disposeCharts()
+  expandedInstance?.dispose()
 })
 
-// Re-fetch (and rebuild charts) when scale or tab changes
+// Re-fetch when scale or tab changes; reset model selection
 watch([selectedScale, activeTab], async () => {
-  chartData.value = null
+  chartData.value      = null
+  selectedModels.value = []
   await nextTick()
-  // Dispose so charts reinitialise with fresh options (avoids axis-type mismatch)
   disposeCharts()
   await nextTick()
   initCharts()
@@ -516,7 +639,121 @@ function formatUpdated(iso) {
 </script>
 
 <style scoped>
-.chart-cell {
+/* Chart cell */
+.chart-cell-wrapper {
+  position: relative;
   height: 200px;
+}
+.chart-cell {
+  height: 100%;
+}
+
+/* Expand button — only visible on hover */
+.expand-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 10;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  color: #6b7280;
+  padding: 0;
+}
+.chart-cell-wrapper:hover .expand-btn {
+  opacity: 1;
+}
+.expand-btn:hover {
+  background: white;
+  color: #111827;
+}
+
+/* Model selector pills */
+.model-pill {
+  padding: 2px 10px;
+  border-radius: 9999px;
+  border-width: 1.5px;
+  border-style: solid;
+  font-size: 0.7rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.12s;
+  line-height: 1.6;
+}
+.model-pill:hover {
+  opacity: 0.8;
+}
+
+/* Fullscreen modal overlay */
+.expanded-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+/* Fullscreen modal panel */
+.expanded-panel {
+  background: white;
+  border-radius: 12px;
+  width: 90vw;
+  max-width: 1400px;
+  height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+
+.expanded-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+
+.expanded-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.close-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #6b7280;
+  transition: background 0.1s;
+  padding: 0;
+}
+.close-btn:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+/* Chart area inside modal — fills remaining space */
+.expanded-chart-el {
+  flex: 1;
+  min-height: 0;
 }
 </style>
