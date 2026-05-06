@@ -136,7 +136,14 @@ async def get_recent_fss(
                 thr_key = f"thr{int(thr)}"
                 df = _load_series(model, lt, thr, scale)
                 if not df.empty and col in df.columns:
-                    sub = df.loc[df.index >= cutoff, [col, "n_valid"]]
+                    # Reindex to the full 5-min grid so gaps appear as explicit NaN
+                    # (without this the frontend cannot place dashed bridge lines)
+                    expected = pd.date_range(
+                        start=cutoff.floor("5min"),
+                        end=now.floor("5min"),
+                        freq="5min",
+                    )
+                    sub = df.loc[df.index >= cutoff, [col, "n_valid"]].reindex(expected)
                     valid = sub[col].dropna()
                     if not valid.empty:
                         ts_last = valid.index[-1]
@@ -213,18 +220,24 @@ async def get_daily_fss(
                 df = _load_series(model, lt, thr, scale, n_months=4)
                 if not df.empty and col in df.columns:
                     df = df.loc[df.index >= cutoff].copy()
+                    # Daily mean n_valid before FSS filtering (for tooltip)
+                    n_valid_daily = df["n_valid"].resample("D").mean().reindex(full_dates)
                     mv = min_valid_map.get(thr, 0)
                     if mv > 0:
                         df.loc[df["n_valid"] < mv, col] = np.nan
                     s = df[col].resample("D").mean().reindex(full_dates)
                 else:
                     s = pd.Series(dtype=float, index=full_dates)
+                    n_valid_daily = pd.Series(dtype=float, index=full_dates)
 
                 valid_s = s.dropna()
                 points = [
                     {
                         "t": idx.strftime("%Y-%m-%d"),
                         "v": round(float(v), 4) if not np.isnan(v) else None,
+                        "n": int(round(float(n_valid_daily[idx])))
+                             if idx in n_valid_daily.index and not np.isnan(n_valid_daily[idx])
+                             else None,
                     }
                     for idx, v in s.items()
                 ]
@@ -242,6 +255,7 @@ async def get_daily_fss(
         "thresholds": thresholds,
         "series": series_out,
         "means": means_out,
+        "min_valid": {str(int(k)): v for k, v in min_valid_map.items()},
     }
 
 

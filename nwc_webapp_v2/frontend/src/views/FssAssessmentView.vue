@@ -107,7 +107,7 @@
       </div>
 
       <!-- ── Shared legend ───────────────────────────────────────────────── -->
-      <div v-if="chartData?.models?.length" class="flex justify-center gap-8 pt-1">
+      <div v-if="chartData?.models?.length" class="flex flex-wrap justify-center gap-6 pt-1">
         <div
           v-for="model in chartData.models"
           :key="model"
@@ -125,6 +125,28 @@
           </svg>
           FSS = 0.5
         </div>
+        <!-- Gap / no-data indicator -->
+        <div class="flex items-center gap-2 text-sm text-gray-400">
+          <svg width="28" height="6">
+            <line x1="0" y1="3" x2="28" y2="3" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4,3" opacity="0.7"/>
+          </svg>
+          no data
+        </div>
+      </div>
+
+      <!-- ── Min-valid filter info (monthly tab only) ──────────────────────── -->
+      <div
+        v-if="activeTab === 'daily' && chartData?.min_valid"
+        class="flex justify-center pt-1"
+      >
+        <p class="text-xs text-gray-400">
+          Monthly filter — days excluded if n valid &lt;
+          <span v-for="(thr, i) in THRESHOLDS" :key="thr">
+            <b>{{ chartData.min_valid[String(thr)] ?? '—' }}</b>
+            <span class="text-gray-300"> ({{ thr }} mm/h)</span>
+            <span v-if="i < THRESHOLDS.length - 1"> · </span>
+          </span>
+        </p>
       </div>
     </template>
 
@@ -213,36 +235,53 @@ function buildOption(lt, thr) {
   const ltKey   = `lt${lt}`
   const thrKey  = `thr${thr}`
 
-  const series = []
-  const meanParts = []
+  const regularSeries = []
+  const gapSeries     = []
 
   for (const model of (data?.models ?? [])) {
     const points = data?.series?.[model]?.[ltKey]?.[thrKey] ?? []
-    const mean   = data?.means?.[model]?.[ltKey]?.[thrKey]
     const color  = modelColor(model)
 
-    // Object form lets us attach nValid for the tooltip
-    const seriesData = points
-      .filter(p => p.v !== null && p.v !== undefined)
-      .map(p => ({ value: [new Date(p.t).getTime(), p.v], nValid: p.n ?? null }))
+    // Keep null entries so ECharts can detect and render gaps
+    const seriesData = points.map(p => ({
+      value:  [new Date(p.t).getTime(), (p.v !== null && p.v !== undefined) ? p.v : null],
+      nValid: p.n ?? null,
+    }))
 
-    series.push({
-      name:        model,
-      type:        'line',
-      data:        seriesData,
-      lineStyle:   { color, width: 2 },
-      itemStyle:   { color },
-      showSymbol:  false,
-      smooth:      false,
+    // Solid line — breaks at null values
+    regularSeries.push({
+      name:         model,
+      type:         'line',
+      data:         seriesData,
+      lineStyle:    { color, width: 2 },
+      itemStyle:    { color },
+      showSymbol:   false,
+      smooth:       false,
       connectNulls: false,
+      z:            3,
     })
 
+    // Dashed gap-bridge — same data but connects through nulls, rendered below solid
+    gapSeries.push({
+      name:         `__gap_${model}`,
+      type:         'line',
+      data:         seriesData,
+      lineStyle:    { color, width: 1, type: 'dashed', opacity: 0.45 },
+      itemStyle:    { color, opacity: 0 },
+      showSymbol:   false,
+      smooth:       false,
+      connectNulls: true,
+      z:            2,
+      silent:       true,
+    })
   }
 
+  // Render gap series first (z:2) so solid line (z:3) overdraws them where data exists
+  const series = [...gapSeries, ...regularSeries]
 
-  // 0.5 skill-score reference line on the first series
-  if (series.length > 0) {
-    series[0].markLine = {
+  // 0.5 skill-score reference line on the first REGULAR series
+  if (regularSeries.length > 0) {
+    regularSeries[0].markLine = {
       silent:    true,
       symbol:    'none',
       lineStyle: { color: '#bbb', type: 'dashed', width: 1 },
@@ -272,18 +311,24 @@ function buildOption(lt, thr) {
         const label = isRecent
           ? date.toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
           : date.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: '2-digit' })
-        const rows = params
-          .filter(p => p.value)
-          .map(p => `${p.marker} ${p.seriesName}: <b>${p.value[1]?.toFixed(3)}</b>`)
-        const nValid = params[0].data?.nValid
+        // Filter out the dashed gap-bridge series from tooltip display
+        const visible = params.filter(p => !p.seriesName.startsWith('__gap_'))
+        const rows = visible
+          .filter(p => p.value?.[1] != null)
+          .map(p => `${p.marker} ${p.seriesName}: <b>${p.value[1].toFixed(3)}</b>`)
+        const nValid = visible[0]?.data?.nValid
+        const nLabel = isRecent ? 'n valid' : 'mean daily n valid'
         const nLine = nValid != null
-          ? `<br/><span style="color:#aaa;font-size:10px">n valid: ${nValid}</span>`
+          ? `<br/><span style="color:#aaa;font-size:10px">${nLabel}: ${nValid.toLocaleString()}</span>`
           : ''
-        return `${label}<br/>${rows.join('<br/>')}${nLine}`
+        const noData = rows.length === 0
+          ? `<br/><span style="color:#bbb;font-size:10px">no data</span>`
+          : ''
+        return `${label}${rows.length ? '<br/>' + rows.join('<br/>') : ''}${nLine}${noData}`
       },
     },
     grid: {
-      top:    (data?.models?.length ?? 0) > 0 ? 28 : 14,
+      top:    regularSeries.length > 0 ? 28 : 14,
       right:  6,
       bottom: 24,
       left:   40,
