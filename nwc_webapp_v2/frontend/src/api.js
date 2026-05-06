@@ -209,6 +209,6 @@ export default {
   // --- FSS real-time assessment ---
   fssRecent: (scale = 5, hours = 24) =>
     get(`/fss/recent?scale=${scale}&hours=${hours}`),
-  fssDaily: (scale = 5, days = 90) =>
+  fssDaily: (scale = 5, days = 60) =>
     get(`/fss/daily?scale=${scale}&days=${days}`),
 }

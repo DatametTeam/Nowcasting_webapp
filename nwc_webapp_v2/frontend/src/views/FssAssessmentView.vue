@@ -114,7 +114,12 @@
           class="flex items-center gap-2 text-sm text-gray-600"
         >
           <svg width="28" height="6">
-            <line x1="0" y1="3" x2="28" y2="3" :stroke="modelColor(model)" stroke-width="2.5"/>
+            <line
+              x1="0" y1="3" x2="28" y2="3"
+              :stroke="modelColor(model)"
+              stroke-width="2.5"
+              :stroke-dasharray="modelSvgDash(model) ?? undefined"
+            />
           </svg>
           {{ model }}
         </div>
@@ -165,18 +170,35 @@ const LEAD_TIMES = [15, 30, 45, 60]
 const THRESHOLDS = [5, 10, 25]
 const SCALES     = [1, 5, 20]
 
-const MODEL_COLORS = {
-  ConvLSTM:    '#3b82f6',
-  SPROG:       '#f97316',
-  ED_ConvLSTM: '#22c55e',
-  IAM4VP:      '#a855f7',
-  PredFormer:  '#ec4899',
-  DynamicUnet: '#14b8a6',
+// Each model gets a distinct color AND a distinct dash pattern so lines stay
+// distinguishable even when they overlap or on screens with limited color accuracy.
+// dash: ECharts lineStyle.type — 'solid' | [dashLen, gapLen, ...]
+const MODEL_STYLES = {
+  ConvLSTM:    { color: '#2563eb', dash: 'solid' },        // blue   — solid
+  SPROG:       { color: '#dc2626', dash: [9, 4] },         // red    — long dash
+  IAM4VP:      { color: '#16a34a', dash: [3, 3] },         // green  — short dash
+  ED_ConvLSTM: { color: '#d97706', dash: [10, 4, 3, 4] },  // amber  — dash-dot
+  PredFormer:  { color: '#0891b2', dash: 'solid' },        // teal   — solid
+  DynamicUnet: { color: '#7c3aed', dash: [9, 4] },         // violet — long dash
 }
-const FALLBACK_COLORS = ['#6366f1', '#84cc16', '#eab308', '#f43f5e', '#06b6d4']
+// Fallback pool for any model not listed above
+const FALLBACK_STYLES = [
+  { color: '#059669', dash: 'solid' },
+  { color: '#b45309', dash: [9, 4] },
+  { color: '#4f46e5', dash: [3, 3] },
+]
 
-function modelColor(model) {
-  return MODEL_COLORS[model] ?? FALLBACK_COLORS[0]
+function modelStyle(model) {
+  return MODEL_STYLES[model] ?? FALLBACK_STYLES[0]
+}
+function modelColor(model) { return modelStyle(model).color }
+function modelDash(model)  { return modelStyle(model).dash }
+
+// Convert ECharts dash spec to SVG stroke-dasharray string for the legend SVG
+function modelSvgDash(model) {
+  const d = modelStyle(model).dash
+  if (!d || d === 'solid') return null
+  return Array.isArray(d) ? d.join(' ') : (d === 'dashed' ? '8 4' : '3 3')
 }
 
 // ── State ───────────────────────────────────────────────────────────────────
@@ -187,6 +209,29 @@ const loading       = ref(false)
 const error         = ref(null)
 const lastUpdated   = ref(null)
 const chartData     = ref(null)
+
+// Effective date range for the monthly x-axis — spans only actual data, not the full 60-day window.
+// Computed once per fetch; shared across all 12 charts so they stay aligned.
+const dailyRange = computed(() => {
+  if (!chartData.value || activeTab.value !== 'daily') return null
+  let minT = Infinity
+  let maxT = -Infinity
+  for (const model of (chartData.value.models ?? [])) {
+    for (const lt of LEAD_TIMES) {
+      for (const thr of THRESHOLDS) {
+        const points = chartData.value.series?.[model]?.[`lt${lt}`]?.[`thr${thr}`] ?? []
+        for (const p of points) {
+          if (p.v !== null && p.v !== undefined) {
+            const t = new Date(p.t).getTime()
+            if (t < minT) minT = t
+            if (t > maxT) maxT = t
+          }
+        }
+      }
+    }
+  }
+  return minT === Infinity ? null : { min: minT, max: maxT }
+})
 
 // ── Grid layout ─────────────────────────────────────────────────────────────
 
@@ -241,6 +286,7 @@ function buildOption(lt, thr) {
   for (const model of (data?.models ?? [])) {
     const points = data?.series?.[model]?.[ltKey]?.[thrKey] ?? []
     const color  = modelColor(model)
+    const dash   = modelDash(model)
 
     // Keep null entries so ECharts can detect and render gaps
     const seriesData = points.map(p => ({
@@ -248,12 +294,12 @@ function buildOption(lt, thr) {
       nValid: p.n ?? null,
     }))
 
-    // Solid line — breaks at null values
+    // Solid/dashed line per model style — breaks at null values
     regularSeries.push({
       name:         model,
       type:         'line',
       data:         seriesData,
-      lineStyle:    { color, width: 2 },
+      lineStyle:    { color, width: 2, type: dash },
       itemStyle:    { color },
       showSymbol:   false,
       smooth:       false,
@@ -261,12 +307,12 @@ function buildOption(lt, thr) {
       z:            3,
     })
 
-    // Dashed gap-bridge — same data but connects through nulls, rendered below solid
+    // Gap-bridge — same dash pattern, thinner + transparent, connects through nulls
     gapSeries.push({
       name:         `__gap_${model}`,
       type:         'line',
       data:         seriesData,
-      lineStyle:    { color, width: 1, type: 'dashed', opacity: 0.45 },
+      lineStyle:    { color, width: 1, type: dash, opacity: 0.35 },
       itemStyle:    { color, opacity: 0 },
       showSymbol:   false,
       smooth:       false,
@@ -334,7 +380,13 @@ function buildOption(lt, thr) {
       left:   40,
     },
     xAxis: {
-      type:       'time',
+      type:        'time',
+      // Monthly: clamp x range to actual data so charts don't show empty space
+      ...((!isRecent && dailyRange.value) ? {
+        min:         dailyRange.value.min,
+        max:         dailyRange.value.max,
+        maxInterval: 7 * 24 * 3600 * 1000,   // never denser than weekly ticks
+      } : {}),
       axisLabel:  {
         fontSize:  9,
         color:     '#888',
@@ -412,7 +464,7 @@ async function fetchData() {
       chartData.value  = await api.fssRecent(selectedScale.value)
       lastUpdated.value = chartData.value.last_updated
     } else {
-      chartData.value  = await api.fssDaily(selectedScale.value)
+      chartData.value  = await api.fssDaily(selectedScale.value, 60)
       lastUpdated.value = null
     }
     await nextTick()
