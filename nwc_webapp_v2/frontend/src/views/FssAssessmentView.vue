@@ -171,12 +171,14 @@ const THRESHOLDS = [5, 10, 25]
 const SCALES     = [1, 5, 20]
 
 const MODEL_COLORS = {
-  ConvLSTM:    '#2563eb',  // blue
-  SPROG:       '#dc2626',  // red
-  IAM4VP:      '#16a34a',  // green
-  ED_ConvLSTM: '#d97706',  // amber
-  PredFormer:  '#0891b2',  // teal
-  DynamicUnet: '#7c3aed',  // violet
+  ConvLSTM:      '#2563eb',  // blue
+  ConvLSTM_v2:   '#0891b2',  // teal
+  ConvLSTM_ssim: '#db2777',  // magenta
+  SPROG:         '#dc2626',  // red
+  IAM4VP:        '#16a34a',  // green
+  ED_ConvLSTM:   '#d97706',  // amber
+  PredFormer:    '#7c3aed',  // violet
+  DynamicUnet:   '#65a30d',  // lime
 }
 const FALLBACK_COLORS = ['#059669', '#b45309', '#4f46e5']
 
