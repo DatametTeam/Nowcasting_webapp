@@ -136,8 +136,8 @@ async def get_recent_fss(
                 thr_key = f"thr{int(thr)}"
                 df = _load_series(model, lt, thr, scale)
                 if not df.empty and col in df.columns:
-                    s = df.loc[df.index >= cutoff, col]
-                    valid = s.dropna()
+                    sub = df.loc[df.index >= cutoff, [col, "n_valid"]]
+                    valid = sub[col].dropna()
                     if not valid.empty:
                         ts_last = valid.index[-1]
                         if last_updated is None or ts_last > last_updated:
@@ -145,9 +145,10 @@ async def get_recent_fss(
                     points = [
                         {
                             "t": idx.isoformat(),
-                            "v": round(float(v), 4) if not np.isnan(v) else None,
+                            "v": round(float(row[col]), 4) if not np.isnan(row[col]) else None,
+                            "n": int(row["n_valid"]) if not np.isnan(row["n_valid"]) else None,
                         }
-                        for idx, v in s.items()
+                        for idx, row in sub.iterrows()
                     ]
                     mean_val = float(valid.mean()) if not valid.empty else None
                 else:

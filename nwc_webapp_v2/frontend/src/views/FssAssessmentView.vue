@@ -221,10 +221,10 @@ function buildOption(lt, thr) {
     const mean   = data?.means?.[model]?.[ltKey]?.[thrKey]
     const color  = modelColor(model)
 
-    // ECharts time axis wants [timestamp_ms, value] pairs
+    // Object form lets us attach nValid for the tooltip
     const seriesData = points
       .filter(p => p.v !== null && p.v !== undefined)
-      .map(p => [new Date(p.t).getTime(), p.v])
+      .map(p => ({ value: [new Date(p.t).getTime(), p.v], nValid: p.n ?? null }))
 
     series.push({
       name:        model,
@@ -237,10 +237,8 @@ function buildOption(lt, thr) {
       connectNulls: false,
     })
 
-    if (mean !== null && mean !== undefined) {
-      meanParts.push(`${model}: ${mean.toFixed(3)}`)
-    }
   }
+
 
   // 0.5 skill-score reference line on the first series
   if (series.length > 0) {
@@ -270,19 +268,22 @@ function buildOption(lt, thr) {
       axisPointer: { type: 'line', lineStyle: { color: '#ccc' } },
       formatter(params) {
         if (!params.length) return ''
-        const ts   = params[0].axisValue
-        const date = new Date(ts)
+        const date = new Date(params[0].axisValue)
         const label = isRecent
           ? date.toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
           : date.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: '2-digit' })
         const rows = params
           .filter(p => p.value)
           .map(p => `${p.marker} ${p.seriesName}: <b>${p.value[1]?.toFixed(3)}</b>`)
-        return `${label}<br/>${rows.join('<br/>')}`
+        const nValid = params[0].data?.nValid
+        const nLine = nValid != null
+          ? `<br/><span style="color:#aaa;font-size:10px">n valid: ${nValid}</span>`
+          : ''
+        return `${label}<br/>${rows.join('<br/>')}${nLine}`
       },
     },
     grid: {
-      top:    meanParts.length ? 28 : 14,
+      top:    (data?.models?.length ?? 0) > 0 ? 28 : 14,
       right:  6,
       bottom: 24,
       left:   40,
@@ -303,7 +304,7 @@ function buildOption(lt, thr) {
       type:       'value',
       min:        0,
       max:        1,
-      splitNumber: 4,
+      interval:    0.2,
       axisLabel:  {
         fontSize:  9,
         color:     '#888',
@@ -313,18 +314,35 @@ function buildOption(lt, thr) {
       axisLine:   { lineStyle: { color: '#e0e0e0' } },
     },
     series,
-    // Mean annotation inside the chart
-    graphic: meanParts.length ? [{
-      type:  'text',
-      left:  42,
-      top:   5,
-      style: {
-        text:     'μ  ' + meanParts.join('    '),
-        fontSize: 9,
-        fill:     '#999',
-      },
-    }] : [],
+    // Colored mean annotation: one text element per model
+    graphic: buildMeanGraphics(data, ltKey, thrKey),
   }
+}
+
+function buildMeanGraphics(data, ltKey, thrKey) {
+  const models = data?.models ?? []
+  const elements = []
+  let xPos = 44  // start just inside the plot area (grid.left = 40)
+
+  // μ prefix in neutral gray
+  elements.push({
+    type: 'text', left: xPos, top: 5,
+    style: { text: 'μ ', fontSize: 9, fill: '#aaa' },
+  })
+  xPos += 12
+
+  for (const model of models) {
+    const mean = data?.means?.[model]?.[ltKey]?.[thrKey]
+    if (mean === null || mean === undefined) continue
+    const label = `${model}: ${mean.toFixed(3)}  `
+    elements.push({
+      type: 'text', left: xPos, top: 5,
+      style: { text: label, fontSize: 9, fill: modelColor(model) },
+    })
+    xPos += label.length * 5.3  // ~5.3 px per character at fontSize 9
+  }
+
+  return elements.length > 1 ? elements : []
 }
 
 function updateCharts() {
