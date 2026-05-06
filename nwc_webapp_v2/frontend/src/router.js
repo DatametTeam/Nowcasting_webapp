@@ -25,6 +25,7 @@ import DataExplorerView from './views/DataExplorerView.vue'
 import ModelComparisonView from './views/ModelComparisonView.vue'
 import MetricsView from './views/MetricsView.vue'
 import WR10View from './views/WR10View.vue'
+import FssAssessmentView from './views/FssAssessmentView.vue'
 
 const routes = [
   { path: '/', redirect: '/realtime' },
@@ -58,6 +59,11 @@ const routes = [
     path: '/metrics',
     name: 'Metrics Analysis',
     component: MetricsView,
+  },
+  {
+    path: '/assessment',
+    name: 'RT Assessment',
+    component: FssAssessmentView,
   },
 ]
 

@@ -205,4 +205,10 @@ export default {
     `/api/render/overlay/wr10/${encodeURIComponent(timestamp)}?product=${product}`,
   wr10SamplePixel: ({ lat, lon, timestamp, products }) =>
     get(`/wr10/sample?lat=${lat}&lon=${lon}&timestamp=${encodeURIComponent(timestamp)}&products=${products.join(',')}`),
+
+  // --- FSS real-time assessment ---
+  fssRecent: (scale = 5, hours = 24) =>
+    get(`/fss/recent?scale=${scale}&hours=${hours}`),
+  fssDaily: (scale = 5, days = 90) =>
+    get(`/fss/daily?scale=${scale}&days=${days}`),
 }

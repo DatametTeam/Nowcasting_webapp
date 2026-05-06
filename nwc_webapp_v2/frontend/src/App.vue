@@ -218,6 +218,7 @@ const ALL_TABS = [
   { key: 'explorer',   path: '/explorer',   label: 'Data Explorer' },
   { key: 'comparison', path: '/comparison', label: 'Model Comparison' },
   { key: 'metrics',    path: '/metrics',    label: 'Metrics Analysis' },
+  { key: 'assessment', path: '/assessment', label: 'RT Assessment' },
 ]
 
 const navItems = computed(() =>
