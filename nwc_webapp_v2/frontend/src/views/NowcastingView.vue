@@ -568,18 +568,6 @@ const selectedModel = ref('')
 // Used to keep old predictions visible on the map while a new job is computing.
 const lastPredUrls = ref([])
 const frameIndex = ref(12)  // Start at index 12 = "0 min" (current time)
-
-// Current radar timestamp for the motion layer composable ("YYYY-MM-DDTHH:MM")
-const _motionCurrentTs = computed(() => {
-  if (!latestTimestamp.value) return ''
-  const baseDt = new Date(latestTimestamp.value)
-  const frameDt = new Date(baseDt.getTime() + (frameIndex.value - 12) * 5 * 60000)
-  const p = n => String(n).padStart(2, '0')
-  return `${frameDt.getUTCFullYear()}-${p(frameDt.getUTCMonth()+1)}-${p(frameDt.getUTCDate())}T${p(frameDt.getUTCHours())}:${p(frameDt.getUTCMinutes())}`
-})
-const { motionMode, motionLoading, activeMotionTs, fetchTimestamps: fetchMotionTimestamps } =
-  useMotionLayer(radarMap, _motionCurrentTs)
-
 const playing = ref(false)
 const speed = ref(1)
 const latestSRI = ref(null)
@@ -868,6 +856,17 @@ const latestTimestampDisplay = computed(() => {
   if (!latestSRI.value?.latest_file) return null
   return formatSriFilename(latestSRI.value.latest_file)
 })
+
+// ---- Motion field layer (AMV / LK) ----
+// Declared here (after latestTimestamp) so the computed can safely reference it.
+const _motionCurrentTs = computed(() => {
+  if (!latestTimestamp.value) return ''
+  const baseDt = new Date(latestTimestamp.value)
+  const frameDt = new Date(baseDt.getTime() + (frameIndex.value - 12) * 5 * 60000)
+  const p = n => String(n).padStart(2, '0')
+  return `${frameDt.getUTCFullYear()}-${p(frameDt.getUTCMonth()+1)}-${p(frameDt.getUTCDate())}T${p(frameDt.getUTCHours())}:${p(frameDt.getUTCMinutes())}`
+})
+const { motionMode, motionLoading, activeMotionTs } = useMotionLayer(radarMap, _motionCurrentTs)
 
 // ---- Preload all 25 frames when model or timestamp changes ----
 
