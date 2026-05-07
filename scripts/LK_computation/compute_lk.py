@@ -397,18 +397,29 @@ def save_arrow_png(u_grid: np.ndarray, v_grid: np.ndarray,
 
     speed = np.sqrt(u_grid ** 2 + v_grid ** 2)
 
-    # ── Downsample: step=1 → all 60×50 = 3000 arrows ────────────────────────
+    # ── Sample grid: all 60×50 points, then checkerboard to ~1500 arrows ────
+    # step=2 → 750 arrows was too sparse; step=1 → 3000 was too dense.
+    # Checkerboard on the full grid gives ~1500 arrows in a staggered diamond
+    # pattern — denser than step=2, less cluttered than step=1.
     step = 1
     u_s  = u_grid [::step, ::step].copy().astype(np.float64)
     v_s  = v_grid [::step, ::step].copy().astype(np.float64)
-    s_s  = speed  [::step, ::step]
+    s_s  = speed  [::step, ::step].copy()
     ln_s = lons_2d[::step, ::step]
     la_s = lats_2d[::step, ::step]
 
+    # Keep only every other point in a checkerboard pattern (ri+ci even)
+    ny_s, nx_s = s_s.shape
+    ri, ci = np.mgrid[0:ny_s, 0:nx_s]
+    checkerboard = (ri + ci) % 2 != 0
+    u_s[checkerboard] = np.nan
+    v_s[checkerboard] = np.nan
+    s_s[checkerboard] = np.nan
+
     # ── Normalize to fixed display length ────────────────────────────────────
-    # Cell spacing between sampled points in degrees
-    cell_lon = (lo2 - lo1) / (nx - 1) * step   # ≈ 0.508°
-    cell_lat = abs(la1 - la2) / (ny - 1) * step # ≈ 0.500°
+    # Cell spacing between sampled points in degrees (step=1 spacing)
+    cell_lon = (lo2 - lo1) / (nx - 1) * step   # ≈ 0.254°
+    cell_lat = abs(la1 - la2) / (ny - 1) * step # ≈ 0.250°
 
     # Arrow length = 70% of cell spacing so adjacent arrows never touch
     arrow_len_lon = cell_lon * 0.70
