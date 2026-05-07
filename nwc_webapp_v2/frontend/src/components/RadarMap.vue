@@ -660,7 +660,8 @@ let velocityLayer = null
 // ---- LK arrow image overlay ----
 // Bounds match lk_config.yaml output_grid exactly: [[lat_sw, lon_sw], [lat_ne, lon_ne]]
 const LK_ARROW_BOUNDS = [[35.5, 4.5], [47.75, 19.5]]
-let lkImageLayer = null
+let lkImageLayer     = null
+let _lkTargetOpacity = 0.8   // tracks the desired opacity so load/error handlers stay in sync
 
 /**
  * Render (or update) the leaflet-velocity wind layer with new data.
@@ -700,20 +701,30 @@ function clearWindLayer() {
 
 /**
  * Show (or update) the LK quiver-arrow PNG as an ImageOverlay.
- * Uses setUrl() to swap images in-place — browser cache makes repeated
- * calls for the same timestamp effectively free after first load.
+ *
+ * The layer starts invisible (opacity 0) and becomes visible only once the
+ * image actually loads. If the PNG is missing (404), the 'error' event fires
+ * and we keep it hidden — no broken-image placeholder appears on the map.
  */
 function setLkImage(url, opacity = 0.8) {
   if (!map) return
+  _lkTargetOpacity = opacity
+
   if (lkImageLayer) {
+    // Hide while the new URL is loading; load/error handlers will restore opacity.
+    lkImageLayer.setOpacity(0)
     lkImageLayer.setUrl(url)
-    lkImageLayer.setOpacity(opacity)
     return
   }
+
+  // Create hidden; attach load/error before adding to map so no frame is missed.
   lkImageLayer = L.imageOverlay(url, LK_ARROW_BOUNDS, {
-    opacity,
+    opacity: 0,
     interactive: false,
-  }).addTo(map)
+  })
+  lkImageLayer.on('load',  () => lkImageLayer?.setOpacity(_lkTargetOpacity))
+  lkImageLayer.on('error', () => lkImageLayer?.setOpacity(0))   // 404 or network error → stay invisible
+  lkImageLayer.addTo(map)
 }
 
 /** Remove the LK arrow overlay (called when toggling off arrows or changing mode). */
