@@ -194,11 +194,11 @@ export default {
     postBlob('/metrics/fit-diagram', { models, pod_values, far_values, csi_values, threshold }),
 
   // --- Wind / AMV ---
-  windTimestamps: () => get('/wind/timestamps'),
+  windTimestamps: (hours = 24) => get(`/wind/timestamps?lookback_hours=${hours}`),
   windData: (timestamp) => get(`/wind/data?timestamp=${encodeURIComponent(timestamp)}`),
 
   // --- LK optical flow ---
-  lkTimestamps: () => get('/lk/timestamps'),
+  lkTimestamps: (hours = 24) => get(`/lk/timestamps?lookback_hours=${hours}`),
   lkData: (timestamp) => get(`/lk/data?timestamp=${encodeURIComponent(timestamp)}`),
   // URL (not a fetch) — used as ImageOverlay src and for browser cache pre-warming
   lkImageUrl: (timestamp) => `/api/lk/image?timestamp=${encodeURIComponent(timestamp)}`,

@@ -14,11 +14,11 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 
 from ws.manager import ConnectionManager
@@ -53,18 +53,22 @@ def _parse_filename(name: str) -> Optional[datetime]:
 
 
 @router.get("/timestamps")
-async def get_lk_timestamps():
-    """Return a sorted list of ISO timestamps for which LK JSON files exist."""
+async def get_lk_timestamps(
+    lookback_hours: int = Query(24, ge=1, le=720, description="Only return timestamps within this many hours"),
+):
+    """Return a sorted list of ISO timestamps for which LK JSON files exist,
+    limited to the last `lookback_hours` hours."""
     folder = _lk_folder()
     if not folder or not folder.is_dir():
         return {"timestamps": []}
 
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=lookback_hours)
     result = []
     for f in folder.glob("*.json"):
         if f.name == "latest_flow.json":
             continue
         dt = _parse_filename(f.name)
-        if dt is not None:
+        if dt is not None and dt >= cutoff:
             result.append(dt.strftime("%Y-%m-%dT%H:%M"))
 
     result.sort()

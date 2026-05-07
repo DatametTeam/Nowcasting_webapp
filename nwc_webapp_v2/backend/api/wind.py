@@ -20,12 +20,12 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
@@ -141,19 +141,22 @@ def _shapefile_to_velocity(path: Path, ref_time: str) -> list[dict]:
 
 
 @router.get("/timestamps")
-async def get_wind_timestamps():
+async def get_wind_timestamps(
+    lookback_hours: int = Query(24, ge=1, le=720, description="Only return timestamps within this many hours"),
+):
     """
-    Return a sorted list of ISO timestamps for which AMV shapefiles exist.
-    Format: "YYYY-MM-DDTHH:MM" (UTC, no seconds — matches radar timestamp format).
+    Return a sorted list of ISO timestamps for which AMV shapefiles exist,
+    limited to the last `lookback_hours` hours.
     """
     folder = _amv_folder()
     if not folder or not folder.is_dir():
         return {"timestamps": []}
 
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=lookback_hours)
     result = []
     for shp in folder.glob("*.shp"):
         dt = _parse_filename(shp.name)
-        if dt is not None:
+        if dt is not None and dt >= cutoff:
             result.append(dt.strftime("%Y-%m-%dT%H:%M"))
 
     result.sort()

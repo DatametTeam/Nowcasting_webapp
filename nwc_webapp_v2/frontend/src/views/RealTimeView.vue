@@ -1358,7 +1358,7 @@ function formatMissingTs(isoTs) {
 const currentTs = computed(() => (timestamps.value[frameIndex.value] ?? '').slice(0, 16))
 const { motionMode, motionLoading, activeMotionTs, lkDisplayMode, lkArrowOpacity,
         updateMotionLayer, fetchTimestamps, prefetchData, sampleMotionAt } =
-  useMotionLayer(radarMap, currentTs)
+  useMotionLayer(radarMap, currentTs, lookbackHours)
 
 // ---- WebSocket: instant kick when backend sees new SRI data ----
 // When the WS delivers a state_update we check whether the latest_sri_timestamp

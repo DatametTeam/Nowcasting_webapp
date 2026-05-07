@@ -479,7 +479,7 @@ const isLoaded    = ref(false)
 const _motionCurrentTs = computed(() => (timestamps.value[frameIndex.value] ?? '').slice(0, 16))
 const { motionMode, motionLoading, activeMotionTs, lkDisplayMode, lkArrowOpacity,
         sampleMotionAt } =
-  useMotionLayer(radarMap, _motionCurrentTs)
+  useMotionLayer(radarMap, _motionCurrentTs, lookbackHours)
 const isLoading   = ref(false)
 const loadError   = ref('')
 const followLive  = ref(true)

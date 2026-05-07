@@ -13,13 +13,15 @@
  * @param {Ref<string>}  currentTs  — current radar timestamp "YYYY-MM-DDTHH:MM" (or "")
  */
 
-import { ref, watch, onUnmounted } from 'vue'
+import { ref, watch, onUnmounted, isRef } from 'vue'
 import api from '../api.js'
 
 const BASE_DELAY_MS = 1_000
 const MAX_DELAY_MS  = 30_000
 
-export function useMotionLayer(radarMap, currentTs) {
+export function useMotionLayer(radarMap, currentTs, lookbackHours = ref(24)) {
+  // Normalise: accept either a plain number or a Ref<number>
+  const _lookbackHours = isRef(lookbackHours) ? lookbackHours : ref(lookbackHours)
   // 'none' | 'amv' | 'lk'
   const motionMode     = ref('none')
   const motionLoading  = ref(false)
@@ -39,7 +41,7 @@ export function useMotionLayer(radarMap, currentTs) {
 
   // ── API wrappers ────────────────────────────────────────────────────────────
 
-  function _fetchTs(source)       { return source === 'amv' ? api.windTimestamps() : api.lkTimestamps() }
+  function _fetchTs(source)       { return source === 'amv' ? api.windTimestamps(_lookbackHours.value) : api.lkTimestamps(_lookbackHours.value) }
   function _fetchData(source, ts) { return source === 'amv' ? api.windData(ts)     : api.lkData(ts) }
 
   // ── Nearest timestamp lookup ────────────────────────────────────────────────
@@ -205,6 +207,18 @@ export function useMotionLayer(radarMap, currentTs) {
 
   watch(currentTs, () => {
     if (motionMode.value !== 'none') updateMotionLayer()
+  })
+
+  // When the lookback window changes, re-fetch timestamps for the active source
+  // so the timeline reflects the new window without toggling the layer off/on.
+  watch(_lookbackHours, async () => {
+    if (motionMode.value === 'none') return
+    const source = motionMode.value
+    _state[source].cache = {}         // old timestamps may now be outside window
+    await fetchTimestamps(source)
+    prefetchData(source)
+    if (source === 'lk') _prefetchImages()
+    updateMotionLayer()
   })
 
   // Re-apply layers whenever the LK display sub-mode or arrow opacity changes
