@@ -361,18 +361,6 @@ def reproject_to_latlon(flow_ms: np.ndarray, cfg: dict) -> tuple[np.ndarray, np.
 
 # ── Arrow PNG ─────────────────────────────────────────────────────────────────
 
-# Dark navy → deep blue → purple → red.
-# Deliberately different from SRI precipitation colors (light-blue → green → yellow → red)
-# and from the leaflet-velocity particle colormap (blue-green rainbow).
-# Near-zero speeds are near-black so they don't look like rain data.
-_ARROW_COLORS = [
-    ( 8/255,   0/255,  60/255),   # near-black dark navy  (≈ 0 m/s)
-    (30/255,  50/255, 200/255),   # deep blue             (≈ 5 m/s)
-    (120/255, 10/255, 200/255),   # purple                (≈ 12 m/s)
-    (220/255,  0/255,  60/255),   # deep red              (≈ 20 m/s)
-    (255/255, 30/255,   0/255),   # bright red            (≈ 25 m/s)
-]
-
 
 def save_arrow_png(u_grid: np.ndarray, v_grid: np.ndarray,
                    cfg: dict, ref_dt: datetime) -> None:
@@ -393,7 +381,7 @@ def save_arrow_png(u_grid: np.ndarray, v_grid: np.ndarray,
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        import matplotlib.colors as mcolors
+        import matplotlib.colors as mcolors  # noqa: F401 (used by Normalize below)
     except ImportError:
         logger.warning("matplotlib not available — skipping PNG generation")
         return
@@ -409,8 +397,8 @@ def save_arrow_png(u_grid: np.ndarray, v_grid: np.ndarray,
 
     speed = np.sqrt(u_grid ** 2 + v_grid ** 2)
 
-    # ── Downsample (every 2nd grid point → 30×25 = 750 arrows) ──────────────
-    step = 2
+    # ── Downsample: step=1 → all 60×50 = 3000 arrows ────────────────────────
+    step = 1
     u_s  = u_grid [::step, ::step].copy().astype(np.float64)
     v_s  = v_grid [::step, ::step].copy().astype(np.float64)
     s_s  = speed  [::step, ::step]
@@ -442,7 +430,7 @@ def save_arrow_png(u_grid: np.ndarray, v_grid: np.ndarray,
     fig.patch.set_alpha(0.0)
     ax.set_facecolor("none")
 
-    cmap    = mcolors.LinearSegmentedColormap.from_list("lk_arrows", _ARROW_COLORS)
+    cmap    = plt.cm.jet
     max_vel = 25.0   # m/s — upper end of the color scale
 
     # scale=1, scale_units='xy': the plotted vector length IS the data value
