@@ -657,6 +657,11 @@ function setProductOrder(topToBottom) {
 // ---- Wind / AMV velocity layer ----
 let velocityLayer = null
 
+// ---- LK arrow image overlay ----
+// Bounds match lk_config.yaml output_grid exactly: [[lat_sw, lon_sw], [lat_ne, lon_ne]]
+const LK_ARROW_BOUNDS = [[35.5, 4.5], [47.75, 19.5]]
+let lkImageLayer = null
+
 /**
  * Render (or update) the leaflet-velocity wind layer with new data.
  * `velocityData` is the two-element array [U, V] from /api/wind/data.
@@ -693,6 +698,31 @@ function clearWindLayer() {
   velocityLayer = null
 }
 
+/**
+ * Show (or update) the LK quiver-arrow PNG as an ImageOverlay.
+ * Uses setUrl() to swap images in-place — browser cache makes repeated
+ * calls for the same timestamp effectively free after first load.
+ */
+function setLkImage(url, opacity = 0.8) {
+  if (!map) return
+  if (lkImageLayer) {
+    lkImageLayer.setUrl(url)
+    lkImageLayer.setOpacity(opacity)
+    return
+  }
+  lkImageLayer = L.imageOverlay(url, LK_ARROW_BOUNDS, {
+    opacity,
+    interactive: false,
+  }).addTo(map)
+}
+
+/** Remove the LK arrow overlay (called when toggling off arrows or changing mode). */
+function clearLkImage() {
+  if (!map || !lkImageLayer) return
+  map.removeLayer(lkImageLayer)
+  lkImageLayer = null
+}
+
 // Expose methods for the parent component to call
 defineExpose({
   // Single-product (backward compat — used by RealTimeView)
@@ -704,6 +734,8 @@ defineExpose({
   invalidateSize, showPopup, closePopup,
   // Wind / AMV
   setWindLayer, clearWindLayer,
+  // LK arrow image overlay
+  setLkImage, clearLkImage,
 })
 </script>
 

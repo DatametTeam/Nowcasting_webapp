@@ -379,6 +379,7 @@
         <div class="space-y-2">
           <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Motion Field</h3>
           <div class="bg-gray-800 rounded-lg p-3 space-y-2">
+            <!-- Source selector: None / AMV / LK -->
             <div class="flex items-center gap-1">
               <button
                 v-for="mode in ['none', 'amv', 'lk']"
@@ -394,6 +395,31 @@
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
             </div>
+            <!-- LK display sub-controls: Particles / Arrows / Both -->
+            <template v-if="motionMode === 'lk'">
+              <div class="flex items-center gap-1">
+                <button
+                  v-for="dm in ['particles', 'arrows', 'both']"
+                  :key="dm"
+                  @click="lkDisplayMode = dm"
+                  :class="['flex-1 py-1 text-[10px] font-semibold rounded transition-colors capitalize',
+                           lkDisplayMode === dm
+                             ? 'bg-teal-600 text-white'
+                             : 'bg-gray-700 text-gray-400 hover:text-white']"
+                >{{ dm }}</button>
+              </div>
+              <div v-if="lkDisplayMode !== 'particles'" class="flex items-center gap-2">
+                <span class="text-gray-400 text-[10px] w-12 flex-shrink-0">Arrows</span>
+                <input
+                  type="range" min="0" max="1" step="0.05"
+                  v-model.number="lkArrowOpacity"
+                  class="flex-1 h-1 accent-teal-400 cursor-pointer"
+                />
+                <span class="text-gray-400 text-[10px] w-8 text-right tabular-nums">
+                  {{ Math.round(lkArrowOpacity * 100) }}%
+                </span>
+              </div>
+            </template>
             <div v-if="motionMode !== 'none' && activeMotionTs" class="text-gray-500 text-[10px]">
               {{ motionMode.toUpperCase() }}: {{ activeMotionTs.replace('T', ' ') }} UTC
               <span v-if="motionMode === 'amv'" class="text-gray-600 ml-1">(20 min cadence)</span>
@@ -1314,7 +1340,8 @@ function formatMissingTs(isoTs) {
 
 // ---- Motion field layer (AMV / LK) ----
 const currentTs = computed(() => (timestamps.value[frameIndex.value] ?? '').slice(0, 16))
-const { motionMode, motionLoading, activeMotionTs, updateMotionLayer, fetchTimestamps, prefetchData } =
+const { motionMode, motionLoading, activeMotionTs, lkDisplayMode, lkArrowOpacity,
+        updateMotionLayer, fetchTimestamps, prefetchData } =
   useMotionLayer(radarMap, currentTs)
 
 // ---- WebSocket: instant kick when backend sees new SRI data ----

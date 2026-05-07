@@ -359,6 +359,112 @@ def reproject_to_latlon(flow_ms: np.ndarray, cfg: dict) -> tuple[np.ndarray, np.
     return u_grid, v_grid
 
 
+# ── Arrow PNG (matches leaflet-velocity colormap) ────────────────────────────
+
+# leaflet-velocity default colorScale — same 15-stop rainbow used for particles.
+# Replicated here so the static arrows look identical to the animated ones.
+_LV_COLORS = [
+    ( 36/255, 104/255, 180/255),
+    ( 60/255, 157/255, 194/255),
+    (128/255, 205/255, 193/255),
+    (151/255, 218/255, 168/255),
+    (198/255, 231/255, 181/255),
+    (238/255, 247/255, 217/255),
+    (255/255, 238/255, 159/255),
+    (252/255, 217/255, 125/255),
+    (255/255, 182/255, 100/255),
+    (252/255, 150/255,  75/255),
+    (250/255, 112/255,  52/255),
+    (245/255,  64/255,  32/255),
+    (237/255,  45/255,  28/255),
+    (220/255,  24/255,  32/255),
+    (180/255,   0/255,  35/255),
+]
+
+
+def save_arrow_png(u_grid: np.ndarray, v_grid: np.ndarray,
+                   cfg: dict, ref_dt: datetime) -> None:
+    """
+    Render a quiver-arrow plot using the leaflet-velocity color scale and save as
+    a transparent PNG alongside the JSON output.  The image is sized and positioned
+    to exactly match the output_grid lat/lon bounds so it overlays perfectly on the
+    Leaflet map as an ImageOverlay.
+    """
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.colors as mcolors
+    except ImportError:
+        logger.warning("matplotlib not available — skipping PNG generation")
+        return
+
+    grid = cfg["output_grid"]
+    lo1, lo2 = grid["lo1"], grid["lo2"]
+    la1, la2 = grid["la1"], grid["la2"]   # la1=47.75 (north), la2=35.5 (south)
+    nx,  ny  = grid["nx"],  grid["ny"]    # 60, 50
+
+    lons = np.linspace(lo1, lo2, nx)
+    lats = np.linspace(la1, la2, ny)     # descending (north → south, matching u/v_grid rows)
+    lons_2d, lats_2d = np.meshgrid(lons, lats)
+
+    speed = np.sqrt(u_grid ** 2 + v_grid ** 2)
+
+    # Downsample to every 2nd point so arrows don't overlap (30×25 = 750 arrows)
+    step = 2
+    u_s  = u_grid [::step, ::step].copy()
+    v_s  = v_grid [::step, ::step].copy()
+    s_s  = speed  [::step, ::step]
+    ln_s = lons_2d[::step, ::step]
+    la_s = lats_2d[::step, ::step]
+
+    # Hide rain-masked areas (zero-velocity) — matplotlib skips NaN arrows
+    u_s[s_s < 0.05] = np.nan
+    v_s[s_s < 0.05] = np.nan
+
+    cmap    = mcolors.LinearSegmentedColormap.from_list("lv", _LV_COLORS)
+    max_vel = 25.0   # matches leaflet-velocity maxVelocity setting
+
+    # Figure sized so the axes fill the whole canvas with no padding.
+    # add_axes([0, 0, 1, 1]) makes the axes occupy 100% of the figure.
+    # At 150 dpi: 6 in × 150 = 900 px wide, 5 in × 150 = 750 px tall.
+    fig = plt.figure(figsize=(nx / 10, ny / 10), dpi=150)
+    ax  = fig.add_axes([0, 0, 1, 1])
+    ax.set_xlim(lo1, lo2)
+    ax.set_ylim(la2, la1)   # south at bottom, north at top — matches Leaflet orientation
+    ax.axis("off")
+    fig.patch.set_alpha(0.0)
+    ax.set_facecolor("none")
+
+    ax.quiver(
+        ln_s, la_s, u_s, v_s, s_s,
+        cmap=cmap,
+        norm=mcolors.Normalize(vmin=0, vmax=max_vel),
+        scale=50,          # 25 m/s arrow spans 0.5° — fits within 1-step (0.5°) grid cell
+        scale_units="xy",
+        angles="xy",
+        width=0.007,
+        headwidth=4,
+        headlength=4,
+        headaxislength=3.5,
+        alpha=0.9,
+    )
+
+    out_dir = Path(cfg["output"]["dir"])
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    png_name = ref_dt.strftime("%d-%m-%Y-%H-%M.png")
+    png_path = out_dir / png_name
+    fig.savefig(str(png_path), dpi=150, transparent=True, bbox_inches=None, pad_inches=0)
+    logger.info("Saved PNG  → %s", png_path)
+
+    # Overwrite the always-current copy
+    latest_png = out_dir / "latest_flow.png"
+    fig.savefig(str(latest_png), dpi=150, transparent=True, bbox_inches=None, pad_inches=0)
+
+    plt.close(fig)
+
+
 # ── leaflet-velocity JSON serialisation ───────────────────────────────────────
 
 def build_velocity_json(u_grid: np.ndarray, v_grid: np.ndarray,
@@ -541,10 +647,14 @@ def main() -> None:
         logger.info("Dry run — skipping write and notify.")
         return
 
-    # 8. Save
+    # 8. Save JSON
     save_output(payload, cfg, ref_dt)
 
-    # 9. Notify
+    # 9. Save PNG arrow overlay
+    if cfg["output"].get("save_png", True):
+        save_arrow_png(u_grid, v_grid, cfg, ref_dt)
+
+    # 10. Notify
     if not args.no_notify:
         notify_backend(cfg)
 

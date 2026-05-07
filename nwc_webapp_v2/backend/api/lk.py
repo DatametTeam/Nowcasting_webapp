@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from ws.manager import ConnectionManager
 
@@ -99,6 +99,29 @@ async def get_lk_data(timestamp: str):
             raise HTTPException(status_code=500, detail=f"Failed to read LK file: {exc}")
 
     return JSONResponse(content=_data_cache[timestamp])
+
+
+@router.get("/image")
+async def get_lk_image(timestamp: str):
+    """
+    Return the pre-rendered quiver-arrow PNG for the given timestamp.
+    `timestamp` must be in "YYYY-MM-DDTHH:MM" format (UTC).
+    """
+    folder = _lk_folder()
+    if not folder or not folder.is_dir():
+        raise HTTPException(status_code=503, detail="LK data folder not configured or missing.")
+
+    try:
+        dt = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="timestamp must be YYYY-MM-DDTHH:MM")
+
+    filename = dt.strftime("%d-%m-%Y-%H-%M.png")
+    path = folder / filename
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"No LK arrow image for {timestamp}.")
+
+    return FileResponse(str(path), media_type="image/png")
 
 
 @router.post("/notify")

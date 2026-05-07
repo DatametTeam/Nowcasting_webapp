@@ -200,6 +200,8 @@ export default {
   // --- LK optical flow ---
   lkTimestamps: () => get('/lk/timestamps'),
   lkData: (timestamp) => get(`/lk/data?timestamp=${encodeURIComponent(timestamp)}`),
+  // URL (not a fetch) — used as ImageOverlay src and for browser cache pre-warming
+  lkImageUrl: (timestamp) => `/api/lk/image?timestamp=${encodeURIComponent(timestamp)}`,
 
   // --- WR10 small radar ---
   wr10Config: () => get('/wr10/config'),

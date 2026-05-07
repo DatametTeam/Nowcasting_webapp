@@ -23,6 +23,7 @@ FastAPI also auto-generates API docs at http://localhost:8000/docs (very useful!
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
@@ -59,6 +60,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Compress JSON responses (LK/AMV data, radar metadata) automatically.
+# LK JSON is ~60 KB uncompressed → ~12 KB gzipped — ~5x smaller on the wire.
+# All modern browsers advertise Accept-Encoding: gzip so this is always active.
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 
 # ============================================================================
