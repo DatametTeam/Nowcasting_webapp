@@ -197,6 +197,10 @@ export default {
   windTimestamps: () => get('/wind/timestamps'),
   windData: (timestamp) => get(`/wind/data?timestamp=${encodeURIComponent(timestamp)}`),
 
+  // --- LK optical flow ---
+  lkTimestamps: () => get('/lk/timestamps'),
+  lkData: (timestamp) => get(`/lk/data?timestamp=${encodeURIComponent(timestamp)}`),
+
   // --- WR10 small radar ---
   wr10Config: () => get('/wr10/config'),
   wr10Timestamps: (product, lookbackMinutes) =>

@@ -333,6 +333,35 @@
             </div>
           </div>
 
+          <!-- Motion field layer (AMV / LK) -->
+          <div class="space-y-2">
+            <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Motion Field</h3>
+            <div class="bg-gray-800 rounded-lg p-3 space-y-2">
+              <div class="flex items-center gap-1">
+                <button
+                  v-for="mode in ['none', 'amv', 'lk']"
+                  :key="mode"
+                  @click="motionMode = mode"
+                  :class="['flex-1 py-1 text-xs font-semibold rounded transition-colors',
+                           motionMode === mode
+                             ? 'bg-blue-500 text-white'
+                             : 'bg-gray-700 text-gray-400 hover:text-white']"
+                >{{ mode === 'none' ? 'None' : mode.toUpperCase() }}</button>
+                <svg v-if="motionLoading" class="animate-spin h-3 w-3 text-blue-400 flex-shrink-0 ml-1" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" />
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              </div>
+              <div v-if="motionMode !== 'none' && activeMotionTs" class="text-gray-500 text-[10px]">
+                {{ motionMode.toUpperCase() }}: {{ activeMotionTs.replace('T', ' ') }} UTC
+                <span v-if="motionMode === 'amv'" class="text-gray-600 ml-1">(20 min cadence)</span>
+              </div>
+              <div v-if="motionMode !== 'none' && !activeMotionTs && !motionLoading" class="text-amber-400 text-[10px]">
+                No {{ motionMode.toUpperCase() }} data for current time
+              </div>
+            </div>
+          </div>
+
           <!-- Radar info -->
           <div class="bg-gray-800 rounded-lg p-3 space-y-1 text-xs text-gray-400">
             <p class="font-semibold text-gray-300">Radar Info</p>
@@ -360,6 +389,7 @@ import ColorBar from '../components/ColorBar.vue'
 import { useSettingsStore } from '../stores/settings.js'
 import { useConfigStore } from '../stores/config.js'
 import { useWr10Ws } from '../composables/useWr10Ws.js'
+import { useMotionLayer } from '../composables/useMotionLayer.js'
 import api from '../api.js'
 
 const settings  = useSettingsStore()
@@ -418,6 +448,10 @@ const overlayBounds = ref(null)  // [[lat_sw, lon_sw], [lat_ne, lon_ne]]
 const timestamps  = ref([])
 const frameIndex  = ref(0)
 const isLoaded    = ref(false)
+
+// ---- Motion field layer (AMV / LK) ----
+const _motionCurrentTs = computed(() => (timestamps.value[frameIndex.value] ?? '').slice(0, 16))
+const { motionMode, motionLoading, activeMotionTs } = useMotionLayer(radarMap, _motionCurrentTs)
 const isLoading   = ref(false)
 const loadError   = ref('')
 const followLive  = ref(true)

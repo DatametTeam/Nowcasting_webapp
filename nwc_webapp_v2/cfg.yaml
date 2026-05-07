@@ -48,6 +48,7 @@ hpc_paths:
   real_time_pred: "/davinci-1/work/protezionecivile/nwc_webapp/real_time_results"
   archive_folder: "/davinci-1/work/protezionecivile/data"
   amv_folder: "/davinci-1/work/protezionecivile/data1/AMV"
+  lk_folder: "/davinci-1/work/protezionecivile/data1/LK"
 
 # Server paths (used when running on a dedicated GPU server without job scheduler)
 server_paths:
@@ -56,6 +57,7 @@ server_paths:
   real_time_pred: "/data/nwc_webapp/real_time_results"
   archive_folder: "/data"
   amv_folder: "/data/AMV"
+  lk_folder: "/data/LK"
 
 # Local paths (used for local development with mock data)
 local_paths:
@@ -64,6 +66,7 @@ local_paths:
   real_time_pred: "data/predictions/real_time_pred"
   archive_folder: ""
   amv_folder: "data/AMV"
+  lk_folder: "data/LK"
 
 # Radar mask (relative to package root)
 radar_mask_path: "resources/mask/mask_correct.hdf"

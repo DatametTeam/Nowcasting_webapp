@@ -258,6 +258,12 @@ class Config:
         return Path(folder) if folder else None
 
     @property
+    def lk_folder(self) -> Optional[Path]:
+        """Get LK optical flow JSON folder path (one .json per 5-min timestamp)."""
+        folder = self.get_paths().get("lk_folder", "")
+        return Path(folder) if folder else None
+
+    @property
     def data_archive_folder(self) -> Optional[Path]:
         """
         Get the archive base folder for radar products older than ~3 days.

@@ -375,31 +375,31 @@
           </div>
         </div>
 
-        <!-- Wind / AMV layer -->
+        <!-- Motion field layer (AMV / LK) -->
         <div class="space-y-2">
-          <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Wind</h3>
+          <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Motion Field</h3>
           <div class="bg-gray-800 rounded-lg p-3 space-y-2">
-            <div class="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="wind-toggle"
-                v-model="windEnabled"
-                class="w-4 h-4 rounded accent-blue-500 cursor-pointer flex-shrink-0"
-              />
-              <label for="wind-toggle" class="text-white text-sm font-bold cursor-pointer flex-1">
-                AMV Wind
-              </label>
-              <svg v-if="windLoading" class="animate-spin h-3 w-3 text-blue-400 flex-shrink-0" viewBox="0 0 24 24">
+            <div class="flex items-center gap-1">
+              <button
+                v-for="mode in ['none', 'amv', 'lk']"
+                :key="mode"
+                @click="motionMode = mode"
+                :class="['flex-1 py-1 text-xs font-semibold rounded transition-colors',
+                         motionMode === mode
+                           ? 'bg-blue-500 text-white'
+                           : 'bg-gray-700 text-gray-400 hover:text-white']"
+              >{{ mode === 'none' ? 'None' : mode.toUpperCase() }}</button>
+              <svg v-if="motionLoading" class="animate-spin h-3 w-3 text-blue-400 flex-shrink-0 ml-1" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" />
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
             </div>
-            <div v-if="windEnabled && activeWindTs" class="text-gray-500 text-[10px]">
-              AMV: {{ activeWindTs.replace('T', ' ') }} UTC
-              <span class="text-gray-600 ml-1">(20 min cadence)</span>
+            <div v-if="motionMode !== 'none' && activeMotionTs" class="text-gray-500 text-[10px]">
+              {{ motionMode.toUpperCase() }}: {{ activeMotionTs.replace('T', ' ') }} UTC
+              <span v-if="motionMode === 'amv'" class="text-gray-600 ml-1">(20 min cadence)</span>
             </div>
-            <div v-if="windEnabled && !activeWindTs && !windLoading" class="text-amber-400 text-[10px]">
-              No AMV data for current time
+            <div v-if="motionMode !== 'none' && !activeMotionTs && !motionLoading" class="text-amber-400 text-[10px]">
+              No {{ motionMode.toUpperCase() }} data for current time
             </div>
           </div>
         </div>
@@ -430,6 +430,7 @@ import api from '../api.js'
 import RadarMap from '../components/RadarMap.vue'
 import ColorBar from '../components/ColorBar.vue'
 import { useRealtimeWs } from '../composables/useRealtimeWs.js'
+import { useMotionLayer } from '../composables/useMotionLayer.js'
 
 const configStore = useConfigStore()
 const settings = useSettingsStore()
@@ -1216,10 +1217,9 @@ function startDataSearch() {
   // Hard end: the next 5-min clock mark (whichever is sooner than SEARCH_MAX_MS).
   nextMarkAt = searchStart + msUntilNextFiveMinMark()
 
-  // Refresh AMV timestamp list at every clock mark so newly arrived shapefiles
-  // are picked up without requiring a page reload (AMV cadence is 20 min but
-  // we refresh every 5 min to keep latency low).
-  fetchWindTimestamps()
+  // Refresh motion field timestamp list at every clock mark so newly arrived
+  // files are picked up without a page reload.
+  if (motionMode.value !== 'none') fetchTimestamps(motionMode.value)
 
   runSearch()
 }
@@ -1312,113 +1312,10 @@ function formatMissingTs(isoTs) {
   return `${pad(dt.getDate())}-${pad(dt.getMonth()+1)}-${dt.getFullYear()}-${pad(dt.getHours())}-${pad(dt.getMinutes())}.hdf`
 }
 
-// ---- Wind / AMV layer ----
-const windEnabled    = ref(false)
-const windLoading    = ref(false)
-const windTimestamps = ref([])   // sorted list of "YYYY-MM-DDTHH:MM" strings
-const activeWindTs   = ref('')   // the AMV timestamp currently on the map
-let   windDataCache  = {}        // ts → velocity JSON (avoid re-fetching same file)
-
-/** Return the most recent AMV timestamp ≤ `radarTs` that loaded successfully, or '' if none. */
-function nearestWindTs(radarTs) {
-  if (!radarTs || windTimestamps.value.length === 0) return ''
-  // Both are "YYYY-MM-DDTHH:MM" — lexicographic comparison works for ISO strings.
-  // Skip timestamps that are known-broken (cached as null).
-  let best = ''
-  for (const ts of windTimestamps.value) {
-    if (ts > radarTs) break
-    if (windDataCache[ts] !== null) best = ts
-  }
-  return best
-}
-
-async function updateWindLayer() {
-  if (!windEnabled.value || !radarMap.value) return
-
-  const radarTs = timestamps.value[frameIndex.value] ?? ''
-  // If timestamps are temporarily empty (timeline mid-reset during loadData),
-  // leave the current wind layer in place and wait for the next update.
-  if (!radarTs) return
-
-  // Strip seconds if present (radar timestamps may have ":00" suffix).
-  const radarTsShort = radarTs.slice(0, 16)
-  const target = nearestWindTs(radarTsShort)
-
-  if (!target) {
-    radarMap.value.clearWindLayer()
-    activeWindTs.value = ''
-    return
-  }
-
-  if (target === activeWindTs.value) return   // same snapshot, nothing to do
-
-  windLoading.value = true
-  try {
-    if (!(target in windDataCache)) {
-      windDataCache[target] = await api.windData(target).catch(() => null)
-    }
-    if (!windDataCache[target]) {
-      radarMap.value.clearWindLayer()
-      activeWindTs.value = ''
-      return
-    }
-    radarMap.value.setWindLayer(windDataCache[target])
-    activeWindTs.value = target
-  } catch (e) {
-    console.warn('Wind layer fetch failed:', e)
-    activeWindTs.value = ''
-  } finally {
-    windLoading.value = false
-  }
-}
-
-// Fetch (or refresh) the list of available AMV timestamps.
-// Called on mount and at every 5-min clock mark so newly arrived shapefiles
-// are discovered within 5 minutes of landing on disk.
-async function fetchWindTimestamps() {
-  try {
-    const { timestamps: ts } = await api.windTimestamps()
-    windTimestamps.value = ts
-    // Pre-warm the cache for all timestamps in the background so slider
-    // transitions between AMV snapshots are instant (no per-boundary fetch wait).
-    prefetchWindData()
-    // If wind is on and the new list includes a more recent snapshot than
-    // what's currently showing, update the layer immediately.
-    if (windEnabled.value) updateWindLayer()
-  } catch (e) {
-    console.warn('Could not fetch wind timestamps:', e)
-  }
-}
-
-// Fetch uncached AMV timestamps that fall within the current radar lookback window,
-// in parallel, silently, in the background.
-// Failures are cached as null so the same broken timestamp is never retried.
-function prefetchWindData() {
-  const { start } = computeRange()
-  const windowStart = start.slice(0, 16)   // "YYYY-MM-DDTHH:MM"
-  const toFetch = windTimestamps.value.filter(ts => ts >= windowStart && !(ts in windDataCache))
-  toFetch.forEach(ts => {
-    api.windData(ts)
-      .then(data  => { windDataCache[ts] = data })
-      .catch(() => { windDataCache[ts] = null })
-  })
-}
-
-// Re-render wind layer when the slider moves.
-watch(frameIndex, () => {
-  if (windEnabled.value) updateWindLayer()
-})
-
-// Toggle: enable → load current frame; disable → clear the layer.
-watch(windEnabled, async (enabled) => {
-  if (enabled) {
-    if (windTimestamps.value.length === 0) await fetchWindTimestamps()
-    await updateWindLayer()
-  } else {
-    radarMap.value?.clearWindLayer()
-    activeWindTs.value = ''
-  }
-})
+// ---- Motion field layer (AMV / LK) ----
+const currentTs = computed(() => (timestamps.value[frameIndex.value] ?? '').slice(0, 16))
+const { motionMode, motionLoading, activeMotionTs, updateMotionLayer, fetchTimestamps, prefetchData } =
+  useMotionLayer(radarMap, currentTs)
 
 // ---- WebSocket: instant kick when backend sees new SRI data ----
 // When the WS delivers a state_update we check whether the latest_sri_timestamp
@@ -1454,7 +1351,7 @@ onMounted(async () => {
   await nextTick()
   await loadData({ preserve: false })
   startPolling()
-  fetchWindTimestamps()   // non-blocking; populates windTimestamps in the background
+  fetchTimestamps('amv')  // pre-warm AMV timestamps; LK loaded on demand when toggled
 })
 
 // keep-alive hooks: fired when navigating away/back without destroying the component.

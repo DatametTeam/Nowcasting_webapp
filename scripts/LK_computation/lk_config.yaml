@@ -1,0 +1,68 @@
+# Lucas-Kanade optical flow computation configuration
+# All paths can be absolute or relative to this config file's directory.
+
+# ── Input data ──────────────────────────────────────────────────────────────
+data:
+  folder: "/data/SRI_adj"                # folder containing SRI HDF files
+  file_pattern: "%d-%m-%Y-%H-%M.hdf"    # strftime pattern for HDF filenames
+  hdf_key: "/dataset1/data1/data"        # dataset key inside each HDF file
+  product: "SRI"                         # label only (SRI or VMI)
+  n_frames: 6                            # how many consecutive frames to use for LK
+  timestep_s: 300                        # seconds between frames (5 min)
+  scale_factor: 1.0                      # multiply raw HDF values by this
+  offset: 0.0                            # add this after scale_factor
+
+# ── Preprocessing ────────────────────────────────────────────────────────────
+preprocessing:
+  threshold_mm_h: 0.1                    # values below this are set to zero (rain/no-rain mask)
+  log_transform: true                    # apply 10*log10(R + epsilon) before LK
+  log_epsilon: 0.01                      # avoids log(0); added before log transform
+  smoothing_sigma: 1.0                   # Gaussian blur sigma in pixels (0 = disabled)
+
+# ── Radar grid projection (Transverse Mercator) ──────────────────────────────
+# These match the values in src/nwc_webapp/geo/coordinates.py exactly.
+# pixel (row, col) → TM coords (meters):
+#   x_m = (col - xoff) * xres
+#   y_m = (row - yoff) * yres
+projection:
+  proj: "tmerc"
+  lat_0: 42.0
+  lon_0: 12.5
+  xoff: 600.0       # column offset (origin column in the TM grid)
+  xres: 1000.0      # meters per pixel in the column direction (east = positive)
+  yoff: 650.0       # row offset
+  yres: -1000.0     # meters per pixel in the row direction (negative = south = down)
+
+# ── Output lat/lon grid (same extent as the AMV layer) ───────────────────────
+# leaflet-velocity scans rows north → south, columns west → east.
+output_grid:
+  lo1: 4.5          # westernmost longitude
+  la1: 47.75        # northernmost latitude (row 0)
+  lo2: 19.5         # easternmost longitude
+  la2: 35.5         # southernmost latitude (last row)
+  nx: 60            # number of columns
+  ny: 50            # number of rows
+
+# ── Lucas-Kanade parameters (pysteps dense_lucaskanade) ──────────────────────
+lk:
+  fd_method: "shitomasi"   # feature detection: "shitomasi" or "harris"
+  nr_levels: 6             # pyramid levels (more = handles large displacements)
+  nr_iter: 15              # LK iterations per level
+  nr_features: 200         # max tracked feature points
+  max_speed_kmh: 200       # discard vectors faster than this (outlier rejection)
+
+# ── Output ───────────────────────────────────────────────────────────────────
+output:
+  dir: "/data/LK"          # directory where JSON files are saved
+  filename: "latest_flow.json"   # always overwritten with the most recent result
+  keep_history: true       # also save timestamped copies (DD-MM-YYYY-HH-MM.json) — needed for the slider
+
+# ── Backend notification ──────────────────────────────────────────────────────
+notify:
+  url: "http://localhost:8001/api/lk/notify"
+  timeout_s: 5             # HTTP timeout for the notify POST
+
+# ── Polling (used by run_lk.sh) ──────────────────────────────────────────────
+polling:
+  max_wait_s: 180          # give up if HDF does not arrive within this many seconds
+  interval_s: 10           # check every N seconds

@@ -36,6 +36,7 @@ from api.rendering import router as rendering_router
 from api.metrics import router as metrics_router
 from api.realtime import router as realtime_router
 from api.wind import router as wind_router
+from api.lk import router as lk_router, lk_ws_manager
 from api.wr10 import router as wr10_router, wr10_ws_manager
 from api.fss import router as fss_router, fss_ws_manager
 
@@ -77,6 +78,7 @@ app.include_router(rendering_router)
 app.include_router(metrics_router)
 app.include_router(realtime_router)
 app.include_router(wind_router)
+app.include_router(lk_router)
 app.include_router(wr10_router)
 app.include_router(fss_router)
 
@@ -139,6 +141,7 @@ async def startup_event():
     ws_manager.set_event_loop(asyncio.get_running_loop())
     wr10_ws_manager.set_event_loop(asyncio.get_running_loop())
     fss_ws_manager.set_event_loop(asyncio.get_running_loop())
+    lk_ws_manager.set_event_loop(asyncio.get_running_loop())
 
     # Initialise the config singleton with the explicit path before any
     # route handler calls get_config(). This makes nwc_webapp_v2/cfg.yaml
