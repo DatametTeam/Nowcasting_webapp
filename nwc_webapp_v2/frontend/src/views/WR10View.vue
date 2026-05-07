@@ -477,7 +477,8 @@ const isLoaded    = ref(false)
 
 // ---- Motion field layer (AMV / LK) ----
 const _motionCurrentTs = computed(() => (timestamps.value[frameIndex.value] ?? '').slice(0, 16))
-const { motionMode, motionLoading, activeMotionTs, lkDisplayMode, lkArrowOpacity } =
+const { motionMode, motionLoading, activeMotionTs, lkDisplayMode, lkArrowOpacity,
+        sampleMotionAt } =
   useMotionLayer(radarMap, _motionCurrentTs)
 const isLoading   = ref(false)
 const loadError   = ref('')
@@ -837,6 +838,22 @@ async function onMapClick(latlng) {
             </div>`
         }
       }
+    }
+
+    const motion = sampleMotionAt(latlng.lat, latlng.lng)
+    if (motion) {
+      const label    = motion.source === 'amv' ? 'AMV' : 'LK'
+      const cardinals = ['N','NE','E','SE','S','SW','W','NW']
+      const cardinal  = cardinals[Math.round(motion.direction / 45) % 8]
+      body += `
+        <div class="pi-row" style="margin-top:6px;border-top:1px solid rgba(255,255,255,0.12);padding-top:4px;">
+          <span class="pi-label">${label} speed</span>
+          <span class="pi-value">${motion.speed_kmh.toFixed(1)} km/h</span>
+        </div>
+        <div class="pi-row">
+          <span class="pi-label">${label} dir</span>
+          <span class="pi-value">${Math.round(motion.direction)}° ${cardinal}</span>
+        </div>`
     }
 
     radarMap.value.showPopup(latlng, `

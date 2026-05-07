@@ -274,6 +274,40 @@ export function useMotionLayer(radarMap, currentTs) {
     if (_ws) { _ws.onclose = null; _ws.close(); _ws = null }
   })
 
+  // ── Motion sampling (for map-click popups) ──────────────────────────────────
+  // Returns { speed_ms, speed_kmh, direction_deg, source } for the grid cell
+  // nearest to (lat, lng), or null if no motion layer is active / out of grid.
+
+  function sampleMotionAt(lat, lng) {
+    const source = motionMode.value
+    if (source === 'none') return null
+    const ts = activeMotionTs.value
+    if (!ts) return null
+    const data = _state[source]?.cache[ts]
+    if (!data || !Array.isArray(data) || data.length < 2) return null
+
+    const hdr = data[0].header
+    const { lo1, la1, nx, ny, dx, dy } = hdr
+    if (!dx || !dy) return null
+
+    const ci = Math.round((lng - lo1) / dx)
+    const ri = Math.round((la1 - lat) / dy)   // la1 = northernmost row → ri increases southward
+
+    if (ci < 0 || ci >= nx || ri < 0 || ri >= ny) return null
+
+    const idx = ri * nx + ci
+    const u = data[0].data[idx]
+    const v = data[1].data[idx]
+
+    if (!Number.isFinite(u) || !Number.isFinite(v)) return null
+
+    const speed_ms  = Math.sqrt(u * u + v * v)
+    // Direction toward: 0°=N, 90°=E (clockwise from north)
+    const direction = (Math.atan2(u, v) * 180 / Math.PI + 360) % 360
+
+    return { speed_ms, speed_kmh: speed_ms * 3.6, direction, source }
+  }
+
   // ── Exposed ─────────────────────────────────────────────────────────────────
 
   return {
@@ -285,5 +319,6 @@ export function useMotionLayer(radarMap, currentTs) {
     updateMotionLayer,
     fetchTimestamps,
     prefetchData,
+    sampleMotionAt,
   }
 }
