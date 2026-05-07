@@ -132,38 +132,75 @@ def preprocess(data: np.ndarray, cfg: dict) -> np.ndarray:
     return data
 
 
+# ── Duplicate frame detection ─────────────────────────────────────────────────
+
+def deduplicate_frames(raw_frames: list[np.ndarray], cfg: dict) -> list[np.ndarray]:
+    """
+    Remove consecutive near-identical frames caused by radars that update every
+    10 minutes instead of 5.  Two frames are considered duplicates when their
+    maximum absolute difference is below `duplicate_threshold`.
+    """
+    threshold = cfg["data"].get("duplicate_threshold", 0.05)
+    unique = [raw_frames[0]]
+    n_dropped = 0
+    for frame in raw_frames[1:]:
+        if np.max(np.abs(frame - unique[-1])) < threshold:
+            n_dropped += 1
+            logger.warning("Duplicate frame dropped (max diff < %.3f)", threshold)
+        else:
+            unique.append(frame)
+    if n_dropped:
+        logger.info("Deduplication: kept %d / %d frames", len(unique), len(raw_frames))
+    if len(unique) < 2:
+        logger.warning("Only %d unique frame(s) after dedup — using all original frames", len(unique))
+        return raw_frames
+    return unique
+
+
 # ── Rain mask ────────────────────────────────────────────────────────────────
 
-def apply_rain_mask(flow: np.ndarray, latest_raw: np.ndarray, cfg: dict) -> np.ndarray:
+def apply_rain_mask(flow: np.ndarray, raw_frames: list[np.ndarray], cfg: dict) -> np.ndarray:
     """
-    Zero out flow vectors in pixels where the most recent SRI frame has no rain.
+    Zero out flow vectors in pixels with no precipitation.
 
-    With soft=True the mask fades linearly from 0 at `threshold_mm_h` to 1 at
-    `soft_max_mm_h`, giving a smooth edge instead of a hard cut.  This avoids
-    visible discontinuities in the particle animation at the rain/no-rain boundary.
-
-    `latest_raw` must be the raw SRI in mm/h (before log transform).
+    Strategy:
+      1. Compute the pixel-wise maximum SRI across all frames in the sequence.
+         Using the max (rather than just the last frame) avoids masking areas
+         where rain existed earlier but moved out of frame by the last step.
+      2. Threshold at `threshold_mm_h` to get a binary rain mask.
+      3. Dilate by `buffer_km` pixels (1 pixel ≈ 1 km) so motion vectors are
+         visible in a halo around each rain cell — this looks better in the
+         particle animation and is meteorologically meaningful (it shows where
+         the system is heading).
     """
+    from scipy.ndimage import binary_dilation
+
     mask_cfg = cfg.get("rain_mask", {})
     if not mask_cfg.get("enabled", True):
         return flow
 
-    thr = mask_cfg.get("threshold_mm_h", 0.5)
+    thr = mask_cfg.get("threshold_mm_h", 0.2)
+    buffer_px = int(mask_cfg.get("buffer_km", 35))   # 1 km ≈ 1 pixel
 
-    if mask_cfg.get("soft", True):
-        soft_max = mask_cfg.get("soft_max_mm_h", 2.0)
-        # Linear ramp: 0 below thr, 1 above soft_max
-        weight = np.clip((latest_raw - thr) / max(soft_max - thr, 1e-6), 0.0, 1.0)
+    # Max SRI across the whole sequence
+    seq_max = np.max(np.stack(raw_frames, axis=0), axis=0)
+    rain_binary = seq_max >= thr
+
+    if buffer_px > 0:
+        # Circular structuring element
+        r = buffer_px
+        y, x = np.ogrid[-r:r + 1, -r:r + 1]
+        disk = (x ** 2 + y ** 2) <= r ** 2
+        rain_mask = binary_dilation(rain_binary, structure=disk).astype(np.float32)
     else:
-        weight = (latest_raw >= thr).astype(np.float32)
+        rain_mask = rain_binary.astype(np.float32)
 
-    masked = flow * weight[np.newaxis, :, :]   # broadcast over (2, H, W)
-    n_masked = int(np.sum(weight == 0))
+    masked = flow * rain_mask[np.newaxis, :, :]   # broadcast over (2, H, W)
+    pct_kept = 100.0 * float(np.sum(rain_mask > 0)) / rain_mask.size
     logger.info(
-        "Rain mask applied — %.1f%% of pixels zeroed (threshold %.2f mm/h, soft=%s)",
-        100.0 * n_masked / weight.size,
-        thr,
-        mask_cfg.get("soft", True),
+        "Rain mask: %.1f%% of pixels kept (thr=%.2f mm/h, buffer=%dpx, seq_max=[%.2f,%.2f])",
+        pct_kept, thr, buffer_px,
+        float(np.min(seq_max)), float(np.max(seq_max)),
     )
     return masked
 
@@ -467,26 +504,27 @@ def main() -> None:
         logger.error("%s", exc)
         sys.exit(1)
 
-    # 2. Read + preprocess (keep latest raw frame for rain masking)
-    frames = []
-    latest_raw = None
-    for p in paths:
-        raw = read_hdf(p, cfg)
-        latest_raw = raw   # last iteration = most recent frame
-        frames.append(preprocess(raw, cfg))
-    logger.info("Frames loaded — shape: %s, value range: [%.3f, %.3f]",
-                frames[0].shape, float(np.min(frames[-1])), float(np.max(frames[-1])))
+    # 2. Read all raw frames
+    raw_frames = [read_hdf(p, cfg) for p in paths]
+    logger.info("Frames loaded — shape: %s, SRI range: [%.3f, %.3f]",
+                raw_frames[0].shape, float(np.min(raw_frames[-1])), float(np.max(raw_frames[-1])))
 
-    # 3. Lucas-Kanade
+    # 3. Drop consecutive duplicates (10-min radars repeat the same field at 5-min slots)
+    raw_frames = deduplicate_frames(raw_frames, cfg)
+
+    # 4. Preprocess for LK
+    frames = [preprocess(r, cfg) for r in raw_frames]
+
+    # 5. Lucas-Kanade
     flow_pix = compute_lk(frames, cfg)
 
-    # 4. Mask flow to zero in non-precipitating pixels
-    flow_pix = apply_rain_mask(flow_pix, latest_raw, cfg)
+    # 6. Mask flow: zero outside rain areas (max of sequence + buffer)
+    flow_pix = apply_rain_mask(flow_pix, raw_frames, cfg)
 
-    # 5. Convert to m/s
+    # 7. Convert to m/s
     flow_ms = pixels_to_ms(flow_pix, cfg)
 
-    # 5. Reproject to lat/lon grid
+    # 8. Reproject to lat/lon grid
     u_grid, v_grid = reproject_to_latlon(flow_ms, cfg)
     logger.info(
         "Reprojected grid (%dx%d) — u: [%.2f, %.2f] m/s, v: [%.2f, %.2f] m/s",

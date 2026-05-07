@@ -11,6 +11,7 @@ data:
   timestep_s: 300                        # seconds between frames (5 min)
   scale_factor: 1.0                      # multiply raw HDF values by this
   offset: 0.0                            # add this after scale_factor
+  duplicate_threshold: 0.05             # frames closer than this (mm/h max diff) are dropped
 
 # ── Preprocessing ────────────────────────────────────────────────────────────
 preprocessing:
@@ -51,15 +52,21 @@ lk:
   nr_features: 200         # max tracked feature points
   max_speed_kmh: 200       # discard vectors faster than this (outlier rejection)
 
+# ── Duplicate frame detection ─────────────────────────────────────────────────
+# Some radars update every 10 min instead of 5 — the same SRI field gets
+# repeated at consecutive 5-min slots.  Duplicates are dropped before LK
+# so they don't pull motion estimates toward zero.
+# (Set duplicate_threshold: 0 to disable)
+# data.duplicate_threshold: 0.05   ← lives under data: section above
+
 # ── Rain mask ────────────────────────────────────────────────────────────────
-# Zero out flow vectors in pixels where the most recent SRI frame has no rain.
-# This prevents unrealistic motion estimates from being extrapolated into
-# dry areas (e.g. southern Italy when precipitation is only in the north).
+# Zero out flow vectors outside precipitation areas to avoid unrealistic
+# extrapolation into dry regions (e.g. south Italy when rain is only in north).
 rain_mask:
   enabled: true
-  threshold_mm_h: 0.5      # pixels below this are considered rain-free
-  soft: true               # smooth fade instead of hard cut at the boundary
-  soft_max_mm_h: 2.0       # above this value the full motion vector is kept
+  threshold_mm_h: 0.2      # pixels below this (in all frames) are rain-free
+  buffer_km: 35            # dilation radius in km around rain cells (1 px = 1 km)
+                           # set to 0 for a hard mask with no halo
 
 # ── Output ───────────────────────────────────────────────────────────────────
 output:
