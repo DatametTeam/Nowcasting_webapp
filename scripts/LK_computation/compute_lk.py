@@ -418,12 +418,16 @@ def save_arrow_svg(u_grid: np.ndarray, v_grid: np.ndarray,
     max_vel    = 25.0   # m/s — top of colour scale
     stroke_w   = cell_lat * 0.06   # shaft width in SVG (degree) units
 
-    # ── Colormap: light pink → magenta → deep violet ─────────────────────────
-    # Three colour stops; linear interpolation between them.
+    # ── Colormap: plasma (deep indigo → purple → pink → orange) ─────────────
+    # Five stops sampled from matplotlib.cm.plasma at t=0,0.25,0.5,0.75,1.0.
+    # The dark-blue/indigo start is completely distinct from the SRI palette
+    # (light-blue/green/yellow).  Linear interpolation between stops.
     _STOPS = [
-        (255, 220, 255),   # 0 m/s     — very light pink (nearly invisible)
-        (220,  50, 200),   # ~12.5 m/s — bright magenta
-        ( 80,   0, 150),   # 25 m/s    — deep violet
+        ( 13,   8, 135),   # 0 m/s     — deep indigo   #0d0887
+        (106,   0, 168),   # ~6 m/s    — purple         #6a00a8
+        (177,  42, 144),   # ~12.5 m/s — hot pink       #b12a90
+        (225, 100,  98),   # ~19 m/s   — salmon         #e16462
+        (252, 166,  54),   # 25 m/s    — orange-yellow  #fca636
     ]
 
     def _color(spd: float) -> str:
@@ -440,10 +444,14 @@ def save_arrow_svg(u_grid: np.ndarray, v_grid: np.ndarray,
     W = lo2 - lo1   # SVG viewBox width  (degrees lon)
     H = la1 - la2   # SVG viewBox height (degrees lat, positive)
 
+    # preserveAspectRatio="none" makes the SVG fill its CSS container exactly,
+    # matching raster-image behaviour.  Without it, the browser uses xMidYMid meet
+    # which letterboxes vertically (top/bottom gaps) when the Mercator screen area
+    # has a different aspect ratio than the W×H viewBox.
     parts: list[str] = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         f'<svg xmlns="http://www.w3.org/2000/svg" '
-        f'viewBox="0 0 {W:.4f} {H:.4f}" opacity="0.92">',
+        f'viewBox="0 0 {W:.4f} {H:.4f}" preserveAspectRatio="none" opacity="0.92">',
     ]
 
     for j in range(ny):
