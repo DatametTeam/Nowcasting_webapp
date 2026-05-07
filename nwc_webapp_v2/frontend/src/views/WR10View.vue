@@ -475,6 +475,9 @@ const timestamps  = ref([])
 const frameIndex  = ref(0)
 const isLoaded    = ref(false)
 
+// ---- Lookback ----
+const lookbackHours = ref(settings.defaultLookback ?? 1)
+
 // ---- Motion field layer (AMV / LK) ----
 const _motionCurrentTs = computed(() => (timestamps.value[frameIndex.value] ?? '').slice(0, 16))
 const { motionMode, motionLoading, activeMotionTs, lkDisplayMode, lkArrowOpacity,
@@ -492,9 +495,6 @@ let   _animTimer = null
 
 // ---- Sidebar ----
 const sidebarOpen = ref(false)
-
-// ---- Lookback ----
-const lookbackHours = ref(settings.defaultLookback ?? 1)
 
 // ---- Status ----
 const statusText = computed(() => {
