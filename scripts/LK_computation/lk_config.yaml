@@ -74,7 +74,8 @@ output:
   dir: "/data/LK"          # directory where JSON files are saved
   filename: "latest_flow.json"   # always overwritten with the most recent result
   keep_history: true       # also save timestamped copies (DD-MM-YYYY-HH-MM.json) — needed for the slider
-  save_png: true           # also save quiver-arrow PNG (DD-MM-YYYY-HH-MM.png) for static overlay
+  save_arrows: true        # also save quiver-arrow SVG (DD-MM-YYYY-HH-MM.svg) for static overlay
+  arrow_checkerboard: false  # if true, keep only ~1500 arrows (diamond pattern); false = all ~3000
 
 # ── Backend notification ──────────────────────────────────────────────────────
 notify:

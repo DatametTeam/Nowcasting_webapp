@@ -104,7 +104,8 @@ async def get_lk_data(timestamp: str):
 @router.get("/image")
 async def get_lk_image(timestamp: str):
     """
-    Return the pre-rendered quiver-arrow PNG for the given timestamp.
+    Return the pre-rendered quiver-arrow SVG for the given timestamp.
+    SVG is vector — stays crisp at any Leaflet zoom level.
     `timestamp` must be in "YYYY-MM-DDTHH:MM" format (UTC).
     """
     folder = _lk_folder()
@@ -116,12 +117,12 @@ async def get_lk_image(timestamp: str):
     except ValueError:
         raise HTTPException(status_code=400, detail="timestamp must be YYYY-MM-DDTHH:MM")
 
-    filename = dt.strftime("%d-%m-%Y-%H-%M.png")
+    filename = dt.strftime("%d-%m-%Y-%H-%M.svg")
     path = folder / filename
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"No LK arrow image for {timestamp}.")
 
-    return FileResponse(str(path), media_type="image/png")
+    return FileResponse(str(path), media_type="image/svg+xml")
 
 
 @router.post("/notify")

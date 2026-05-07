@@ -359,32 +359,29 @@ def reproject_to_latlon(flow_ms: np.ndarray, cfg: dict) -> tuple[np.ndarray, np.
     return u_grid, v_grid
 
 
-# ── Arrow PNG ─────────────────────────────────────────────────────────────────
+# ── Arrow SVG ─────────────────────────────────────────────────────────────────
 
 
-def save_arrow_png(u_grid: np.ndarray, v_grid: np.ndarray,
+def save_arrow_svg(u_grid: np.ndarray, v_grid: np.ndarray,
                    cfg: dict, ref_dt: datetime) -> None:
     """
-    Render a quiver-arrow plot and save as a transparent PNG alongside the JSON.
+    Render wind arrows as a transparent SVG — vector format, stays crisp at any
+    Leaflet zoom level.  No matplotlib needed; pure Python + numpy.
 
     Design choices:
-    - ALL arrows have the SAME display length (= 70% of grid-cell spacing).
-      Direction shows motion; COLOR shows speed.  This avoids the problem where
-      slow arrows are invisible dots and fast ones overlap neighbours.
-    - Colormap goes near-black-navy → blue → purple → red, keeping it clearly
-      distinct from both the SRI precipitation palette and the leaflet-velocity
-      particle rainbow.
-    - The image bounds exactly match output_grid so it overlays on the Leaflet
-      map as a pixel-perfect ImageOverlay.
+    - All arrows have the same display length (70% of grid-cell spacing).
+      Direction shows motion, colour shows speed.
+    - Colormap: very-light-pink → bright-magenta → deep-violet.  Completely
+      outside the SRI/VMI precipitation palette (blues/greens/yellows/reds).
+    - Mercator x-correction: horizontal arrow components are scaled by
+      1/cos(centre_lat) in SVG space so north- and east-pointing arrows appear
+      equal length on screen.
+    - Checkerboard subsampling: disabled by default (all ~3000 arrows shown),
+      but can be re-enabled with cfg["output"]["arrow_checkerboard"] = true.
+    - viewBox matches output_grid lon/lat bounds → L.imageOverlay positions it
+      pixel-perfectly on the Leaflet map.
     """
-    try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        import matplotlib.colors as mcolors  # noqa: F401 (used by Normalize below)
-    except ImportError:
-        logger.warning("matplotlib not available — skipping PNG generation")
-        return
+    import math
 
     grid = cfg["output_grid"]
     lo1, lo2 = grid["lo1"], grid["lo2"]
@@ -393,90 +390,121 @@ def save_arrow_png(u_grid: np.ndarray, v_grid: np.ndarray,
 
     lons = np.linspace(lo1, lo2, nx)
     lats = np.linspace(la1, la2, ny)     # descending: north → south
-    lons_2d, lats_2d = np.meshgrid(lons, lats)
 
     speed = np.sqrt(u_grid ** 2 + v_grid ** 2)
+    u_s   = u_grid.copy().astype(float)
+    v_s   = v_grid.copy().astype(float)
+    s_s   = speed.copy()
 
-    # ── Sample grid: all 60×50 points, then checkerboard to ~1500 arrows ────
-    # step=2 → 750 arrows was too sparse; step=1 → 3000 was too dense.
-    # Checkerboard on the full grid gives ~1500 arrows in a staggered diamond
-    # pattern — denser than step=2, less cluttered than step=1.
-    step = 1
-    u_s  = u_grid [::step, ::step].copy().astype(np.float64)
-    v_s  = v_grid [::step, ::step].copy().astype(np.float64)
-    s_s  = speed  [::step, ::step].copy()
-    ln_s = lons_2d[::step, ::step]
-    la_s = lats_2d[::step, ::step]
+    # Optional checkerboard subsampling (cfg["output"]["arrow_checkerboard"])
+    if cfg["output"].get("arrow_checkerboard", False):
+        ri, ci = np.mgrid[0:ny, 0:nx]
+        mask = (ri + ci) % 2 != 0
+        u_s[mask] = np.nan
+        v_s[mask] = np.nan
+        s_s[mask] = np.nan
 
-    # Keep only every other point in a checkerboard pattern (ri+ci even)
-    ny_s, nx_s = s_s.shape
-    ri, ci = np.mgrid[0:ny_s, 0:nx_s]
-    checkerboard = (ri + ci) % 2 != 0
-    u_s[checkerboard] = np.nan
-    v_s[checkerboard] = np.nan
-    s_s[checkerboard] = np.nan
+    cell_lat  = abs(la1 - la2) / (ny - 1)   # ≈ 0.250°
+    cell_lon  = (lo2 - lo1)    / (nx - 1)   # ≈ 0.254°
+    arrow_len = cell_lat * 0.70              # total arrow length in lat-degree units
 
-    # ── Normalize to fixed display length ────────────────────────────────────
-    # Cell spacing between sampled points in degrees (step=1 spacing)
-    cell_lon = (lo2 - lo1) / (nx - 1) * step   # ≈ 0.254°
-    cell_lat = abs(la1 - la2) / (ny - 1) * step # ≈ 0.250°
+    # Scale horizontal arrow components so they appear equal-length to vertical
+    # ones after Leaflet stretches the SVG to Mercator screen bounds.
+    cos_lat = math.cos(math.radians((la1 + la2) / 2))   # ≈ 0.749
 
-    # Arrow length = 70% of cell spacing so adjacent arrows never touch
-    arrow_len_lon = cell_lon * 0.70
-    arrow_len_lat = cell_lat * 0.70
+    head_ratio = 0.35   # fraction of total arrow length that is the arrowhead
+    head_hw    = 0.22   # arrowhead half-width as fraction of arrow_len
 
-    masked = s_s < 0.05   # rain-masked / no-flow pixels → skip
-    speed_safe = np.where(masked, 1.0, s_s)  # avoid div-by-zero
-    u_plot = np.where(masked, np.nan, (u_s / speed_safe) * arrow_len_lon)
-    v_plot = np.where(masked, np.nan, (v_s / speed_safe) * arrow_len_lat)
+    max_vel    = 25.0   # m/s — top of colour scale
+    stroke_w   = cell_lat * 0.06   # shaft width in SVG (degree) units
 
-    # ── Figure: axes fill the entire canvas, no margins ──────────────────────
-    # At 150 dpi: 6 in × 150 = 900 px wide, 5 in × 150 = 750 px tall.
-    dpi = 150
-    fig = plt.figure(figsize=(nx / 10, ny / 10), dpi=dpi)
-    ax  = fig.add_axes([0, 0, 1, 1])
-    ax.set_xlim(lo1, lo2)
-    ax.set_ylim(la2, la1)   # south at bottom, north at top — Leaflet orientation
-    ax.axis("off")
-    fig.patch.set_alpha(0.0)
-    ax.set_facecolor("none")
+    # ── Colormap: light pink → magenta → deep violet ─────────────────────────
+    # Three colour stops; linear interpolation between them.
+    _STOPS = [
+        (255, 220, 255),   # 0 m/s     — very light pink (nearly invisible)
+        (220,  50, 200),   # ~12.5 m/s — bright magenta
+        ( 80,   0, 150),   # 25 m/s    — deep violet
+    ]
 
-    cmap    = plt.cm.jet
-    max_vel = 25.0   # m/s — upper end of the color scale
+    def _color(spd: float) -> str:
+        t  = max(0.0, min(spd / max_vel, 1.0))
+        n  = len(_STOPS) - 1
+        i  = min(int(t * n), n - 1)
+        t2 = t * n - i
+        c0, c1 = _STOPS[i], _STOPS[i + 1]
+        r = int(c0[0] + (c1[0] - c0[0]) * t2)
+        g = int(c0[1] + (c1[1] - c0[1]) * t2)
+        b = int(c0[2] + (c1[2] - c0[2]) * t2)
+        return f'#{r:02x}{g:02x}{b:02x}'
 
-    # scale=1, scale_units='xy': the plotted vector length IS the data value
-    # (in degrees), so u_plot/v_plot already encode the display length.
-    # width is in fraction of axes width (default matplotlib behaviour).
-    # headwidth/headlength are multiples of width.
-    # Target: shaft ≈ 75% of arrow, head ≈ 25%.
-    ax.quiver(
-        ln_s, la_s, u_plot, v_plot, s_s,
-        cmap=cmap,
-        norm=mcolors.Normalize(vmin=0, vmax=max_vel),
-        scale=1,
-        scale_units="xy",
-        angles="xy",
-        width=0.0015,          # shaft ≈ 1.35 px at 900 px wide → thin clean line
-        headwidth=4,           # head ≈ 5.4 px wide
-        headlength=5,          # head ≈ 6.75 px long
-        headaxislength=4.5,    # slightly recessed so shaft tip is visible
-        pivot="tail",          # arrow base sits at the grid point
-        alpha=0.92,
-    )
+    W = lo2 - lo1   # SVG viewBox width  (degrees lon)
+    H = la1 - la2   # SVG viewBox height (degrees lat, positive)
+
+    parts: list[str] = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        f'<svg xmlns="http://www.w3.org/2000/svg" '
+        f'viewBox="0 0 {W:.4f} {H:.4f}" opacity="0.92">',
+    ]
+
+    for j in range(ny):
+        for i in range(nx):
+            u = u_s[j, i]
+            v = v_s[j, i]
+            s = s_s[j, i]
+            if not (np.isfinite(u) and np.isfinite(s) and s >= 0.05):
+                continue
+
+            # SVG coords: origin = (lo1, la1), y increases southward
+            x0 = lons[i] - lo1
+            y0 = la1 - lats[j]
+
+            # Arrow shaft vector in SVG space
+            # u=eastward → +x; v=northward → −y (SVG y points south)
+            # Apply Mercator x-correction so arrows look equal-length on screen
+            dx = (u / s) * arrow_len / cos_lat
+            dy = -(v / s) * arrow_len
+
+            total = math.sqrt(dx * dx + dy * dy)
+            if total < 1e-10:
+                continue
+
+            ndx, ndy = dx / total, dy / total   # unit vector in SVG space
+
+            x1 = x0 + dx    # arrow tip
+            y1 = y0 + dy
+
+            # Shaft end = base of arrowhead
+            sx = x0 + ndx * total * (1.0 - head_ratio)
+            sy = y0 + ndy * total * (1.0 - head_ratio)
+
+            # Arrowhead base: two points perpendicular to shaft at shaft_end
+            pw       = arrow_len * head_hw
+            perp_x   = -ndy * pw
+            perp_y   =  ndx * pw
+
+            hx1, hy1 = sx + perp_x, sy + perp_y
+            hx2, hy2 = sx - perp_x, sy - perp_y
+
+            col = _color(s)
+            parts.append(
+                f'<line x1="{x0:.3f}" y1="{y0:.3f}" x2="{sx:.3f}" y2="{sy:.3f}" '
+                f'stroke="{col}" stroke-width="{stroke_w:.4f}" stroke-linecap="round"/>'
+                f'<polygon points="{x1:.3f},{y1:.3f} {hx1:.3f},{hy1:.3f} {hx2:.3f},{hy2:.3f}" '
+                f'fill="{col}"/>'
+            )
+
+    parts.append('</svg>')
 
     out_dir = Path(cfg["output"]["dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    png_name   = ref_dt.strftime("%d-%m-%Y-%H-%M.png")
-    png_path   = out_dir / png_name
-    latest_png = out_dir / "latest_flow.png"
+    svg_path   = out_dir / ref_dt.strftime("%d-%m-%Y-%H-%M.svg")
+    latest_svg = out_dir / "latest_flow.svg"
 
-    save_kw = dict(dpi=dpi, transparent=True, bbox_inches=None, pad_inches=0)
-    fig.savefig(str(png_path),   **save_kw)
-    logger.info("Saved PNG  → %s", png_path)
-    fig.savefig(str(latest_png), **save_kw)
-
-    plt.close(fig)
+    svg_str = '\n'.join(parts)
+    svg_path.write_text(svg_str, encoding='utf-8')
+    logger.info("Saved SVG  → %s", svg_path)
+    latest_svg.write_text(svg_str, encoding='utf-8')
 
 
 # ── leaflet-velocity JSON serialisation ───────────────────────────────────────
@@ -664,9 +692,9 @@ def main() -> None:
     # 8. Save JSON
     save_output(payload, cfg, ref_dt)
 
-    # 9. Save PNG arrow overlay
-    if cfg["output"].get("save_png", True):
-        save_arrow_png(u_grid, v_grid, cfg, ref_dt)
+    # 9. Save SVG arrow overlay
+    if cfg["output"].get("save_arrows", True):
+        save_arrow_svg(u_grid, v_grid, cfg, ref_dt)
 
     # 10. Notify
     if not args.no_notify:
