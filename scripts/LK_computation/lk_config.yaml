@@ -51,6 +51,16 @@ lk:
   nr_features: 200         # max tracked feature points
   max_speed_kmh: 200       # discard vectors faster than this (outlier rejection)
 
+# ── Rain mask ────────────────────────────────────────────────────────────────
+# Zero out flow vectors in pixels where the most recent SRI frame has no rain.
+# This prevents unrealistic motion estimates from being extrapolated into
+# dry areas (e.g. southern Italy when precipitation is only in the north).
+rain_mask:
+  enabled: true
+  threshold_mm_h: 0.5      # pixels below this are considered rain-free
+  soft: true               # smooth fade instead of hard cut at the boundary
+  soft_max_mm_h: 2.0       # above this value the full motion vector is kept
+
 # ── Output ───────────────────────────────────────────────────────────────────
 output:
   dir: "/data/LK"          # directory where JSON files are saved

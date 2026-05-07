@@ -132,6 +132,42 @@ def preprocess(data: np.ndarray, cfg: dict) -> np.ndarray:
     return data
 
 
+# ── Rain mask ────────────────────────────────────────────────────────────────
+
+def apply_rain_mask(flow: np.ndarray, latest_raw: np.ndarray, cfg: dict) -> np.ndarray:
+    """
+    Zero out flow vectors in pixels where the most recent SRI frame has no rain.
+
+    With soft=True the mask fades linearly from 0 at `threshold_mm_h` to 1 at
+    `soft_max_mm_h`, giving a smooth edge instead of a hard cut.  This avoids
+    visible discontinuities in the particle animation at the rain/no-rain boundary.
+
+    `latest_raw` must be the raw SRI in mm/h (before log transform).
+    """
+    mask_cfg = cfg.get("rain_mask", {})
+    if not mask_cfg.get("enabled", True):
+        return flow
+
+    thr = mask_cfg.get("threshold_mm_h", 0.5)
+
+    if mask_cfg.get("soft", True):
+        soft_max = mask_cfg.get("soft_max_mm_h", 2.0)
+        # Linear ramp: 0 below thr, 1 above soft_max
+        weight = np.clip((latest_raw - thr) / max(soft_max - thr, 1e-6), 0.0, 1.0)
+    else:
+        weight = (latest_raw >= thr).astype(np.float32)
+
+    masked = flow * weight[np.newaxis, :, :]   # broadcast over (2, H, W)
+    n_masked = int(np.sum(weight == 0))
+    logger.info(
+        "Rain mask applied — %.1f%% of pixels zeroed (threshold %.2f mm/h, soft=%s)",
+        100.0 * n_masked / weight.size,
+        thr,
+        mask_cfg.get("soft", True),
+    )
+    return masked
+
+
 # ── Lucas-Kanade ──────────────────────────────────────────────────────────────
 
 def compute_lk(frames: list[np.ndarray], cfg: dict) -> np.ndarray:
@@ -431,10 +467,12 @@ def main() -> None:
         logger.error("%s", exc)
         sys.exit(1)
 
-    # 2. Read + preprocess
+    # 2. Read + preprocess (keep latest raw frame for rain masking)
     frames = []
+    latest_raw = None
     for p in paths:
         raw = read_hdf(p, cfg)
+        latest_raw = raw   # last iteration = most recent frame
         frames.append(preprocess(raw, cfg))
     logger.info("Frames loaded — shape: %s, value range: [%.3f, %.3f]",
                 frames[0].shape, float(np.min(frames[-1])), float(np.max(frames[-1])))
@@ -442,7 +480,10 @@ def main() -> None:
     # 3. Lucas-Kanade
     flow_pix = compute_lk(frames, cfg)
 
-    # 4. Convert to m/s
+    # 4. Mask flow to zero in non-precipitating pixels
+    flow_pix = apply_rain_mask(flow_pix, latest_raw, cfg)
+
+    # 5. Convert to m/s
     flow_ms = pixels_to_ms(flow_pix, cfg)
 
     # 5. Reproject to lat/lon grid
@@ -454,7 +495,7 @@ def main() -> None:
         float(np.nanmin(v_grid)), float(np.nanmax(v_grid)),
     )
 
-    # 6. Build JSON payload
+    # 7. Build JSON payload
     ref_time_str = ref_dt.strftime("%Y-%m-%d %H:%M:%S")
     payload = build_velocity_json(u_grid, v_grid, cfg, ref_time_str)
 
@@ -462,10 +503,10 @@ def main() -> None:
         logger.info("Dry run — skipping write and notify.")
         return
 
-    # 7. Save
+    # 8. Save
     save_output(payload, cfg, ref_dt)
 
-    # 8. Notify
+    # 9. Notify
     if not args.no_notify:
         notify_backend(cfg)
 
