@@ -359,36 +359,35 @@ def reproject_to_latlon(flow_ms: np.ndarray, cfg: dict) -> tuple[np.ndarray, np.
     return u_grid, v_grid
 
 
-# ── Arrow PNG (matches leaflet-velocity colormap) ────────────────────────────
+# ── Arrow PNG ─────────────────────────────────────────────────────────────────
 
-# leaflet-velocity default colorScale — same 15-stop rainbow used for particles.
-# Replicated here so the static arrows look identical to the animated ones.
-_LV_COLORS = [
-    ( 36/255, 104/255, 180/255),
-    ( 60/255, 157/255, 194/255),
-    (128/255, 205/255, 193/255),
-    (151/255, 218/255, 168/255),
-    (198/255, 231/255, 181/255),
-    (238/255, 247/255, 217/255),
-    (255/255, 238/255, 159/255),
-    (252/255, 217/255, 125/255),
-    (255/255, 182/255, 100/255),
-    (252/255, 150/255,  75/255),
-    (250/255, 112/255,  52/255),
-    (245/255,  64/255,  32/255),
-    (237/255,  45/255,  28/255),
-    (220/255,  24/255,  32/255),
-    (180/255,   0/255,  35/255),
+# Dark navy → deep blue → purple → red.
+# Deliberately different from SRI precipitation colors (light-blue → green → yellow → red)
+# and from the leaflet-velocity particle colormap (blue-green rainbow).
+# Near-zero speeds are near-black so they don't look like rain data.
+_ARROW_COLORS = [
+    ( 8/255,   0/255,  60/255),   # near-black dark navy  (≈ 0 m/s)
+    (30/255,  50/255, 200/255),   # deep blue             (≈ 5 m/s)
+    (120/255, 10/255, 200/255),   # purple                (≈ 12 m/s)
+    (220/255,  0/255,  60/255),   # deep red              (≈ 20 m/s)
+    (255/255, 30/255,   0/255),   # bright red            (≈ 25 m/s)
 ]
 
 
 def save_arrow_png(u_grid: np.ndarray, v_grid: np.ndarray,
                    cfg: dict, ref_dt: datetime) -> None:
     """
-    Render a quiver-arrow plot using the leaflet-velocity color scale and save as
-    a transparent PNG alongside the JSON output.  The image is sized and positioned
-    to exactly match the output_grid lat/lon bounds so it overlays perfectly on the
-    Leaflet map as an ImageOverlay.
+    Render a quiver-arrow plot and save as a transparent PNG alongside the JSON.
+
+    Design choices:
+    - ALL arrows have the SAME display length (= 70% of grid-cell spacing).
+      Direction shows motion; COLOR shows speed.  This avoids the problem where
+      slow arrows are invisible dots and fast ones overlap neighbours.
+    - Colormap goes near-black-navy → blue → purple → red, keeping it clearly
+      distinct from both the SRI precipitation palette and the leaflet-velocity
+      particle rainbow.
+    - The image bounds exactly match output_grid so it overlays on the Leaflet
+      map as a pixel-perfect ImageOverlay.
     """
     try:
         import matplotlib
@@ -405,62 +404,78 @@ def save_arrow_png(u_grid: np.ndarray, v_grid: np.ndarray,
     nx,  ny  = grid["nx"],  grid["ny"]    # 60, 50
 
     lons = np.linspace(lo1, lo2, nx)
-    lats = np.linspace(la1, la2, ny)     # descending (north → south, matching u/v_grid rows)
+    lats = np.linspace(la1, la2, ny)     # descending: north → south
     lons_2d, lats_2d = np.meshgrid(lons, lats)
 
     speed = np.sqrt(u_grid ** 2 + v_grid ** 2)
 
-    # Downsample to every 2nd point so arrows don't overlap (30×25 = 750 arrows)
+    # ── Downsample (every 2nd grid point → 30×25 = 750 arrows) ──────────────
     step = 2
-    u_s  = u_grid [::step, ::step].copy()
-    v_s  = v_grid [::step, ::step].copy()
+    u_s  = u_grid [::step, ::step].copy().astype(np.float64)
+    v_s  = v_grid [::step, ::step].copy().astype(np.float64)
     s_s  = speed  [::step, ::step]
     ln_s = lons_2d[::step, ::step]
     la_s = lats_2d[::step, ::step]
 
-    # Hide rain-masked areas (zero-velocity) — matplotlib skips NaN arrows
-    u_s[s_s < 0.05] = np.nan
-    v_s[s_s < 0.05] = np.nan
+    # ── Normalize to fixed display length ────────────────────────────────────
+    # Cell spacing between sampled points in degrees
+    cell_lon = (lo2 - lo1) / (nx - 1) * step   # ≈ 0.508°
+    cell_lat = abs(la1 - la2) / (ny - 1) * step # ≈ 0.500°
 
-    cmap    = mcolors.LinearSegmentedColormap.from_list("lv", _LV_COLORS)
-    max_vel = 25.0   # matches leaflet-velocity maxVelocity setting
+    # Arrow length = 70% of cell spacing so adjacent arrows never touch
+    arrow_len_lon = cell_lon * 0.70
+    arrow_len_lat = cell_lat * 0.70
 
-    # Figure sized so the axes fill the whole canvas with no padding.
-    # add_axes([0, 0, 1, 1]) makes the axes occupy 100% of the figure.
+    masked = s_s < 0.05   # rain-masked / no-flow pixels → skip
+    speed_safe = np.where(masked, 1.0, s_s)  # avoid div-by-zero
+    u_plot = np.where(masked, np.nan, (u_s / speed_safe) * arrow_len_lon)
+    v_plot = np.where(masked, np.nan, (v_s / speed_safe) * arrow_len_lat)
+
+    # ── Figure: axes fill the entire canvas, no margins ──────────────────────
     # At 150 dpi: 6 in × 150 = 900 px wide, 5 in × 150 = 750 px tall.
-    fig = plt.figure(figsize=(nx / 10, ny / 10), dpi=150)
+    dpi = 150
+    fig = plt.figure(figsize=(nx / 10, ny / 10), dpi=dpi)
     ax  = fig.add_axes([0, 0, 1, 1])
     ax.set_xlim(lo1, lo2)
-    ax.set_ylim(la2, la1)   # south at bottom, north at top — matches Leaflet orientation
+    ax.set_ylim(la2, la1)   # south at bottom, north at top — Leaflet orientation
     ax.axis("off")
     fig.patch.set_alpha(0.0)
     ax.set_facecolor("none")
 
+    cmap    = mcolors.LinearSegmentedColormap.from_list("lk_arrows", _ARROW_COLORS)
+    max_vel = 25.0   # m/s — upper end of the color scale
+
+    # scale=1, scale_units='xy': the plotted vector length IS the data value
+    # (in degrees), so u_plot/v_plot already encode the display length.
+    # width is in fraction of axes width (default matplotlib behaviour).
+    # headwidth/headlength are multiples of width.
+    # Target: shaft ≈ 75% of arrow, head ≈ 25%.
     ax.quiver(
-        ln_s, la_s, u_s, v_s, s_s,
+        ln_s, la_s, u_plot, v_plot, s_s,
         cmap=cmap,
         norm=mcolors.Normalize(vmin=0, vmax=max_vel),
-        scale=50,          # 25 m/s arrow spans 0.5° — fits within 1-step (0.5°) grid cell
+        scale=1,
         scale_units="xy",
         angles="xy",
-        width=0.007,
-        headwidth=4,
-        headlength=4,
-        headaxislength=3.5,
-        alpha=0.9,
+        width=0.0015,          # shaft ≈ 1.35 px at 900 px wide → thin clean line
+        headwidth=4,           # head ≈ 5.4 px wide
+        headlength=5,          # head ≈ 6.75 px long
+        headaxislength=4.5,    # slightly recessed so shaft tip is visible
+        pivot="tail",          # arrow base sits at the grid point
+        alpha=0.92,
     )
 
     out_dir = Path(cfg["output"]["dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    png_name = ref_dt.strftime("%d-%m-%Y-%H-%M.png")
-    png_path = out_dir / png_name
-    fig.savefig(str(png_path), dpi=150, transparent=True, bbox_inches=None, pad_inches=0)
-    logger.info("Saved PNG  → %s", png_path)
-
-    # Overwrite the always-current copy
+    png_name   = ref_dt.strftime("%d-%m-%Y-%H-%M.png")
+    png_path   = out_dir / png_name
     latest_png = out_dir / "latest_flow.png"
-    fig.savefig(str(latest_png), dpi=150, transparent=True, bbox_inches=None, pad_inches=0)
+
+    save_kw = dict(dpi=dpi, transparent=True, bbox_inches=None, pad_inches=0)
+    fig.savefig(str(png_path),   **save_kw)
+    logger.info("Saved PNG  → %s", png_path)
+    fig.savefig(str(latest_png), **save_kw)
 
     plt.close(fig)
 
