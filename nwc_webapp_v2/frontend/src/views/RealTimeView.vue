@@ -1004,18 +1004,39 @@ async function pollForNewData() {
   try {
     const { start, end } = computeRange(true)  // fresh: probe for just-arrived data
 
-    const results = await Promise.all(
-      productOrder.value.map(product =>
+    // Only poll products that still need attention this tick:
+    //   - products where expectedTs is still missing (Phase B)
+    //   - products with any other unresolved missing timestamps (Phase A)
+    // When no expectedTs is set yet (discovery mode) poll all products.
+    // Always keep at least one product so the sliding-window set stays fresh.
+    const productsToCheck = !expectedTs.value
+      ? productOrder.value
+      : (() => {
+          const needed = productOrder.value.filter(p => {
+            const s = productStats.value[p]
+            if (!s) return true  // no stats yet
+            return s.missingSet.has(expectedTs.value) || s.missingSet.size > 0
+          })
+          return needed.length > 0 ? needed : [productOrder.value[0]]
+        })()
+
+    const rawResults = await Promise.all(
+      productsToCheck.map(product =>
         api.explorerTimestamps(start, end, product, 'realtime-poll').catch(() => ({
           timestamps: [], missing: [], total_expected: 0, total_found: 0,
         }))
       )
     )
+    // Key results by product name so Phase A/B logic isn't tied to array index
+    const resultByProduct = Object.fromEntries(
+      productsToCheck.map((p, i) => [p, rawResults[i]])
+    )
 
     // First-load fallback — no timeline yet, do a full reload.
     if (!isLoaded.value) {
-      results.forEach((r, i) => {
-        productStats.value[productOrder.value[i]] = {
+      productsToCheck.forEach(p => {
+        const r = resultByProduct[p]
+        productStats.value[p] = {
           found: r.total_found, expected: r.total_expected,
           missingTs: r.missing, missingSet: new Set(r.missing),
         }
@@ -1025,25 +1046,27 @@ async function pollForNewData() {
     }
 
     // Build helper sets for sliding-window logic + late-resolve.
+    // Use only the products we actually polled; others keep their cached stats.
     const tsSet = new Set()
-    results.forEach(r => {
+    productsToCheck.forEach(p => {
+      const r = resultByProduct[p]
       r.timestamps.forEach(ts => tsSet.add(ts))
       r.missing.forEach(ts => tsSet.add(ts))
     })
+    // Merge with existing timeline so we don't drop frames for unpolled products
+    timestamps.value.forEach(ts => tsSet.add(ts))
     const newRangeSet  = new Set(tsSet)
     const currentSet   = new Set(timestamps.value)
     const droppedCount = timestamps.value.filter(ts => !newRangeSet.has(ts)).length
 
     // ---- Phase A: late files for OLDER timestamps (resolve in place) ----
-    // A file that was missing for an already-committed timestamp (other than
-    // expectedTs — which Phase B handles separately) is patched into its slot.
-    // This NEVER triggers the search to exit — that was the bug fixed here.
+    // Only check products we polled this tick (others have no fresh result).
     // Compute BEFORE updating productStats (needs prev vs new missing sets).
     const resolvedInTimeline = []   // { product, ts, idx }
-    productOrder.value.forEach((product, i) => {
+    productsToCheck.forEach(product => {
       const prevMissing = productStats.value[product]?.missingSet
       if (!prevMissing || prevMissing.size === 0) return
-      const newMissingSet = new Set(results[i].missing)
+      const newMissingSet = new Set(resultByProduct[product].missing)
       for (const ts of prevMissing) {
         // Skip expectedTs — Phase B owns its lifecycle.
         if (ts === expectedTs.value) continue
@@ -1054,9 +1077,10 @@ async function pollForNewData() {
       }
     })
 
-    // Update productStats unconditionally — UI binds reactively.
-    results.forEach((r, i) => {
-      productStats.value[productOrder.value[i]] = {
+    // Update productStats for polled products only.
+    productsToCheck.forEach(p => {
+      const r = resultByProduct[p]
+      productStats.value[p] = {
         found:      r.total_found,
         expected:   r.total_expected,
         missingTs:  r.missing,

@@ -124,7 +124,10 @@ if static_dir.exists():
         file_path = static_dir / full_path
         if file_path.is_file():
             return FileResponse(file_path)
-        return FileResponse(static_dir / "index.html")
+        # no-cache so browsers always revalidate index.html and pick up new
+        # hashed JS/CSS bundles after a redeploy (assets themselves stay cached)
+        return FileResponse(static_dir / "index.html",
+                            headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
 # ============================================================================
