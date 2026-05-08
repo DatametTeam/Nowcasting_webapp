@@ -897,7 +897,10 @@ function msUntilNextFiveMinMark() {
 // ---- WS-driven new-data handler ----
 // Called by useRealtimeWs when the backend broadcasts product_ready.
 // Replaces the polling loop: each product pushes itself the instant its file lands.
-async function onProductReady(product, timestamp) {
+async function onProductReady(product, rawTimestamp) {
+  // Normalize: strip seconds so WS timestamps ("2026-05-08T16:25:00") match
+  // the initial-load format ("2026-05-08T16:25") used throughout the timeline.
+  const timestamp = (rawTimestamp || '').slice(0, 16)
   if (!isLoaded.value || isLoading.value || !timestamp) return
 
   // Acquire per-timestamp lock so concurrent arrivals are processed serially.
