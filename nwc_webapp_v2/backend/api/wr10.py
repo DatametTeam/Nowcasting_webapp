@@ -393,11 +393,15 @@ async def get_wr10_explorer_timestamps(
     all_ts:      set[datetime] = set()
     ppi_elevations: set[str] = set()
 
+    ppi_per_elevation: dict[str, list[str]] = {}  # { "0015": [isoTs, ...], ... }
+
     for product in product_list:
         if product == "PPI":
             # PPI files are organised in per-elevation subdirectories:
             #   data/wr10/PPI/0015/   data/wr10/PPI/0025/   … data/wr10/PPI/0080/
-            # Elevation codes are discovered by listing those subdirectories.
+            # Track timestamps per elevation so the frontend can build URL arrays
+            # that only include frames that actually exist at the selected elevation,
+            # avoiding spurious 404s for frames present at other elevations.
             ppi_root = _get_product_folder("PPI")
             ppi_ts: set[datetime] = set()
             if ppi_root.exists():
@@ -407,10 +411,13 @@ async def get_wr10_explorer_timestamps(
                             continue
                         elev_code = elev_dir.name
                         ppi_elevations.add(elev_code)
+                        elev_ts: set[datetime] = set()
                         for fname in os.listdir(elev_dir):
                             dt, _elev, _corr = parse_ppi_filename(fname)
                             if dt is not None and start_dt <= dt <= end_dt:
                                 ppi_ts.add(dt)
+                                elev_ts.add(dt)
+                        ppi_per_elevation[elev_code] = [dt.isoformat() for dt in sorted(elev_ts)]
                 except OSError as e:
                     logger.warning("Cannot scan PPI folder %s: %s", ppi_root, e)
             per_product["PPI"] = [dt.isoformat() for dt in sorted(ppi_ts)]
@@ -430,9 +437,10 @@ async def get_wr10_explorer_timestamps(
             all_ts.update(found)
 
     return {
-        "timestamps":      [dt.isoformat() for dt in sorted(all_ts)],
-        "per_product":     per_product,
-        "ppi_elevations":  sorted(ppi_elevations),
+        "timestamps":        [dt.isoformat() for dt in sorted(all_ts)],
+        "per_product":       per_product,
+        "ppi_elevations":    sorted(ppi_elevations),
+        "ppi_per_elevation": ppi_per_elevation,
     }
 
 

@@ -482,7 +482,9 @@ const ALL_PRODUCTS = ['VMI', 'SRI', 'CPI', 'PPI_C', 'PPI_U']
 const availableElevations = ref([])
 const selectedElevation   = ref('0015')
 const ppiLoading          = ref(false)
-const ppiTsSet            = ref(new Set())  // PPI timestamps from last load
+// Per-elevation timestamp sets — only frames that actually exist at each elevation.
+// Using these (instead of the union) prevents 404s for frames present at other elevations.
+const ppiPerElevation     = ref({})   // { "0015": Set<isoStr>, "0025": Set<isoStr>, ... }
 
 // ---- Timeline state ----
 const timestamps    = ref([])
@@ -596,9 +598,9 @@ async function loadData() {
   isLoaded.value  = false
   noDataMsg.value = ''
   stopAnimation()
-  timestamps.value    = []
+  timestamps.value      = []
   perProductCount.value = {}
-  ppiTsSet.value      = new Set()
+  ppiPerElevation.value = {}
   availableElevations.value = []
 
   radarMap.value?.clearAllProducts()
@@ -608,6 +610,12 @@ async function loadData() {
 
     timestamps.value = result.timestamps
     availableElevations.value = result.ppi_elevations ?? []
+
+    // Build per-elevation Sets for precise URL array construction
+    ppiPerElevation.value = {}
+    for (const [elev, tsArr] of Object.entries(result.ppi_per_elevation ?? {})) {
+      ppiPerElevation.value[elev] = new Set(tsArr)
+    }
 
     // Default to lowest elevation if current selection is unavailable
     if (availableElevations.value.length && !availableElevations.value.includes(selectedElevation.value)) {
@@ -623,14 +631,14 @@ async function loadData() {
     const vmiSet = new Set(result.per_product?.VMI ?? [])
     const sriSet = new Set(result.per_product?.SRI ?? [])
     const cpiSet = new Set(result.per_product?.CPI ?? [])
-    const ppiSet = new Set(result.per_product?.PPI ?? [])
-    ppiTsSet.value = ppiSet
+    // Use the per-elevation set (not the union) so frames missing at this elevation get null URLs
+    const ppiElevSet = ppiPerElevation.value[selectedElevation.value] ?? new Set()
 
     perProductCount.value = {
       VMI: vmiSet.size,
       SRI: sriSet.size,
       CPI: cpiSet.size,
-      PPI: ppiSet.size,
+      PPI: (result.per_product?.PPI ?? []).length,
     }
 
     const bounds = overlayBounds.value ?? undefined
@@ -656,13 +664,13 @@ async function loadData() {
       ),
       radarMap.value?.loadProductFrames(
         'PPI_C',
-        tsAll.map(ts => ppiSet.has(ts) ? api.wr10PpiOverlayUrl(ts, selectedElevation.value, 'C') : null),
+        tsAll.map(ts => ppiElevSet.has(ts) ? api.wr10PpiOverlayUrl(ts, selectedElevation.value, 'C') : null),
         layerConfig.value.PPI_C.opacity,
         bounds,
       ),
       radarMap.value?.loadProductFrames(
         'PPI_U',
-        tsAll.map(ts => ppiSet.has(ts) ? api.wr10PpiOverlayUrl(ts, selectedElevation.value, 'U') : null),
+        tsAll.map(ts => ppiElevSet.has(ts) ? api.wr10PpiOverlayUrl(ts, selectedElevation.value, 'U') : null),
         layerConfig.value.PPI_U.opacity,
         bounds,
       ),
@@ -686,21 +694,21 @@ async function changeElevation(elev) {
   if (!isLoaded.value || timestamps.value.length === 0) return
 
   ppiLoading.value = true
-  const tsAll = timestamps.value
-  const ppiSet = ppiTsSet.value
-  const bounds = overlayBounds.value ?? undefined
+  const tsAll      = timestamps.value
+  const ppiElevSet = ppiPerElevation.value[elev] ?? new Set()
+  const bounds     = overlayBounds.value ?? undefined
 
   try {
     await Promise.all([
       radarMap.value?.loadProductFrames(
         'PPI_C',
-        tsAll.map(ts => ppiSet.has(ts) ? api.wr10PpiOverlayUrl(ts, elev, 'C') : null),
+        tsAll.map(ts => ppiElevSet.has(ts) ? api.wr10PpiOverlayUrl(ts, elev, 'C') : null),
         layerConfig.value.PPI_C.opacity,
         bounds,
       ),
       radarMap.value?.loadProductFrames(
         'PPI_U',
-        tsAll.map(ts => ppiSet.has(ts) ? api.wr10PpiOverlayUrl(ts, elev, 'U') : null),
+        tsAll.map(ts => ppiElevSet.has(ts) ? api.wr10PpiOverlayUrl(ts, elev, 'U') : null),
         layerConfig.value.PPI_U.opacity,
         bounds,
       ),
