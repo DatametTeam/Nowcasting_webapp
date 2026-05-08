@@ -13,10 +13,11 @@ server:
 
 # Tabs shown in the navigation bar.
 # Remove any entry to hide that tab from the UI.
-# Available values: realtime, wr10, nowcasting, explorer, comparison, metrics, assessment
+# Available values: realtime, wr10, wr10explorer, nowcasting, explorer, comparison, metrics, assessment
 enabled_tabs:
   - realtime
   - wr10
+  - wr10explorer
   - nowcasting
   - explorer
   - comparison
@@ -166,6 +167,14 @@ wr10:
     VMI:
       legend: "CZ"
       label: "Max Reflectivity"
+      unit: "dBZ"
+    CPI:
+      legend: "CZ"
+      label: "Cappi"
+      unit: "dBZ"
+    PPI:
+      legend: "CZ"
+      label: "PPI"
       unit: "dBZ"
 
 # Radar products for the Data Explorer tab.

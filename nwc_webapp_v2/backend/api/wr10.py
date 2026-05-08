@@ -99,11 +99,13 @@ def _get_product_folder(product: str) -> Path:
 
 # ==========================================================================
 # Filename parsing
-# HDF-SRI-A00-202605041605-B-0720-0150-0010-0000-C.z
-# timestamp group: YYYYMMDDHHSS (12 digits)
+# SRI/VMI: HDF-SRI-A00-202605041605-B-0720-0150-0010-0000-C.z
+# PPI:     HDF-PPI-A00-202605080718-B-0720-0150-0010-0015-U.z
+#          groups: timestamp(12) · elevation_tenths(4) · correction(U|C)
 # ==========================================================================
 
 _FNAME_RE = re.compile(r"^HDF-(\w+)-A00-(\d{12})-.*\.z$")
+_PPI_FNAME_RE = re.compile(r"^HDF-PPI-A00-(\d{12})-B-\d{4}-\d{4}-\d{4}-(\d{4})-(U|C)\.z$")
 
 
 def parse_wr10_filename(filename: str):
@@ -119,6 +121,18 @@ def parse_wr10_filename(filename: str):
         return None, None
 
 
+def parse_ppi_filename(filename: str):
+    """Return (datetime, elevation_str, correction) or (None, None, None) for a PPI filename."""
+    m = _PPI_FNAME_RE.match(filename)
+    if not m:
+        return None, None, None
+    try:
+        dt = datetime.strptime(m.group(1), "%Y%m%d%H%M")
+        return dt, m.group(2), m.group(3)
+    except ValueError:
+        return None, None, None
+
+
 def find_wr10_file(product: str, dt: datetime) -> Path | None:
     """Return the path of the WR10 file for a given product and timestamp, or None."""
     folder = _get_product_folder(product)
@@ -128,6 +142,23 @@ def find_wr10_file(product: str, dt: datetime) -> Path | None:
     prefix = f"HDF-{product}-A00-{ts_str}-"
     for fname in os.listdir(folder):
         if fname.startswith(prefix) and fname.endswith(".z"):
+            return folder / fname
+    return None
+
+
+def find_ppi_file(dt: datetime, elevation: str, correction: str) -> Path | None:
+    """Return path of a PPI file for the given timestamp, elevation code (e.g. '0015'), and correction ('C'/'U').
+
+    Files live in PPI/{elevation}/ subdirectories (e.g. data/wr10/PPI/0015/).
+    """
+    folder = _get_product_folder("PPI") / elevation
+    if not folder.exists():
+        return None
+    ts_str = dt.strftime("%Y%m%d%H%M")
+    prefix = f"HDF-PPI-A00-{ts_str}-B-"
+    suffix = f"-{elevation}-{correction}.z"
+    for fname in os.listdir(folder):
+        if fname.startswith(prefix) and fname.endswith(suffix):
             return folder / fname
     return None
 
@@ -332,6 +363,77 @@ async def sample_wr10_pixel(
         result["values"][product] = _sample_wr10_pixel(file_path, ray_idx, bin_idx)
 
     return result
+
+
+@router.get("/explorer/timestamps")
+async def get_wr10_explorer_timestamps(
+    start: str = Query(..., description="Start datetime ISO (YYYY-MM-DDTHH:MM)"),
+    end: str = Query(..., description="End datetime ISO (YYYY-MM-DDTHH:MM)"),
+    products: str = Query("VMI,SRI,PPI", description="Comma-separated: VMI, SRI, PPI"),
+):
+    """
+    List available WR10 timestamps for a date range (for the WR10 Explorer tab).
+
+    Returns:
+      - timestamps: sorted union of all found timestamps (ISO)
+      - per_product: { VMI: [...], SRI: [...], PPI: [...] }
+      - ppi_elevations: sorted list of elevation codes found in PPI (e.g. ["0015","0025",...])
+    """
+    try:
+        start_dt = datetime.fromisoformat(start)
+        end_dt   = datetime.fromisoformat(end)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid datetime: {e}")
+
+    if end_dt <= start_dt:
+        raise HTTPException(status_code=400, detail="end must be after start")
+
+    product_list = [p.strip() for p in products.split(",") if p.strip()]
+    per_product: dict[str, list[str]] = {}
+    all_ts:      set[datetime] = set()
+    ppi_elevations: set[str] = set()
+
+    for product in product_list:
+        if product == "PPI":
+            # PPI files are organised in per-elevation subdirectories:
+            #   data/wr10/PPI/0015/   data/wr10/PPI/0025/   … data/wr10/PPI/0080/
+            # Elevation codes are discovered by listing those subdirectories.
+            ppi_root = _get_product_folder("PPI")
+            ppi_ts: set[datetime] = set()
+            if ppi_root.exists():
+                try:
+                    for elev_dir in sorted(ppi_root.iterdir()):
+                        if not elev_dir.is_dir():
+                            continue
+                        elev_code = elev_dir.name
+                        ppi_elevations.add(elev_code)
+                        for fname in os.listdir(elev_dir):
+                            dt, _elev, _corr = parse_ppi_filename(fname)
+                            if dt is not None and start_dt <= dt <= end_dt:
+                                ppi_ts.add(dt)
+                except OSError as e:
+                    logger.warning("Cannot scan PPI folder %s: %s", ppi_root, e)
+            per_product["PPI"] = [dt.isoformat() for dt in sorted(ppi_ts)]
+            all_ts.update(ppi_ts)
+        else:
+            folder = _get_product_folder(product)
+            found: list[datetime] = []
+            if folder.exists():
+                try:
+                    for fname in os.listdir(folder):
+                        p, dt = parse_wr10_filename(fname)
+                        if p == product and dt is not None and start_dt <= dt <= end_dt:
+                            found.append(dt)
+                except OSError as e:
+                    logger.warning("Cannot list WR10 folder %s: %s", folder, e)
+            per_product[product] = [dt.isoformat() for dt in sorted(found)]
+            all_ts.update(found)
+
+    return {
+        "timestamps":      [dt.isoformat() for dt in sorted(all_ts)],
+        "per_product":     per_product,
+        "ppi_elevations":  sorted(ppi_elevations),
+    }
 
 
 @router.websocket("/ws")

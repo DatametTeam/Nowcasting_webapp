@@ -212,6 +212,12 @@ export default {
   wr10SamplePixel: ({ lat, lon, timestamp, products }) =>
     get(`/wr10/sample?lat=${lat}&lon=${lon}&timestamp=${encodeURIComponent(timestamp)}&products=${products.join(',')}`),
 
+  // --- WR10 Explorer (date-range, including PPI) ---
+  wr10ExplorerTimestamps: (start, end, products = 'VMI,SRI,PPI') =>
+    get(`/wr10/explorer/timestamps?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&products=${products}`),
+  wr10PpiOverlayUrl: (timestamp, elevation, correction) =>
+    `/api/render/overlay/wr10/${encodeURIComponent(timestamp)}?product=PPI&elevation=${elevation}&correction=${correction}`,
+
   // --- FSS real-time assessment ---
   fssRecent: (scale = 5, hours = 24) =>
     get(`/fss/recent?scale=${scale}&hours=${hours}`),

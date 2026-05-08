@@ -25,6 +25,7 @@ import DataExplorerView from './views/DataExplorerView.vue'
 import ModelComparisonView from './views/ModelComparisonView.vue'
 import MetricsView from './views/MetricsView.vue'
 import WR10View from './views/WR10View.vue'
+import WR10ExplorerView from './views/WR10ExplorerView.vue'
 import FssAssessmentView from './views/FssAssessmentView.vue'
 
 const routes = [
@@ -39,6 +40,11 @@ const routes = [
     path: '/wr10',
     name: 'WR10',
     component: WR10View,
+  },
+  {
+    path: '/wr10-explorer',
+    name: 'WR10 Explorer',
+    component: WR10ExplorerView,
   },
   {
     path: '/nowcasting',

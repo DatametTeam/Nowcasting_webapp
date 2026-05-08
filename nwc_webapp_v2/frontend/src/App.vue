@@ -212,10 +212,11 @@ const BASE_LAYERS = ['Dark', 'OpenStreetMap', 'Satellite', 'Terrain']
 const settingsOpen = ref(false)
 
 const ALL_TABS = [
-  { key: 'realtime',   path: '/realtime',   label: 'Real Time' },
-  { key: 'nowcasting', path: '/nowcasting', label: 'Nowcasting' },
-  { key: 'wr10',       path: '/wr10',       label: 'WR10' },
-  { key: 'explorer',   path: '/explorer',   label: 'Data Explorer' },
+  { key: 'realtime',    path: '/realtime',      label: 'Real Time' },
+  { key: 'nowcasting',  path: '/nowcasting',   label: 'Nowcasting' },
+  { key: 'wr10',        path: '/wr10',          label: 'WR10' },
+  { key: 'wr10explorer',path: '/wr10-explorer', label: 'WR10 Explorer' },
+  { key: 'explorer',    path: '/explorer',      label: 'Data Explorer' },
   { key: 'comparison', path: '/comparison', label: 'Model Comparison' },
   { key: 'metrics',    path: '/metrics',    label: 'Metrics Analysis' },
   { key: 'assessment', path: '/assessment', label: 'RT Assessment' },

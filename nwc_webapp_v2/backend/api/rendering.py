@@ -158,32 +158,40 @@ def _render_wr10_frame(file_path: Path, legend_name: str) -> bytes:
 @router.get("/overlay/wr10/{timestamp}")
 async def get_wr10_overlay(
     timestamp: str,
-    product: str = Query("SRI", description="WR10 product: SRI or VMI"),
+    product:    str = Query("SRI",  description="WR10 product: SRI, VMI, or PPI"),
+    elevation:  str = Query("0015", description="PPI elevation code (e.g. 0015 = 1.5°) — ignored for SRI/VMI"),
+    correction: str = Query("C",    description="PPI correction: C (corrected) or U (uncorrected) — ignored for SRI/VMI"),
 ):
     """
     Generate a WR10 polar radar overlay (RGBA PNG) for the map.
 
-    Converts the polar HDF5 scan (360 rays × 480 bins) to a Web-Mercator
-    Cartesian PNG sized _WR10_IMG_SIZE × _WR10_IMG_SIZE pixels, covering the
-    radar's full ±72 km range circle.  The frontend stretches this PNG between
-    the bounds returned by GET /api/wr10/config.
+    For SRI/VMI: reads the product folder as before.
+    For PPI: reads from the PPI folder, filtered by elevation code and correction (C/U).
+    All products use the same polar→Web-Mercator reprojection.
     """
-    from api.wr10 import find_wr10_file, _wr10_cfg
+    from api.wr10 import find_wr10_file, find_ppi_file, _wr10_cfg
 
     try:
         dt = datetime.fromisoformat(timestamp)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid datetime: {e}")
 
-    file_path = find_wr10_file(product, dt)
-    if file_path is None:
-        raise HTTPException(status_code=404, detail=f"WR10 file not found: {product} @ {timestamp}")
-
-    cfg = _wr10_cfg()
-    legend_name = cfg.get("products", {}).get(product, {}).get("legend", "CZ")
+    if product == "PPI":
+        file_path = find_ppi_file(dt, elevation, correction)
+        if file_path is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"PPI file not found: elev={elevation} corr={correction} @ {timestamp}",
+            )
+        legend_name = "CZ"
+    else:
+        file_path = find_wr10_file(product, dt)
+        if file_path is None:
+            raise HTTPException(status_code=404, detail=f"WR10 file not found: {product} @ {timestamp}")
+        cfg = _wr10_cfg()
+        legend_name = cfg.get("products", {}).get(product, {}).get("legend", "CZ")
 
     try:
-        # Warm the warp lookup cache if needed (cheap if already done)
         _get_wr10_warp_lookup()
         png_bytes = _render_wr10_frame(file_path, legend_name)
     except OSError as e:
