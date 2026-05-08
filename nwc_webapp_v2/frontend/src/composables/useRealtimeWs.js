@@ -18,7 +18,7 @@ import { ref, onUnmounted } from 'vue'
 const BASE_DELAY_MS = 1_000
 const MAX_DELAY_MS  = 30_000
 
-export function useRealtimeWs({ onStateUpdate } = {}) {
+export function useRealtimeWs({ onStateUpdate, onProductReady } = {}) {
   const connected = ref(false)
 
   let ws        = null
@@ -45,6 +45,8 @@ export function useRealtimeWs({ onStateUpdate } = {}) {
         const msg = JSON.parse(event.data)
         if (msg.type === 'state_update' && onStateUpdate) {
           onStateUpdate(msg.data)
+        } else if (msg.type === 'product_ready' && onProductReady) {
+          onProductReady(msg.product, msg.timestamp)
         }
       } catch {
         // malformed frame — ignore

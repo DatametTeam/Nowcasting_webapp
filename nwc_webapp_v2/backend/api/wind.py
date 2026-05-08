@@ -25,12 +25,15 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
+
+from ws.manager import ConnectionManager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/wind", tags=["wind"])
+wind_ws_manager = ConnectionManager()
 
 # In-memory cache: timestamp string → velocity JSON list.
 # Populated on first request; lives for the lifetime of the server process.
@@ -193,3 +196,26 @@ async def get_wind_data(timestamp: str):
             raise HTTPException(status_code=500, detail=f"Failed to process AMV file: {exc}")
 
     return JSONResponse(content=_velocity_cache[timestamp])
+
+
+@router.post("/notify")
+async def wind_notify():
+    """
+    Called by a cron/pipeline script after a new AMV shapefile is saved.
+    Broadcasts amv_ready to all connected WS clients.
+    """
+    ts = datetime.utcnow().isoformat()
+    _velocity_cache.clear()   # invalidate so next request reads fresh shapefile
+    await wind_ws_manager.broadcast({"type": "amv_ready", "ts": ts})
+    logger.info("AMV notify broadcast sent at %s", ts)
+    return {"ok": True, "ts": ts}
+
+
+@router.websocket("/ws")
+async def wind_websocket(websocket: WebSocket):
+    await wind_ws_manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        wind_ws_manager.disconnect(websocket)

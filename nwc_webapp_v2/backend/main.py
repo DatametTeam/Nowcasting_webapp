@@ -36,7 +36,7 @@ from api.jobs import router as jobs_router
 from api.rendering import router as rendering_router
 from api.metrics import router as metrics_router
 from api.realtime import router as realtime_router
-from api.wind import router as wind_router
+from api.wind import router as wind_router, wind_ws_manager
 from api.lk import router as lk_router, lk_ws_manager
 from api.wr10 import router as wr10_router, wr10_ws_manager
 from api.fss import router as fss_router, fss_ws_manager
@@ -94,11 +94,20 @@ app.include_router(fss_router)
 
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint."""
+    """Health check endpoint. Includes git hash for client version checks."""
+    import subprocess
+    try:
+        git_hash = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            text=True, stderr=subprocess.DEVNULL,
+        ).strip()
+    except Exception:
+        git_hash = "dev"
     return {
         "status": "ok",
         "app": "Weather Nowcasting API",
         "version": "2.0.0",
+        "git_hash": git_hash,
     }
 
 
@@ -150,6 +159,7 @@ async def startup_event():
     wr10_ws_manager.set_event_loop(asyncio.get_running_loop())
     fss_ws_manager.set_event_loop(asyncio.get_running_loop())
     lk_ws_manager.set_event_loop(asyncio.get_running_loop())
+    wind_ws_manager.set_event_loop(asyncio.get_running_loop())
 
     # Initialise the config singleton with the explicit path before any
     # route handler calls get_config(). This makes nwc_webapp_v2/cfg.yaml
@@ -175,4 +185,8 @@ async def startup_event():
         from services.wr10 import WR10Service
         WR10Service().start()
         print(f"  WR10 watcher:   auto-started")
+
+        from services.product_watcher import ProductWatcherService
+        ProductWatcherService().start()
+        print(f"  Product watcher: auto-started")
         print("=" * 60)

@@ -249,58 +249,74 @@ export function useMotionLayer(radarMap, currentTs, lookbackHours = ref(24)) {
     }
   })
 
-  // ── WebSocket: LK live updates ──────────────────────────────────────────────
-  // Connects to /api/lk/ws and forces a timestamp refresh + layer re-render
-  // whenever the cron script notifies that a new flow field has been saved.
-  // (AMV has no WS yet — it updates every 20 min so polling is fine.)
+  // ── WebSocket helpers ────────────────────────────────────────────────────────
 
-  let _ws        = null
-  let _retryDelay = BASE_DELAY_MS
-  let _retryTimer = null
-  let _stopped    = false
+  function _makeWs(url, onMessage) {
+    let ws        = null
+    let retryDelay = BASE_DELAY_MS
+    let retryTimer = null
+    let stopped   = false
 
-  function _wsUrl() {
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    return `${proto}://${location.host}/api/lk/ws`
-  }
-
-  function _connectWs() {
-    if (_stopped) return
-    _ws = new WebSocket(_wsUrl())
-
-    _ws.onmessage = async (event) => {
-      try {
-        const msg = JSON.parse(event.data)
-        if (msg.type === 'lk_updated') {
-          // Clear LK cache so the next fetch reads the new file from disk
-          _state.lk.cache = {}
-          await fetchTimestamps('lk')
-          if (motionMode.value === 'lk') {
-            // Force re-render even if target timestamp hasn't changed
-            activeMotionTs.value = ''
-            await updateMotionLayer()
-          }
+    function connect() {
+      if (stopped) return
+      ws = new WebSocket(url())
+      ws.onmessage = async (event) => {
+        try { await onMessage(JSON.parse(event.data)) } catch { /* ignore */ }
+      }
+      ws.onopen  = () => { retryDelay = BASE_DELAY_MS }
+      ws.onclose = () => {
+        ws = null
+        if (!stopped) {
+          retryTimer = setTimeout(() => { retryTimer = null; connect() }, retryDelay)
+          retryDelay = Math.min(retryDelay * 2, MAX_DELAY_MS)
         }
-      } catch { /* malformed frame */ }
+      }
+      ws.onerror = () => { /* onclose fires next */ }
     }
 
-    _ws.onopen  = () => { _retryDelay = BASE_DELAY_MS }
-    _ws.onclose = () => {
-      _ws = null
-      if (!_stopped) {
-        _retryTimer = setTimeout(() => { _retryTimer = null; _connectWs() }, _retryDelay)
-        _retryDelay = Math.min(_retryDelay * 2, MAX_DELAY_MS)
+    connect()
+    return () => {
+      stopped = true
+      if (retryTimer) { clearTimeout(retryTimer); retryTimer = null }
+      if (ws) { ws.onclose = null; ws.close(); ws = null }
+    }
+  }
+
+  // ── WebSocket: LK live updates ──────────────────────────────────────────────
+  // The cron script calls POST /api/lk/notify → broadcasts lk_updated here.
+  const _stopLkWs = _makeWs(
+    () => { const p = location.protocol === 'https:' ? 'wss' : 'ws'; return `${p}://${location.host}/api/lk/ws` },
+    async (msg) => {
+      if (msg.type !== 'lk_updated') return
+      _state.lk.cache = {}
+      await fetchTimestamps('lk')
+      if (motionMode.value === 'lk') {
+        activeMotionTs.value = ''
+        await updateMotionLayer()
       }
     }
-    _ws.onerror = () => { /* onclose fires next */ }
-  }
+  )
 
-  _connectWs()
+  // ── WebSocket: AMV live updates ─────────────────────────────────────────────
+  // ProductWatcherService detects new shapefiles in the AMV folder and
+  // broadcasts amv_ready via /api/wind/ws (AMV is downloaded, not computed,
+  // so there is no notify script — the folder watcher is the trigger).
+  const _stopAmvWs = _makeWs(
+    () => { const p = location.protocol === 'https:' ? 'wss' : 'ws'; return `${p}://${location.host}/api/wind/ws` },
+    async (msg) => {
+      if (msg.type !== 'amv_ready') return
+      _state.amv.cache = {}
+      await fetchTimestamps('amv')
+      if (motionMode.value === 'amv') {
+        activeMotionTs.value = ''
+        await updateMotionLayer()
+      }
+    }
+  )
 
   onUnmounted(() => {
-    _stopped = true
-    if (_retryTimer) { clearTimeout(_retryTimer); _retryTimer = null }
-    if (_ws) { _ws.onclose = null; _ws.close(); _ws = null }
+    _stopLkWs()
+    _stopAmvWs()
   })
 
   // ── Motion sampling (for map-click popups) ──────────────────────────────────
