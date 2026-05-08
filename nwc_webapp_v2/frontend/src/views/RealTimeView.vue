@@ -532,7 +532,8 @@ let searchTimer     = null   // setTimeout — drives the sequential search loop
 //   4. END           — exit when (a) all products have expectedTs, (b) the
 //                       next 5-min clock mark fires, or (c) SEARCH_MAX_MS hits.
 const SEARCH_INTERVAL          = 3   * 1000       // poll every 3 s (WS-driven; 1 s was excessive)
-const SEARCH_MAX_MS            = 5   * 60 * 1000  // hard cap (= one full mark)
+const SEARCH_MAX_MS            = 5   * 60 * 1000  // hard cap when WS offline (= one full mark)
+const SEARCH_MAX_MS_WS         = 90  * 1000       // shorter cap when WS is live (data arrives fast)
 const COMMIT_DELAY_MS          = 5   * 1000       // pre-commit grace after first arrival
 const REVEAL_MISSING_DELAY_MS  = 60  * 1000       // surface "missing" badge after 60 s
 
@@ -1212,7 +1213,8 @@ async function runSearch() {
   // Hit the next clock mark — the upcoming startDataSearch() will take over.
   // Also catches SEARCH_MAX_MS as a hard cap in case nextMarkAt drifted.
   const reachedNextMark = nextMarkAt > 0 && now >= nextMarkAt
-  const hitMaxMs        = elapsed >= SEARCH_MAX_MS
+  const maxMs    = wsConnected.value ? SEARCH_MAX_MS_WS : SEARCH_MAX_MS
+  const hitMaxMs = elapsed >= maxMs
 
   if (allHaveExpected || reachedNextMark || hitMaxMs) {
     // Edge case: a product landed late enough that COMMIT_DELAY_MS hadn't
@@ -1227,7 +1229,7 @@ async function runSearch() {
       const mark = new Date(searchStart).toLocaleTimeString('it-IT', {
         hour: '2-digit', minute: '2-digit', timeZone: displayTz.value,
       })
-      loadError.value = `No new data arrived within 5 minutes past the ${mark} mark — the server may be having issues.`
+      loadError.value = `No new data arrived within ${Math.round(maxMs / 60000)} min past the ${mark} mark — the server may be having issues.`
     }
     stopSearching(allHaveExpected || searchFoundAny)
     return
