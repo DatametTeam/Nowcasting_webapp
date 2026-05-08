@@ -564,7 +564,7 @@ async function loadData() {
     // Fetch timestamps for ALL 4 products in parallel (fix #3)
     const results = await Promise.all(
       productOrder.value.map(product =>
-        api.explorerTimestamps(start, end, product).catch(() => ({
+        api.explorerTimestamps(start, end, product, 'data-explorer').catch(() => ({
           timestamps: [], missing: [], total_expected: 0, total_found: 0, product,
         }))
       )

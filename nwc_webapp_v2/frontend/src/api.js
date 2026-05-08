@@ -138,8 +138,8 @@ export default {
   /**
    * Get available HDF5 timestamps for a radar product in a date range (max 48h).
    */
-  explorerTimestamps: (start, end, product = 'SRI_adj') =>
-    get(`/data/explorer/timestamps?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&product=${product}`),
+  explorerTimestamps: (start, end, product = 'SRI_adj', from = '') =>
+    get(`/data/explorer/timestamps?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&product=${product}${from ? `&_from=${from}` : ''}`),
 
   /**
    * Returns the URL for a product overlay at a given timestamp.

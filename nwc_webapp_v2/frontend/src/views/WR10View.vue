@@ -621,7 +621,7 @@ async function loadData() {
     const endISO   = now.toISOString().slice(0, 16)
     const mosaicResults = await Promise.all(
       MOSAIC_PRODUCTS.map(product =>
-        api.explorerTimestamps(startISO, endISO, MOSAIC_API_PRODUCT[product]).catch(err => {
+        api.explorerTimestamps(startISO, endISO, MOSAIC_API_PRODUCT[product], 'wr10-mosaic').catch(err => {
           console.error(`[WR10View] mosaic timestamps failed for ${product}:`, err)
           return { timestamps: [], total_found: 0 }
         })
