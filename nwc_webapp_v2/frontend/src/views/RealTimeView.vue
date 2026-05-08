@@ -939,11 +939,24 @@ async function onProductReady(product, timestamp) {
   if (!productStats.value[product]) {
     productStats.value[product] = { found: 0, expected: 0, missingTs: [], missingSet: new Set() }
   }
+  const wasMissing = productStats.value[product].missingSet.has(timestamp)
   productStats.value[product].missingSet.delete(timestamp)
   productStats.value[product].missingTs =
     productStats.value[product].missingTs.filter(ts => ts !== timestamp)
-  if (isNewTs) productStats.value[product].found =
-    (productStats.value[product].found || 0) + 1
+  // Increment found for: (a) the first product announcing a new timestamp, or
+  // (b) a late arrival resolving a frame that was shown as missing.
+  if (isNewTs || wasMissing) {
+    productStats.value[product].found = (productStats.value[product].found || 0) + 1
+  }
+  // When a new timestamp slot is created, every product gains one expected frame.
+  if (isNewTs) {
+    productOrder.value.forEach(p => {
+      if (!productStats.value[p]) {
+        productStats.value[p] = { found: 0, expected: 0, missingTs: [], missingSet: new Set() }
+      }
+      productStats.value[p].expected = (productStats.value[p].expected || 0) + 1
+    })
+  }
 
   delete pendingProducts[product]
   markProductFound(product)
