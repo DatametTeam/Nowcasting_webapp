@@ -766,22 +766,21 @@ watch(layerConfig, () => {
 // ---- Core load ----
 async function loadData({ preserve = false } = {}) {
   const { start, end } = computeRange()
-
-  isLoading.value = true
   loadError.value = ''
 
   if (!preserve) {
-    // Full reset
+    // Full reset: show spinner, block WS events, wipe the map.
+    isLoading.value = true
     isLoaded.value = false
     timestamps.value = []
     productStats.value = {}
     showMissingFor.value = null
     loadProgress.value = { loaded: 0, total: 0 }
     radarMap.value?.clearAllProducts()
+    Object.keys(pendingProducts).forEach(k => delete pendingProducts[k])
+    _tsLocks.clear()
   }
-  // Always clear pending-product spinners and timestamp locks on any load.
-  Object.keys(pendingProducts).forEach(k => delete pendingProducts[k])
-  _tsLocks.clear()
+  // preserve=true: no spinner, no reset — WS events keep flowing during the refresh.
 
   try {
     const results = await Promise.all(
@@ -808,10 +807,48 @@ async function loadData({ preserve = false } = {}) {
     }
     loadError.value = ''
 
-    // Decide where to land after reload
-    const prevLen      = timestamps.value.length
-    const prevFraction = prevLen > 1 ? frameIndex.value / (prevLen - 1) : 1
+    if (preserve) {
+      // ── Background refresh: trim old frames, append missed ones, update stats ──
+      // Trim timestamps that have scrolled out of the lookback window (always oldest-first).
+      const trimCount = timestamps.value.filter(ts => ts < start).length
+      if (trimCount > 0) {
+        productOrder.value.forEach(p => radarMap.value?.trimProductFrames(p, trimCount))
+        timestamps.value = timestamps.value.slice(trimCount)
+        frameIndex.value = Math.max(0, frameIndex.value - trimCount)
+      }
 
+      // Append any timestamps the WS may have missed (not yet in the local timeline).
+      const currentSet = new Set(timestamps.value)
+      const newTs = sortedTs.filter(ts => !currentSet.has(ts))
+
+      // Refresh stats from the authoritative server response.
+      results.forEach((r, i) => {
+        productStats.value[productOrder.value[i]] = {
+          found:      r.total_found,
+          expected:   r.total_expected,
+          missingTs:  r.missing,
+          missingSet: new Set(r.missing),
+        }
+      })
+
+      if (newTs.length > 0) {
+        await Promise.all(productOrder.value.map(async (product) => {
+          const stats = productStats.value[product]
+          const urls  = newTs.map(ts =>
+            stats?.missingSet?.has(ts) ? null : api.explorerOverlayUrl(product, ts)
+          )
+          await radarMap.value?.appendProductFrames(product, urls)
+        }))
+        timestamps.value = [...timestamps.value, ...newTs].sort()
+        radarMap.value?.setProductOrder(productOrder.value)
+      }
+
+      if (followLive.value) goToFrame(timestamps.value.length - 1)
+      else goToFrame(Math.min(frameIndex.value, timestamps.value.length - 1))
+      return
+    }
+
+    // ── Full load continued ───────────────────────────────────────────────────
     timestamps.value = sortedTs
 
     results.forEach((r, i) => {
@@ -839,19 +876,10 @@ async function loadData({ preserve = false } = {}) {
 
     // Apply stacking order BEFORE showing the first frame so that layers are
     // already in the correct z-order when goToFrame triggers CSS transitions.
-    // Calling setProductOrder after goToFrame re-inserts IR_108's DOM element
-    // at the bottom which restarts its opacity transition, making it appear late.
     radarMap.value?.setProductOrder(productOrder.value)
 
     if (followLive.value) {
       goToFrame(sortedTs.length - 1)
-    } else if (preserve && prevLen > 0) {
-      // Keep approximate fractional position through the timeline
-      const targetIdx = Math.min(
-        Math.round(prevFraction * (sortedTs.length - 1)),
-        sortedTs.length - 1
-      )
-      goToFrame(targetIdx)
     } else {
       goToFrame(0)
     }
