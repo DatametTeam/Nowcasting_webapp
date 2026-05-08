@@ -134,8 +134,15 @@ export function useMotionLayer(radarMap, currentTs, lookbackHours = ref(24)) {
       const { timestamps } = _state[source]
       const result = await _fetchTs(source)
       timestamps.value = result.timestamps ?? []
-      prefetchData(source)
-      if (source === 'lk') _prefetchImages()
+      // Only pre-warm caches when this source is the active mode.
+      // Without this guard, a WebSocket lk_updated notification triggers
+      // prefetchData + _prefetchImages even when motionMode is 'none',
+      // flooding the server with requests for every timestamp in the window.
+      if (motionMode.value === source) {
+        prefetchData(source)
+        // Only prefetch arrow images when arrows are actually displayed
+        if (source === 'lk' && lkDisplayMode.value !== 'particles') _prefetchImages()
+      }
     } catch (e) {
       console.warn(`Could not fetch ${source} timestamps:`, e)
     }
@@ -193,11 +200,15 @@ export function useMotionLayer(radarMap, currentTs, lookbackHours = ref(24)) {
 
     if (mode === 'none') return
 
-    // Show spinner immediately — before any async work
     motionLoading.value = true
     try {
       if (_state[mode].timestamps.value.length === 0) {
+        // fetchTimestamps now handles prefetchData + _prefetchImages internally
         await fetchTimestamps(mode)
+      } else {
+        // Timestamps already fetched — still need to pre-warm caches for this mode
+        prefetchData(mode)
+        if (mode === 'lk' && lkDisplayMode.value !== 'particles') _prefetchImages()
       }
       await updateMotionLayer()
     } finally {
@@ -214,10 +225,9 @@ export function useMotionLayer(radarMap, currentTs, lookbackHours = ref(24)) {
   watch(_lookbackHours, async () => {
     if (motionMode.value === 'none') return
     const source = motionMode.value
-    _state[source].cache = {}         // old timestamps may now be outside window
+    _state[source].cache = {}
+    // fetchTimestamps now handles prefetchData + _prefetchImages internally
     await fetchTimestamps(source)
-    prefetchData(source)
-    if (source === 'lk') _prefetchImages()
     updateMotionLayer()
   })
 
