@@ -506,6 +506,13 @@ let pollTimer       = null   // setInterval — fires every 5 min after alignmen
 let countdownTimer  = null
 let successTimer    = null   // setTimeout — clears productJustFoundFlag after 5s
 
+// Per-timestamp async mutex: serialises concurrent onProductReady calls for the
+// same timestamp. Without this, all 5 products arrive within milliseconds of each
+// other. The first product hits `await appendProductFrames` and yields; the
+// remaining 4 then each see isNewTs=true and all try to append a new slot,
+// creating duplicate timeline entries and wrong frame counts.
+const _tsLocks = new Map()
+
 // True for 5 s after any product_ready event arrives (drives status dot flash).
 const productJustFoundFlag = ref(false)
 
@@ -772,8 +779,9 @@ async function loadData({ preserve = false } = {}) {
     loadProgress.value = { loaded: 0, total: 0 }
     radarMap.value?.clearAllProducts()
   }
-  // Always clear pending-product spinners on any load (they'll be re-set if needed).
+  // Always clear pending-product spinners and timestamp locks on any load.
   Object.keys(pendingProducts).forEach(k => delete pendingProducts[k])
+  _tsLocks.clear()
 
   try {
     const results = await Promise.all(
@@ -892,6 +900,19 @@ function msUntilNextFiveMinMark() {
 async function onProductReady(product, timestamp) {
   if (!isLoaded.value || isLoading.value || !timestamp) return
 
+  // Acquire per-timestamp lock so concurrent arrivals are processed serially.
+  // Each waiter receives the exclusive right to run only after the previous one
+  // has finished and updated timestamps.value — ensuring isNewTs is correct.
+  const prev = _tsLocks.get(timestamp) ?? Promise.resolve()
+  let unlock
+  _tsLocks.set(timestamp, new Promise(r => { unlock = r }))
+  await prev
+
+  // Re-check guards: state may have changed while waiting for the lock.
+  if (!isLoaded.value || isLoading.value) { unlock(); return }
+
+  try {
+
   const isNewTs = !timestamps.value.includes(timestamp)
 
   if (isNewTs) {
@@ -965,6 +986,10 @@ async function onProductReady(product, timestamp) {
   productJustFoundFlag.value = true
   if (successTimer) clearTimeout(successTimer)
   successTimer = setTimeout(() => { productJustFoundFlag.value = false }, 5000)
+
+  } finally {
+    unlock()
+  }
 }
 
 // ---- 5-min clock-aligned fallback poll ----
