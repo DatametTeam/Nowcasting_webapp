@@ -41,7 +41,12 @@ export function useMotionLayer(radarMap, currentTs, lookbackHours = ref(24)) {
 
   // ── API wrappers ────────────────────────────────────────────────────────────
 
-  function _fetchTs(source)       { return source === 'amv' ? api.windTimestamps(_lookbackHours.value) : api.lkTimestamps(_lookbackHours.value) }
+  // Add 1h buffer so files at the start of the radar window aren't excluded by the cutoff
+  // (cutoff = now − lookbackHours; a few minutes of drift can drop the oldest frames).
+  function _fetchTs(source) {
+    const hours = _lookbackHours.value + 1
+    return source === 'amv' ? api.windTimestamps(hours) : api.lkTimestamps(hours)
+  }
   function _fetchData(source, ts) { return source === 'amv' ? api.windData(ts)     : api.lkData(ts) }
 
   // ── Nearest timestamp lookup ────────────────────────────────────────────────

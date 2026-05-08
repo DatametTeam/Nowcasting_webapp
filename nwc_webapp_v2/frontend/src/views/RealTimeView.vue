@@ -531,7 +531,7 @@ let searchTimer     = null   // setTimeout — drives the sequential search loop
 //                       it in via resolveProductFrame.
 //   4. END           — exit when (a) all products have expectedTs, (b) the
 //                       next 5-min clock mark fires, or (c) SEARCH_MAX_MS hits.
-const SEARCH_INTERVAL          = 1   * 1000       // poll every 1 s
+const SEARCH_INTERVAL          = 3   * 1000       // poll every 3 s (WS-driven; 1 s was excessive)
 const SEARCH_MAX_MS            = 5   * 60 * 1000  // hard cap (= one full mark)
 const COMMIT_DELAY_MS          = 5   * 1000       // pre-commit grace after first arrival
 const REVEAL_MISSING_DELAY_MS  = 60  * 1000       // surface "missing" badge after 60 s
@@ -1275,12 +1275,14 @@ function startPolling() {
   // Step 1: fire at the exact next 5-minute clock mark
   initialTimer = setTimeout(() => {
     initialTimer = null
-    startDataSearch()
+    // When WS is connected it already triggered startDataSearch(); only use the
+    // timer as a fallback for when the WS is offline or hasn't fired yet.
+    if (!wsConnected.value || !isSearching.value) startDataSearch()
     nextUpdateSecs.value = POLL_MS / 1000
 
     // Step 2: then repeat every 5 minutes exactly on the mark
     pollTimer = setInterval(() => {
-      startDataSearch()
+      if (!wsConnected.value || !isSearching.value) startDataSearch()
       nextUpdateSecs.value = POLL_MS / 1000
     }, POLL_MS)
   }, delay)
