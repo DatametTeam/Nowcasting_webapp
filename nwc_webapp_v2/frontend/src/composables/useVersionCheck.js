@@ -16,6 +16,11 @@ import { onMounted, onUnmounted } from 'vue'
 import api from '../api.js'
 
 const BUILD_VERSION = import.meta.env.VITE_APP_VERSION ?? 'dev'
+// import.meta.env.DEV is true when running `vite dev` (dev server), false after `vite build`.
+// Skip the check entirely in dev mode: the build hash is captured at Vite startup, so any
+// commit made while Vite is running diverges from the backend's runtime hash and would
+// trigger an endless reload loop before the page even finishes loading.
+const IS_DEV_SERVER = import.meta.env.DEV
 const CHECK_INTERVAL_MS = 60_000   // check every 60 s
 const INITIAL_DELAY_MS  = 30_000   // first check after 30 s (avoid reload on first paint)
 
@@ -24,7 +29,7 @@ export function useVersionCheck() {
   let initialId   = null
 
   async function check() {
-    if (BUILD_VERSION === 'dev') return   // skip in dev / when git unavailable
+    if (IS_DEV_SERVER || BUILD_VERSION === 'dev') return   // skip in dev / when git unavailable
     try {
       const health = await api.health()
       const serverHash = health?.git_hash
