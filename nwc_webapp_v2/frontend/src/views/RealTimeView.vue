@@ -793,10 +793,17 @@ async function loadData({ preserve = false } = {}) {
       )
     )
 
+    // Normalise to 16 chars ("YYYY-MM-DDTHH:MM") so initial-load timestamps
+    // and WS-pushed timestamps (also normalised in onProductReady) are identical.
+    // The backend returns isoformat() with seconds ("T16:05:00"); without this
+    // slice both formats exist in the timeline for the same instant, causing
+    // the WS slot to sort before the initial-load slot and breaking resolveProductFrame.
+    const norm = ts => (ts || '').slice(0, 16)
+
     const tsSet = new Set()
     results.forEach(r => {
-      r.timestamps.forEach(ts => tsSet.add(ts))
-      r.missing.forEach(ts => tsSet.add(ts))
+      r.timestamps.forEach(ts => tsSet.add(norm(ts)))
+      r.missing.forEach(ts => tsSet.add(norm(ts)))
     })
     const sortedTs = Array.from(tsSet).sort()
 
@@ -826,8 +833,8 @@ async function loadData({ preserve = false } = {}) {
         productStats.value[productOrder.value[i]] = {
           found:      r.total_found,
           expected:   r.total_expected,
-          missingTs:  r.missing,
-          missingSet: new Set(r.missing),
+          missingTs:  r.missing.map(norm),
+          missingSet: new Set(r.missing.map(norm)),
         }
       })
 
@@ -855,8 +862,8 @@ async function loadData({ preserve = false } = {}) {
       productStats.value[productOrder.value[i]] = {
         found:      r.total_found,
         expected:   r.total_expected,
-        missingTs:  r.missing,
-        missingSet: new Set(r.missing),
+        missingTs:  r.missing.map(norm),
+        missingSet: new Set(r.missing.map(norm)),
       }
     })
 
