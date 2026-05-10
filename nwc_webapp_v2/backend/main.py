@@ -94,21 +94,8 @@ app.include_router(fss_router)
 
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint. Includes git hash for client version checks."""
-    import subprocess
-    try:
-        git_hash = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            text=True, stderr=subprocess.DEVNULL,
-        ).strip()
-    except Exception:
-        git_hash = "dev"
-    return {
-        "status": "ok",
-        "app": "Weather Nowcasting API",
-        "version": "2.0.0",
-        "git_hash": git_hash,
-    }
+    """Health check endpoint."""
+    return {"status": "ok", "app": "Weather Nowcasting API", "version": "2.0.0"}
 
 
 # ============================================================================

@@ -201,13 +201,11 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useConfigStore } from './stores/config.js'
 import { useSettingsStore } from './stores/settings.js'
-import { useVersionCheck } from './composables/useVersionCheck.js'
 import api from './api.js'
 
 const route = useRoute()
 const configStore = useConfigStore()
 const settings = useSettingsStore()
-useVersionCheck()
 
 const BASE_LAYERS = ['Dark', 'OpenStreetMap', 'Satellite', 'Terrain']
 

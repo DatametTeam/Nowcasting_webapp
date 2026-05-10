@@ -18,14 +18,6 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
-import { execSync } from 'child_process'
-
-// Stamp each build with the current git commit so the version-check composable
-// can compare it against what the backend reports and auto-reload stale tabs.
-const GIT_HASH = (() => {
-  try { return execSync('git rev-parse --short HEAD', { stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim() }
-  catch { return 'dev' }
-})()
 
 export default defineConfig({
   plugins: [
@@ -53,11 +45,5 @@ export default defineConfig({
   build: {
     outDir: '../backend/static',
     emptyOutDir: true,
-  },
-
-  // Expose the git hash so useVersionCheck can compare against the server.
-  // import.meta.env.VITE_APP_VERSION is available everywhere in the app.
-  define: {
-    'import.meta.env.VITE_APP_VERSION': JSON.stringify(GIT_HASH),
   },
 })
