@@ -490,8 +490,9 @@ const layerConfig = ref({
 })
 
 // ---- Timeline state ----
-const timestamps   = ref([])
-const frameIndex   = ref(0)
+const timestamps     = ref([])
+const frameIndex     = ref(0)
+const radarStatuses  = ref({})  // { "YYYY-MM-DDTHH:MM": ["SITE1", ...] }
 const isPlaying    = ref(false)
 const isLoading    = ref(false)
 const isLoaded     = ref(false)
@@ -759,6 +760,8 @@ function goToFrame(idx) {
       : 0
   }
   radarMap.value.showAllAtFrame(idx, opacities)
+  const ts = timestamps.value[idx]
+  radarMap.value.updateRadarStatus(ts ? (radarStatuses.value[ts] ?? null) : null)
 }
 
 function goToLatest() {
@@ -791,15 +794,19 @@ async function loadData({ preserve = false } = {}) {
   // preserve=true: no spinner, no reset — WS events keep flowing during the refresh.
 
   try {
-    const results = await Promise.all(
-      productOrder.value.map(product =>
-        api.explorerTimestamps(start, end, product, 'realtime-load').catch((err) => {
-          console.error(`[LiveView] explorerTimestamps failed for ${product}:`, err)
-          loadError.value = `API error (${product}): ${err.message}`
-          return { timestamps: [], missing: [], total_expected: 0, total_found: 0 }
-        })
-      )
-    )
+    const [results, statusResult] = await Promise.all([
+      Promise.all(
+        productOrder.value.map(product =>
+          api.explorerTimestamps(start, end, product, 'realtime-load').catch((err) => {
+            console.error(`[LiveView] explorerTimestamps failed for ${product}:`, err)
+            loadError.value = `API error (${product}): ${err.message}`
+            return { timestamps: [], missing: [], total_expected: 0, total_found: 0 }
+          })
+        )
+      ),
+      api.radarStatusRange(start, end).catch(() => ({ statuses: {} })),
+    ])
+    radarStatuses.value = statusResult.statuses
 
     // Normalise to 16 chars ("YYYY-MM-DDTHH:MM") so initial-load timestamps
     // and WS-pushed timestamps (also normalised in onProductReady) are identical.
@@ -863,6 +870,9 @@ async function loadData({ preserve = false } = {}) {
         timestamps.value = [...timestamps.value, ...newTs].sort()
         radarMap.value?.setProductOrder(productOrder.value)
       }
+
+      // Merge any new status entries (already have the full statusResult from above)
+      Object.assign(radarStatuses.value, statusResult.statuses)
 
       if (followLive.value) goToFrame(timestamps.value.length - 1)
       else goToFrame(Math.min(frameIndex.value, timestamps.value.length - 1))

@@ -223,4 +223,12 @@ export default {
     get(`/fss/recent?scale=${scale}&hours=${hours}`),
   fssDaily: (scale = 5, days = 60) =>
     get(`/fss/daily?scale=${scale}&days=${days}`),
+
+  // --- Radar availability status ---
+  /**
+   * Return active radar sites for every status file in [start, end].
+   * Response: { statuses: { "YYYY-MM-DDTHH:MM": ["BRIC", "ARMIDDA", ...], ... } }
+   */
+  radarStatusRange: (start, end) =>
+    get(`/radar-status/range?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`),
 }

@@ -24,6 +24,12 @@ SHP_EXTENSIONS = ["shp", "shx", "dbf"]
 
 TXT_EXTENSIONS = ["txt"]
 
+# After a successful download, POST to this URL to notify the webapp via WebSocket.
+# Key = product name (matches FTP folder name).
+NOTIFY_URLS = {
+    "SITES": "http://localhost:8001/api/radar-status/notify",
+}
+
 
 # -------------------------
 # HELPERS
@@ -125,6 +131,12 @@ def main(product, mode="hdf", interval=5):
                     all_ok = False
             if all_ok:
                 print(f"Downloaded {base_name} for {product}")
+                notify_url = NOTIFY_URLS.get(product)
+                if notify_url:
+                    subprocess.run(
+                        ["curl", "-s", "-X", "POST", notify_url],
+                        capture_output=True,
+                    )
             break
 
         if elapsed < FAST_PHASE_SECONDS:

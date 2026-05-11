@@ -463,8 +463,9 @@ const layerConfig = ref({
 })
 
 // ---- Animation state ----
-const timestamps    = ref([])
-const frameIndex    = ref(0)
+const timestamps     = ref([])
+const frameIndex     = ref(0)
+const radarStatuses  = ref({})  // { "YYYY-MM-DDTHH:MM": ["SITE1", ...] }
 const isPlaying     = ref(false)
 const isLoading     = ref(false)
 const isLoaded      = ref(false)
@@ -548,6 +549,8 @@ function goToFrame(idx) {
       : 0
   }
   radarMap.value.showAllAtFrame(idx, opacities)
+  const ts = timestamps.value[idx]
+  radarMap.value.updateRadarStatus(ts ? (radarStatuses.value[ts] ?? null) : null)
 }
 
 // Watch layerConfig (enabled + opacity) and re-render current frame (fixes #5 and opacity)
@@ -636,13 +639,18 @@ async function loadData() {
   try {
     // Always fetch timestamps for all products (lightweight — just filename checks, no images).
     // Stats for disabled products are stored so the incremental loader can use them later.
-    const results = await Promise.all(
-      productOrder.value.map(product =>
-        api.explorerTimestamps(start, end, product, 'data-explorer').catch(() => ({
-          timestamps: [], missing: [], total_expected: 0, total_found: 0, product,
-        }))
-      )
-    )
+    // Radar status is fetched in parallel at no extra latency cost.
+    const [results, statusResult] = await Promise.all([
+      Promise.all(
+        productOrder.value.map(product =>
+          api.explorerTimestamps(start, end, product, 'data-explorer').catch(() => ({
+            timestamps: [], missing: [], total_expected: 0, total_found: 0, product,
+          }))
+        )
+      ),
+      api.radarStatusRange(start, end).catch(() => ({ statuses: {} })),
+    ])
+    radarStatuses.value = statusResult.statuses
 
     // Unified sorted timestamp set (union of all found timestamps across all products)
     const tsSet = new Set()

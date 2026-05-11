@@ -264,6 +264,16 @@ class Config:
         return Path(folder) if folder else None
 
     @property
+    def radar_status_folder(self) -> Optional[Path]:
+        """Get radar status folder path (one .txt per 5-min timestamp)."""
+        cfg = self._config.get("radar_status", {})
+        if is_server() or is_hpc():
+            folder = cfg.get("server_path", "")
+        else:
+            folder = cfg.get("local_path", "")
+        return Path(folder) if folder else None
+
+    @property
     def data_archive_folder(self) -> Optional[Path]:
         """
         Get the archive base folder for radar products older than ~3 days.

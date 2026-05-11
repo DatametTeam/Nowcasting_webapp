@@ -40,6 +40,7 @@ from api.wind import router as wind_router, wind_ws_manager
 from api.lk import router as lk_router, lk_ws_manager
 from api.wr10 import router as wr10_router, wr10_ws_manager
 from api.fss import router as fss_router, fss_ws_manager
+from api.radar_status import router as radar_status_router, radar_status_ws_manager
 
 # Create the FastAPI application instance
 app = FastAPI(
@@ -86,6 +87,7 @@ app.include_router(wind_router)
 app.include_router(lk_router)
 app.include_router(wr10_router)
 app.include_router(fss_router)
+app.include_router(radar_status_router)
 
 
 # ============================================================================
@@ -147,6 +149,7 @@ async def startup_event():
     fss_ws_manager.set_event_loop(asyncio.get_running_loop())
     lk_ws_manager.set_event_loop(asyncio.get_running_loop())
     wind_ws_manager.set_event_loop(asyncio.get_running_loop())
+    radar_status_ws_manager.set_event_loop(asyncio.get_running_loop())
 
     # Initialise the config singleton with the explicit path before any
     # route handler calls get_config(). This makes nwc_webapp_v2/cfg.yaml

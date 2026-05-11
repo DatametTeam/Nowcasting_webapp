@@ -37,6 +37,11 @@ csi_threshold: [1, 5, 10, 20, 50]
 # FSS window sizes (in pixels)
 fss_window_sizes: [1, 5, 10, 20]
 
+# Radar availability status files (DD-MM-YYYY-HH-MM.txt, one per 5-min interval)
+radar_status:
+  server_path: "/data/SITES"
+  local_path: "data/SITES"
+
 # FSS real-time assessment paths
 fss:
   server_fss_root: "/data/FSS_metrics"

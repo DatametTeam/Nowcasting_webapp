@@ -76,6 +76,34 @@ function effectiveBounds() {
   return props.overlayBounds || RADAR_BOUNDS
 }
 
+// Radar station markers keyed by site name so icons can be updated per-frame
+let radarMarkers = {}
+
+/**
+ * Build a DivIcon dot for a radar site based on its availability status.
+ * status: 'active' (green) | 'inactive' (red) | 'unknown' (gray)
+ * Using DivIcon with inline CSS avoids needing separate PNG assets and works
+ * equally well on dark and light base maps without an invert filter.
+ */
+function makeRadarDivIcon(status) {
+  const color = status === 'active'   ? '#22c55e'
+              : status === 'inactive' ? '#ef4444'
+              : '#94a3b8'
+  return L.divIcon({
+    html: `<div style="width:12px;height:12px;border-radius:50%;background:${color};border:2px solid rgba(255,255,255,0.75);box-shadow:0 1px 4px rgba(0,0,0,0.6)"></div>`,
+    className: '',
+    iconSize: [12, 12],
+    iconAnchor: [6, 6],
+    tooltipAnchor: [0, -8],
+  })
+}
+
+// Normalize site name for comparison: remove spaces, uppercase.
+// Needed because the FTP file uses "ILMONTE" while RADARS has "IL MONTE".
+function _normalizeRadarName(name) {
+  return name.replace(/\s+/g, '').toUpperCase()
+}
+
 // Multi-product layer map for DataExplorer:
 // { productKey: { layers: [...ImageOverlay|null], activeIndex: number, opacity: number } }
 let productLayerMap = {}
@@ -189,17 +217,9 @@ onMounted(() => {
   })
   map.addControl(searchControl)
 
-  // Add radar station markers with custom icon and tooltip on hover
-  const radarIcon = L.icon({
-    iconUrl: '/radar.png',
-    iconSize: [22, 22],
-    iconAnchor: [11, 11],
-    tooltipAnchor: [0, -14],
-    className: 'radar-icon',
-  })
-
+  // Add radar station markers — stored by name so status colors can be updated later
   for (const [name, lat, lon] of RADARS) {
-    L.marker([lat, lon], { icon: radarIcon, interactive: true })
+    radarMarkers[name] = L.marker([lat, lon], { icon: makeRadarDivIcon('unknown'), interactive: true })
       .bindTooltip(name, {
         permanent: false,
         direction: 'top',
@@ -230,6 +250,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   clearFrames()
+  radarMarkers = {}
   if (map) {
     map.remove()
     map = null
@@ -734,6 +755,29 @@ function clearLkImage() {
   lkImageLayer = null
 }
 
+/**
+ * Update radar marker icon colors to reflect availability at the current frame.
+ *
+ * @param {string[]|null} activeNames - List of active site names from the status file,
+ *   or null when no status data is available (all markers revert to gray).
+ *
+ * Name comparison is normalized (spaces stripped, uppercase) so that "IL MONTE"
+ * in RADARS matches "ILMONTE" in the FTP status files.
+ */
+function updateRadarStatus(activeNames) {
+  if (!activeNames) {
+    for (const marker of Object.values(radarMarkers)) {
+      marker.setIcon(makeRadarDivIcon('unknown'))
+    }
+    return
+  }
+  const activeSet = new Set(activeNames.map(_normalizeRadarName))
+  for (const [name, marker] of Object.entries(radarMarkers)) {
+    const status = activeSet.has(_normalizeRadarName(name)) ? 'active' : 'inactive'
+    marker.setIcon(makeRadarDivIcon(status))
+  }
+}
+
 // Expose methods for the parent component to call
 defineExpose({
   // Single-product (backward compat — used by RealTimeView)
@@ -747,6 +791,8 @@ defineExpose({
   setWindLayer, clearWindLayer,
   // LK arrow image overlay
   setLkImage, clearLkImage,
+  // Radar status coloring
+  updateRadarStatus,
 })
 </script>
 
