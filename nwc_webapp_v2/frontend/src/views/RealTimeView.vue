@@ -1011,7 +1011,8 @@ async function onProductReady(product, rawTimestamp) {
     // Non-blocking: goToFrame runs immediately (markers briefly white), then the
     // fetch completes and repaints them. This is the reliable path — independent
     // of the SITES cron /notify → WS chain which may lag by seconds.
-    const { start, end } = computeRange()
+    const { start } = computeRange()
+    const end = timestamps.value[timestamps.value.length - 1] ?? computeRange().end
     api.radarStatusRange(start, end)
       .then(r => {
         if (r.statuses && Object.keys(r.statuses).length) {
@@ -1176,15 +1177,14 @@ const { connected: wsConnected } = useRealtimeWs({ onProductReady })
 // Re-fetches the full current range so new timestamps get their status immediately.
 useRadarStatusWs({
   onRadarStatusUpdated: async () => {
-    console.log('[RadarStatusWs] onRadarStatusUpdated fired, isLoaded:', isLoaded.value)
     if (!isLoaded.value) return
-    const { start, end } = computeRange()
-    console.log('[RadarStatusWs] fetching range', start, '→', end)
-    const result = await api.radarStatusRange(start, end).catch((e) => { console.error('[RadarStatusWs] fetch error', e); return { statuses: {} } })
-    console.log('[RadarStatusWs] statuses keys:', Object.keys(result.statuses ?? {}))
+    const { start } = computeRange()
+    // Use the latest loaded timestamp as the end so we always cover the
+    // current frame, even when it's ahead of computeRange()'s delay window.
+    const end = timestamps.value[timestamps.value.length - 1] ?? computeRange().end
+    const result = await api.radarStatusRange(start, end).catch(() => ({ statuses: {} }))
     Object.assign(radarStatuses.value, result.statuses)
     const ts = timestamps.value[frameIndex.value]
-    console.log('[RadarStatusWs] current ts:', ts, 'status:', radarStatuses.value[ts])
     radarMap.value?.updateRadarStatus(ts ? (radarStatuses.value[ts] ?? null) : null)
   },
 })
