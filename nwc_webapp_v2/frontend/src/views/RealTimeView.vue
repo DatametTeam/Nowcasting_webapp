@@ -1007,6 +1007,21 @@ async function onProductReady(product, rawTimestamp) {
       pendingProducts[p] = true
     })
 
+    // Re-fetch radar status for the current range every time a new frame arrives.
+    // Non-blocking: goToFrame runs immediately (markers briefly white), then the
+    // fetch completes and repaints them. This is the reliable path — independent
+    // of the SITES cron /notify → WS chain which may lag by seconds.
+    const { start, end } = computeRange()
+    api.radarStatusRange(start, end)
+      .then(r => {
+        if (r.statuses && Object.keys(r.statuses).length) {
+          Object.assign(radarStatuses.value, r.statuses)
+          const ts = timestamps.value[frameIndex.value]
+          radarMap.value?.updateRadarStatus(ts ? (radarStatuses.value[ts] ?? null) : null)
+        }
+      })
+      .catch(() => {})
+
     if (followLive.value) goToFrame(timestamps.value.length - 1)
 
   } else {
