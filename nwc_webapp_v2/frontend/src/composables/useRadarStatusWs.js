@@ -33,11 +33,9 @@ export function useRadarStatusWs({ onRadarStatusUpdated } = {}) {
     ws.onopen = () => {
       connected.value = true
       retryDelay = BASE_DELAY_MS
-      console.log('[RadarStatusWs] connected to', wsUrl())
     }
 
     ws.onmessage = (event) => {
-      console.log('[RadarStatusWs] message received:', event.data)
       try {
         const msg = JSON.parse(event.data)
         if (msg.type === 'radar_status_updated' && onRadarStatusUpdated) {
@@ -51,12 +49,10 @@ export function useRadarStatusWs({ onRadarStatusUpdated } = {}) {
     ws.onclose = (e) => {
       connected.value = false
       ws = null
-      console.log('[RadarStatusWs] disconnected, code:', e.code, '— reconnecting in', retryDelay, 'ms')
       if (!stopped) scheduleReconnect()
     }
 
-    ws.onerror = (e) => {
-      console.error('[RadarStatusWs] error:', e)
+    ws.onerror = () => {
       // onclose fires right after, handles reconnect
     }
   }
