@@ -779,6 +779,20 @@ function updateRadarStatus(activeNames) {
   }
 }
 
+/**
+ * Add a one-off marker that is NOT tracked in radarMarkers, so it is unaffected
+ * by updateRadarStatus() calls. Returns the Leaflet marker instance.
+ */
+function addFixedMarker(lat, lon, status = 'active', tooltip = '') {
+  if (!map) return null
+  const marker = L.marker([lat, lon], { icon: makeRadarDivIcon(status), interactive: !!tooltip })
+  if (tooltip) {
+    marker.bindTooltip(tooltip, { permanent: false, direction: 'top', className: 'radar-tooltip', offset: [0, -14] })
+  }
+  marker.addTo(map)
+  return marker
+}
+
 // Expose methods for the parent component to call
 defineExpose({
   // Single-product (backward compat — used by RealTimeView)
@@ -794,6 +808,8 @@ defineExpose({
   setLkImage, clearLkImage,
   // Radar status coloring
   updateRadarStatus,
+  // Fixed markers (not affected by updateRadarStatus)
+  addFixedMarker,
 })
 </script>
 

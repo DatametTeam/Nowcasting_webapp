@@ -891,6 +891,8 @@ onMounted(async () => {
 
   isLoading.value = false
   await loadData()
+  // Mark the WR10 radar position as always active — it's the local sensor this view shows.
+  radarMap.value?.addFixedMarker(41.84239959716797, 12.646699905395508, 'active', 'WR10 — X-band radar')
   _scheduleNextPoll()
 })
 

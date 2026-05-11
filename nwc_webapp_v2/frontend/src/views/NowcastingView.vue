@@ -594,6 +594,10 @@ const selectedModel = ref('')
 // Used to keep old predictions visible on the map while a new job is computing.
 const lastPredUrls = ref([])
 const frameIndex = ref(12)  // Start at index 12 = "0 min" (current time)
+
+// Radar availability per observed timestamp. Keyed "YYYY-MM-DDTHH:MM" for frames 0-12.
+// Forecast frames (13-24) have no availability data → markers shown grey.
+const radarStatuses = ref({})
 const playing = ref(false)
 const speed = ref(1)
 const latestSRI = ref(null)
@@ -899,6 +903,30 @@ const latestTimestampDisplay = computed(() => {
   return formatSriFilename(latestSRI.value.latest_file)
 })
 
+// Returns the ISO "YYYY-MM-DDTHH:MM" key for a given frame index, or null.
+function frameTimestamp(idx) {
+  if (!latestTimestamp.value) return null
+  const baseDt = new Date(latestTimestamp.value)
+  const frameDt = new Date(baseDt.getTime() + (idx - 12) * 5 * 60000)
+  const p = n => String(n).padStart(2, '0')
+  return `${frameDt.getUTCFullYear()}-${p(frameDt.getUTCMonth()+1)}-${p(frameDt.getUTCDate())}T${p(frameDt.getUTCHours())}:${p(frameDt.getUTCMinutes())}`
+}
+
+// Fetch radar status for the observed window whenever the base timestamp changes.
+watch(latestTimestamp, async (ts) => {
+  if (!ts) return
+  const start = frameTimestamp(0)
+  const end   = frameTimestamp(12)
+  if (!start || !end) return
+  const result = await api.radarStatusRange(start, end).catch(() => ({ statuses: {} }))
+  radarStatuses.value = result.statuses ?? {}
+  // Re-apply to current frame if it's an observed frame
+  if (radarMap.value && frameIndex.value <= 12) {
+    const curTs = frameTimestamp(frameIndex.value)
+    radarMap.value.updateRadarStatus(curTs ? (radarStatuses.value[curTs] ?? null) : null)
+  }
+})
+
 // ---- Motion field layer (AMV / LK) ----
 // Declared here (after latestTimestamp) so the computed can safely reference it.
 const _motionCurrentTs = computed(() => {
@@ -1024,6 +1052,13 @@ watch(frameIndex, (newIdx) => {
   if (radarMap.value) {
     radarMap.value.showFrame(newIdx)
     if (irEnabled.value) radarMap.value.showAllAtFrame(newIdx)
+    // Forecast frames have no availability data → grey; observed frames use real status.
+    if (newIdx > 12) {
+      radarMap.value.updateRadarStatus(null)
+    } else {
+      const ts = frameTimestamp(newIdx)
+      radarMap.value.updateRadarStatus(ts ? (radarStatuses.value[ts] ?? null) : null)
+    }
   }
 })
 
