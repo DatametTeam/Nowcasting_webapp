@@ -80,21 +80,23 @@ function effectiveBounds() {
 let radarMarkers = {}
 
 /**
- * Build a DivIcon dot for a radar site based on its availability status.
- * status: 'active' (green) | 'inactive' (red) | 'unknown' (gray)
- * Using DivIcon with inline CSS avoids needing separate PNG assets and works
- * equally well on dark and light base maps without an invert filter.
+ * Build a DivIcon for a radar site using the original radar.png tinted by status.
+ * CSS filter chain: brightness(0) zeroes the source, invert(1) flips to white,
+ * then sepia+saturate+hue-rotate shifts to the target hue.
+ * status: 'active' (green) | 'inactive' (red) | 'unknown' (white, same as old default)
  */
 function makeRadarDivIcon(status) {
-  const color = status === 'active'   ? '#22c55e'
-              : status === 'inactive' ? '#ef4444'
-              : '#94a3b8'
+  const filter = status === 'active'
+    ? 'brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(90deg)'
+    : status === 'inactive'
+    ? 'brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(330deg)'
+    : 'brightness(0) invert(1)'
   return L.divIcon({
-    html: `<div style="width:12px;height:12px;border-radius:50%;background:${color};border:2px solid rgba(255,255,255,0.75);box-shadow:0 1px 4px rgba(0,0,0,0.6)"></div>`,
-    className: '',
-    iconSize: [12, 12],
-    iconAnchor: [6, 6],
-    tooltipAnchor: [0, -8],
+    html: `<img src="/radar.png" style="width:22px;height:22px;display:block;filter:${filter}">`,
+    className: 'radar-status-icon',
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+    tooltipAnchor: [0, -14],
   })
 }
 
@@ -875,9 +877,15 @@ defineExpose({
   background: rgba(255, 255, 255, 0.1);
 }
 
-/* Invert radar icons to white on dark/satellite base maps */
+/* Invert radar icons to white on dark/satellite base maps (legacy class, kept for safety) */
 .dark-basemap .radar-icon {
   filter: invert(1);
+}
+
+/* Strip Leaflet's default white box around divIcon wrappers used for radar status markers */
+.radar-status-icon {
+  background: none !important;
+  border: none !important;
 }
 
 /* Radar station tooltip — dark style matching the map theme */
