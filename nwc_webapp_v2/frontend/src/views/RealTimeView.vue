@@ -1152,14 +1152,17 @@ onActivated(async () => {
   // Re-draw the current frame (layers may have lost visibility while hidden).
   if (isLoaded.value) goToFrame(frameIndex.value)
 
-  // If the timeline is stale (latest committed frame is more than one 5-min
-  // interval behind what we expect now), do a full reload to pick up all frames
-  // that arrived while the tab was hidden. The WS will resume pushing new ones.
+  // Sync timeline on return: trim excess frames that accumulated via WS while the
+  // tab was hidden and reset stats to authoritative server values.
+  // If data is very stale (> 5 min behind) do a full reload; otherwise a
+  // preserve=true sync is enough and keeps the current frame position.
   if (isLoaded.value && timestamps.value.length > 0) {
     const latestCommitted = new Date(timestamps.value[timestamps.value.length - 1])
     const expectedEnd     = new Date(computeRange().end)
     if (expectedEnd - latestCommitted >= POLL_MS) {
       await loadData({ preserve: false })
+    } else {
+      await loadData({ preserve: true })
     }
   }
 
