@@ -1176,11 +1176,15 @@ const { connected: wsConnected } = useRealtimeWs({ onProductReady })
 // Re-fetches the full current range so new timestamps get their status immediately.
 useRadarStatusWs({
   onRadarStatusUpdated: async () => {
+    console.log('[RadarStatusWs] onRadarStatusUpdated fired, isLoaded:', isLoaded.value)
     if (!isLoaded.value) return
     const { start, end } = computeRange()
-    const result = await api.radarStatusRange(start, end).catch(() => ({ statuses: {} }))
+    console.log('[RadarStatusWs] fetching range', start, '→', end)
+    const result = await api.radarStatusRange(start, end).catch((e) => { console.error('[RadarStatusWs] fetch error', e); return { statuses: {} } })
+    console.log('[RadarStatusWs] statuses keys:', Object.keys(result.statuses ?? {}))
     Object.assign(radarStatuses.value, result.statuses)
     const ts = timestamps.value[frameIndex.value]
+    console.log('[RadarStatusWs] current ts:', ts, 'status:', radarStatuses.value[ts])
     radarMap.value?.updateRadarStatus(ts ? (radarStatuses.value[ts] ?? null) : null)
   },
 })
