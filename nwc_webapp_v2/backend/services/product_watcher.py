@@ -95,11 +95,12 @@ class ProductWatcherService:
                 if not folder:
                     continue
                 ext = ".tif" if cfg.get("file_format", "hdf") == "tiff" else ".hdf"
-                latest = self._find_latest(folder, ext)
-                if latest and latest != self._last_seen.get(product):
-                    self._last_seen[product] = latest
-                    ts = self._parse_ts(latest)
-                    logger.info("ProductWatcher: new %s → %s", product, latest)
+                last = self._last_seen.get(product)
+                new_stems = self._find_newer_than(folder, ext, last)
+                for stem in new_stems:
+                    self._last_seen[product] = stem
+                    ts = self._parse_ts(stem)
+                    logger.info("ProductWatcher: new %s → %s", product, stem)
                     ws_manager.broadcast_sync({
                         "type": "product_ready",
                         "product": product,
@@ -136,13 +137,51 @@ class ProductWatcherService:
             return None
         if not files:
             return None
-        # Sort by parsed datetime (filename encodes the timestamp)
         def _key(name):
             try:
                 return datetime.strptime(name.split(".")[0], "%d-%m-%Y-%H-%M")
             except ValueError:
                 return datetime.min
-        return max(files, key=_key).split(".")[0]  # return stem only
+        return max(files, key=_key).split(".")[0]
+
+    @staticmethod
+    def _find_newer_than(
+        folder: Path | str | None, ext: str, last_stem: str | None
+    ) -> list[str]:
+        """Return stems of all files newer than last_stem, sorted oldest-first.
+
+        Used instead of _find_latest so that if multiple files land between two
+        scans (e.g. IR_108 12:55 and 13:00 both appear), each is broadcast in
+        order rather than jumping straight to the newest and skipping the rest.
+        """
+        if not folder:
+            return []
+        p = Path(folder)
+        if not p.exists():
+            return []
+        try:
+            files = [f for f in os.listdir(p) if f.endswith(ext)]
+        except OSError:
+            return []
+        if not files:
+            return []
+
+        def _dt(name):
+            try:
+                return datetime.strptime(name.split(".")[0], "%d-%m-%Y-%H-%M")
+            except ValueError:
+                return None
+
+        last_dt = _dt(last_stem) if last_stem else None
+        newer = []
+        for f in files:
+            dt = _dt(f)
+            if dt is None:
+                continue
+            if last_dt is None or dt > last_dt:
+                newer.append((dt, f.split(".")[0]))
+        newer.sort(key=lambda x: x[0])
+        return [stem for _, stem in newer]
 
     @staticmethod
     def _parse_ts(stem: str) -> datetime | None:

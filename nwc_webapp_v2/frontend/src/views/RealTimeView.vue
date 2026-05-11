@@ -513,6 +513,14 @@ let successTimer    = null   // setTimeout — clears productJustFoundFlag after
 // creating duplicate timeline entries and wrong frame counts.
 const _tsLocks = new Map()
 
+// Blocks onProductReady while a preserve=true sync is in flight.
+// The sync fetches authoritative state from the API; any WS event that races
+// with it would create duplicate timeline slots (onProductReady appends THEN
+// the sync also appends the same timestamp). Events dropped here are safe to
+// lose: the sync already reflects the latest server state, and the WS will
+// push future events after the sync completes.
+let _preserveSyncing = false
+
 // True for 5 s after any product_ready event arrives (drives status dot flash).
 const productJustFoundFlag = ref(false)
 
@@ -816,6 +824,12 @@ async function loadData({ preserve = false } = {}) {
 
     if (preserve) {
       // ── Background refresh: trim old frames, append missed ones, update stats ──
+      // Block WS events for the duration of this sync. onProductReady running
+      // concurrently would race with the currentSet snapshot below, causing the
+      // same timestamp to be appended twice (once by WS, once here).
+      _preserveSyncing = true
+      try {
+
       // Trim timestamps that have scrolled out of the lookback window (always oldest-first).
       const trimCount = timestamps.value.filter(ts => ts < start).length
       if (trimCount > 0) {
@@ -852,6 +866,10 @@ async function loadData({ preserve = false } = {}) {
 
       if (followLive.value) goToFrame(timestamps.value.length - 1)
       else goToFrame(Math.min(frameIndex.value, timestamps.value.length - 1))
+
+      } finally {
+        _preserveSyncing = false
+      }
       return
     }
 
@@ -936,7 +954,7 @@ async function onProductReady(product, rawTimestamp) {
   // Normalize: strip seconds so WS timestamps ("2026-05-08T16:25:00") match
   // the initial-load format ("2026-05-08T16:25") used throughout the timeline.
   const timestamp = (rawTimestamp || '').slice(0, 16)
-  if (!isLoaded.value || isLoading.value || !timestamp) return
+  if (!isLoaded.value || isLoading.value || _preserveSyncing || !timestamp) return
 
   // Acquire per-timestamp lock so concurrent arrivals are processed serially.
   // Each waiter receives the exclusive right to run only after the previous one
@@ -947,7 +965,7 @@ async function onProductReady(product, rawTimestamp) {
   await prev
 
   // Re-check guards: state may have changed while waiting for the lock.
-  if (!isLoaded.value || isLoading.value) { unlock(); return }
+  if (!isLoaded.value || isLoading.value || _preserveSyncing) { unlock(); return }
 
   try {
 
