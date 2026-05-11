@@ -80,19 +80,18 @@ function effectiveBounds() {
 let radarMarkers = {}
 
 /**
- * Build a DivIcon for a radar site using the original radar.png tinted by status.
- * CSS filter chain: brightness(0) zeroes the source, invert(1) flips to white,
- * then sepia+saturate+hue-rotate shifts to the target hue.
- * status: 'active' (green) | 'inactive' (red) | 'unknown' (white, same as old default)
+ * Build a DivIcon for a radar site using status-specific PNG assets.
+ * status: 'active' → radar_avail.png | 'inactive' → radar_not_avail.png | 'unknown' → radar.png (white)
  */
 function makeRadarDivIcon(status) {
-  const filter = status === 'active'
-    ? 'brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(90deg)'
-    : status === 'inactive'
-    ? 'brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(330deg)'
-    : 'brightness(0) invert(1)'
+  const src = status === 'active'   ? '/radar_avail.png'
+            : status === 'inactive' ? '/radar_not_avail.png'
+            : '/radar.png'
+  const style = status === 'unknown'
+    ? 'width:22px;height:22px;display:block;filter:brightness(0) invert(1)'
+    : 'width:22px;height:22px;display:block'
   return L.divIcon({
-    html: `<img src="/radar.png" style="width:22px;height:22px;display:block;filter:${filter}">`,
+    html: `<img src="${src}" style="${style}">`,
     className: 'radar-status-icon',
     iconSize: [22, 22],
     iconAnchor: [11, 11],
