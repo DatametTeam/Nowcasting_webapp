@@ -452,6 +452,7 @@ import api from '../api.js'
 import RadarMap from '../components/RadarMap.vue'
 import ColorBar from '../components/ColorBar.vue'
 import { useRealtimeWs } from '../composables/useRealtimeWs.js'
+import { useRadarStatusWs } from '../composables/useRadarStatusWs.js'
 import { useMotionLayer } from '../composables/useMotionLayer.js'
 
 const configStore = useConfigStore()
@@ -1155,6 +1156,19 @@ const { motionMode, motionLoading, activeMotionTs, lkDisplayMode, lkArrowOpacity
 // product_ready events drive onProductReady above (primary update path).
 // state_update is still received for ML model status info (used by NowcastingView).
 const { connected: wsConnected } = useRealtimeWs({ onProductReady })
+
+// Listen for radar_status_updated from the cron script (fires after each SITES file download).
+// Re-fetches the full current range so new timestamps get their status immediately.
+useRadarStatusWs({
+  onRadarStatusUpdated: async () => {
+    if (!isLoaded.value) return
+    const { start, end } = computeRange()
+    const result = await api.radarStatusRange(start, end).catch(() => ({ statuses: {} }))
+    Object.assign(radarStatuses.value, result.statuses)
+    const ts = timestamps.value[frameIndex.value]
+    radarMap.value?.updateRadarStatus(ts ? (radarStatuses.value[ts] ?? null) : null)
+  },
+})
 
 // ---- Lifecycle ----
 onMounted(async () => {
