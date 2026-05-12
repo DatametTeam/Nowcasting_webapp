@@ -204,6 +204,82 @@ async def get_wr10_overlay(
 
 
 # ==========================================================================
+# Cagliari X-band radar — Cartesian rendering
+#
+# The Cagliari data is already in Cartesian format (960×960 float32) in
+# azimuthal equidistant projection centred on the radar.  No polar→Cartesian
+# warp is needed; we just downsample to the output size and apply the
+# colormap.
+# ==========================================================================
+
+_CAGLIARI_IMG_SIZE = 600
+
+
+def _render_cagliari_frame(file_path: Path, legend_name: str) -> bytes:
+    """Load a Cagliari HDF5 file and return a PNG overlay."""
+    import h5py
+
+    with h5py.File(file_path, "r") as f:
+        data = f["dataset1/data1/data"][()].astype(float)
+        what = f["dataset1/data1/what"]
+        nodata   = what.attrs.get("nodata",   float("nan"))
+        undetect = what.attrs.get("undetect", float("nan"))
+
+    # Values are already physical (gain=1.0, offset=0.0); mark fill values as NaN
+    try:
+        nd = float(nodata)
+        if np.isfinite(nd):
+            data[data == nd] = np.nan
+    except (TypeError, ValueError):
+        pass
+    try:
+        ud = float(undetect)
+        if np.isfinite(ud):
+            data[data == ud] = np.nan
+    except (TypeError, ValueError):
+        pass
+
+    # Nearest-neighbour downsample to output size (row 0 = north, no flip needed)
+    n = _CAGLIARI_IMG_SIZE
+    if data.shape != (n, n):
+        src_h, src_w = data.shape
+        row_idx = (np.arange(n) * src_h / n).astype(int)
+        col_idx = (np.arange(n) * src_w / n).astype(int)
+        data = data[np.ix_(row_idx, col_idx)]
+
+    frame_cmap, frame_norm = _get_product_cmap_norm(legend_name)
+    return _frame_to_png_bytes(data, frame_cmap, frame_norm, transparent_zero=False)
+
+
+@router.get("/overlay/cagliari/{timestamp}")
+async def get_cagliari_overlay(
+    timestamp: str,
+    product: str = Query("RR", description="Cagliari product: RR or CZ"),
+):
+    """Generate a Cagliari radar overlay (RGBA PNG) for the map."""
+    from api.cagliari import find_cagliari_file, _cagliari_cfg
+
+    try:
+        dt = datetime.fromisoformat(timestamp)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid datetime: {e}")
+
+    file_path = find_cagliari_file(product, dt)
+    if file_path is None:
+        raise HTTPException(status_code=404, detail=f"Cagliari file not found: {product} @ {timestamp}")
+
+    cfg = _cagliari_cfg()
+    legend_name = cfg.get("products", {}).get(product, {}).get("legend", "CZ")
+
+    try:
+        png_bytes = _render_cagliari_frame(file_path, legend_name)
+    except OSError as e:
+        raise HTTPException(status_code=404, detail=f"File not yet readable: {e}")
+
+    return Response(content=png_bytes, media_type="image/png", headers=_CACHE_HEADERS)
+
+
+# ==========================================================================
 # Cached helpers — loaded once, reused for every request
 # ==========================================================================
 

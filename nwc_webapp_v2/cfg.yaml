@@ -13,11 +13,12 @@ server:
 
 # Tabs shown in the navigation bar.
 # Remove any entry to hide that tab from the UI.
-# Available values: realtime, wr10, wr10explorer, nowcasting, explorer, comparison, metrics, assessment
+# Available values: realtime, wr10, wr10explorer, cagliari, nowcasting, explorer, comparison, metrics, assessment
 enabled_tabs:
   - realtime
   - wr10
   - wr10explorer
+  - cagliari
   - nowcasting
   - explorer
   - comparison
@@ -180,6 +181,29 @@ wr10:
     PPI:
       legend: "CZ"
       label: "PPI"
+      unit: "dBZ"
+
+# Cagliari X-band radar configuration
+cagliari:
+  # Radar location (from HDF5 where/lat, where/lon attributes)
+  radar_lat: 39.271488189697266
+  radar_lon: 9.122883796691895
+  # Cartesian grid geometry (from HDF5 dataset1/where attributes)
+  n_pixels: 960        # grid is 960 × 960
+  xscale: 125.0        # meters per pixel (0.125 km/px)
+  # Data root: {mode}_data_root/{product}/
+  server_data_root: "/data/cagliari_xband"
+  local_data_root: "data/cagliari_xband"
+  # Output image size (pixels)
+  img_size: 600
+  products:
+    RR:
+      legend: "R"
+      label: "Rain Rate"
+      unit: "mm/h"
+    CZ:
+      legend: "CZ"
+      label: "Max Reflectivity"
       unit: "dBZ"
 
 # Radar products for the Data Explorer tab.

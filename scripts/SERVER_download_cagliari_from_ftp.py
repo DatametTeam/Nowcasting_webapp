@@ -60,11 +60,17 @@ def setup_logging():
 
 
 def expected_slot(interval_minutes=5):
-    """Return the previous slot timestamp — the one whose data should now be arriving."""
-    now = datetime.now()
+    """Return the CURRENT slot timestamp in UTC — the one whose data should now be arriving.
+
+    Filenames encode UTC (ODIM standard), so we must work in UTC here.
+    At :57 this returns :55 (current 5-min boundary), unlike the PRD/WR10
+    scripts which return the slot before (at :57 they return :50).
+    """
+    from datetime import timezone
+    now_ts = datetime.now(timezone.utc).timestamp()
     slot_seconds = interval_minutes * 60
-    current = (now.timestamp() // slot_seconds) * slot_seconds
-    return datetime.fromtimestamp(current - slot_seconds)
+    current_ts = (now_ts // slot_seconds) * slot_seconds
+    return datetime.fromtimestamp(current_ts, tz=timezone.utc).replace(tzinfo=None)
 
 
 def slot_to_ts_str(dt):

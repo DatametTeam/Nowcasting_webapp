@@ -26,6 +26,7 @@ import ModelComparisonView from './views/ModelComparisonView.vue'
 import MetricsView from './views/MetricsView.vue'
 import WR10View from './views/WR10View.vue'
 import WR10ExplorerView from './views/WR10ExplorerView.vue'
+import CagliariView from './views/CagliariView.vue'
 import FssAssessmentView from './views/FssAssessmentView.vue'
 
 const routes = [
@@ -45,6 +46,11 @@ const routes = [
     path: '/wr10-explorer',
     name: 'WR10 Explorer',
     component: WR10ExplorerView,
+  },
+  {
+    path: '/cagliari',
+    name: 'Cagliari X-band',
+    component: CagliariView,
   },
   {
     path: '/nowcasting',

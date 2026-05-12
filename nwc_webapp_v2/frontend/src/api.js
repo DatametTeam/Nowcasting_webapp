@@ -212,6 +212,15 @@ export default {
   wr10SamplePixel: ({ lat, lon, timestamp, products }) =>
     get(`/wr10/sample?lat=${lat}&lon=${lon}&timestamp=${encodeURIComponent(timestamp)}&products=${products.join(',')}`),
 
+  // --- Cagliari X-band radar ---
+  cagliariConfig: () => get('/cagliari/config'),
+  cagliariTimestamps: (product, lookbackMinutes) =>
+    get(`/cagliari/timestamps?product=${product}&lookback_minutes=${lookbackMinutes}`),
+  cagliariOverlayUrl: (timestamp, product) =>
+    `/api/render/overlay/cagliari/${encodeURIComponent(timestamp)}?product=${product}`,
+  cagliariSamplePixel: ({ lat, lon, timestamp, products }) =>
+    get(`/cagliari/sample?lat=${lat}&lon=${lon}&timestamp=${encodeURIComponent(timestamp)}&products=${products.join(',')}`),
+
   // --- WR10 Explorer (date-range, including PPI) ---
   wr10ExplorerTimestamps: (start, end, products = 'VMI,SRI,PPI') =>
     get(`/wr10/explorer/timestamps?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&products=${products}`),
