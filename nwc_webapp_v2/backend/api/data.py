@@ -22,20 +22,6 @@ from fastapi import APIRouter, HTTPException, Query
 
 logger = logging.getLogger(__name__)
 
-_radar_mask_cache = None
-
-def _get_radar_mask():
-    global _radar_mask_cache
-    if _radar_mask_cache is not None:
-        return _radar_mask_cache
-    import h5py
-    config = get_config()
-    mask_path = config.radar_mask_path
-    if mask_path.exists():
-        with h5py.File(mask_path, "r") as f:
-            _radar_mask_cache = f["mask"][()]
-    return _radar_mask_cache
-
 from nwc_webapp.config.config import get_config
 from nwc_webapp.data.checking import (
     check_missing_predictions,
@@ -64,17 +50,17 @@ async def sample_pixel(
     """
     Sample radar product values and/or a model prediction at a single (lat, lon).
 
-    Inverts the source TMerc projection to recover (line, col) grid indices
-    on the 1400x1200 source grid, then reads each requested HDF5/TIFF file
-    and the model prediction npy at that pixel.
+    Uses the same warp lookup table as the renderer so that clicking anywhere
+    within a displayed pixel always returns the value of exactly that pixel.
 
     Missing files / out-of-bounds pixels produce null values rather than 500s
     so the popup still renders for the products that did succeed.
     """
+    import math
     import h5py
     import numpy as np
     from PIL import Image
-    from pyproj import Proj
+    from .rendering import _get_warp_lookup, _get_radar_mask
 
     try:
         dt = datetime.fromisoformat(timestamp)
@@ -82,18 +68,31 @@ async def sample_pixel(
         raise HTTPException(status_code=400, detail=f"Invalid datetime: {e}")
 
     config = get_config()
-    src = config.source_grid
+    dst = config.dest_grid
 
-    # lat/lon → tmerc x,y → grid (line, col)
-    # Use int() (floor truncation), not round(), to match the warp lookup in
-    # rendering.py which uses .astype(int). Both must truncate the same way or
-    # clicks near a 0.5 boundary return a different pixel than what's displayed.
-    proj = Proj(proj="tmerc", lat_0=src.prj_lat, lon_0=src.prj_lon, x_0=0, y_0=0, ellps="WGS84")
-    x_m, y_m = proj(lon, lat)
-    col = int(x_m / src.cRes + src.cOff)
-    line = int(y_m / src.lRes + src.lOff)
+    # Click lat/lon → Web Mercator (EPSG:3857), same projection Leaflet uses
+    R = 6378137.0
+    x_click = R * math.radians(lon)
+    y_click = R * math.log(math.tan(math.pi / 4 + math.radians(lat) / 2))
 
-    in_bounds = (0 <= col < src.ncols) and (0 <= line < src.nlines)
+    # Dest grid bounds in Web Mercator
+    x_min = R * math.radians(dst.minLon)
+    x_max = R * math.radians(dst.maxLon)
+    y_min = R * math.log(math.tan(math.pi / 4 + math.radians(dst.minLat) / 2))
+    y_max = R * math.log(math.tan(math.pi / 4 + math.radians(dst.maxLat) / 2))
+
+    # Find dest pixel using Leaflet's edge-to-edge convention:
+    # pixel j occupies [x_min + j/ncols*range, x_min + (j+1)/ncols*range]
+    dest_j = int(dst.ncols * (x_click - x_min) / (x_max - x_min))
+    dest_i = int(dst.nlines * (y_max - y_click) / (y_max - y_min))
+    dest_j = max(0, min(dst.ncols - 1, dest_j))
+    dest_i = max(0, min(dst.nlines - 1, dest_i))
+
+    # Look up the source pixel the renderer used for this dest pixel
+    col_indices, line_indices, valid_mask, _, _ = _get_warp_lookup()
+    col = int(col_indices[dest_i, dest_j])
+    line = int(line_indices[dest_i, dest_j])
+    in_bounds = bool(valid_mask[dest_i, dest_j])
 
     result: dict = {
         "lat": lat,
