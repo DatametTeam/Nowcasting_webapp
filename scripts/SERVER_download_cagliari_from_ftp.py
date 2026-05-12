@@ -74,10 +74,14 @@ def expected_slot(interval_minutes=5):
 
 
 def slot_to_ts_str(dt):
-    """Convert a slot datetime to the 10-digit timestamp string used in filenames."""
+    """Convert a slot datetime to the 9-char YYDOYHHMM string.
+
+    The scan digit (0) and site char (L) are in SCAN_SUFFIX and appended by
+    make_filename(), so they must NOT be included here.
+    """
     yy = dt.year - 2000
     doy = dt.timetuple().tm_yday
-    return f"{yy:02d}{doy:03d}{dt.hour:02d}{dt.minute:02d}0"
+    return f"{yy:02d}{doy:03d}{dt.hour:02d}{dt.minute:02d}"
 
 
 def make_filename(prefix, ts_str, idx):
@@ -97,16 +101,24 @@ def dest_dir(prefix, idx):
         return os.path.join(DEST_BASE, prefix)
 
 
-def curl_list():
+def _subfolder(prefix):
+    """FTP subdirectory for a given 2-char file prefix (e.g. 'RR' → 'RRW/')."""
+    return f"{prefix}W/"
+
+
+def curl_list(prefix):
+    """List files in the FTP subdirectory for the given product prefix."""
+    url = f"{FTP_URL}{_subfolder(prefix)}"
     cmd = ["curl", "-s", "--list-only", "--ftp-pasv",
-           "-u", f"{USERNAME}:{PASSWORD}", FTP_URL]
+           "-u", f"{USERNAME}:{PASSWORD}", url]
     result = subprocess.run(cmd, capture_output=True, text=True)
     return result.stdout
 
 
-def download_file(filename, local_path):
+def download_file(prefix, filename, local_path):
+    url = f"{FTP_URL}{_subfolder(prefix)}{filename}"
     cmd = ["curl", "-s", "--ftp-pasv", "-u", f"{USERNAME}:{PASSWORD}",
-           "-o", local_path, f"{FTP_URL}{filename}"]
+           "-o", local_path, url]
     return subprocess.run(cmd).returncode == 0
 
 
@@ -138,7 +150,7 @@ def main():
 
     while True:
         elapsed = time.time() - start_time
-        listing = curl_list()
+        listing = curl_list(primary_prefix)
 
         if primary_file in listing:
             all_ok = True
@@ -149,7 +161,7 @@ def main():
                 local_path = os.path.join(d, fname)
                 if os.path.exists(local_path):
                     continue
-                if download_file(fname, local_path):
+                if download_file(prefix, fname, local_path):
                     logging.info(f"Downloaded: {fname}")
                 else:
                     logging.error(f"Download failed: {fname}")
