@@ -420,7 +420,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import RadarMap from '../components/RadarMap.vue'
 import ColorBar from '../components/ColorBar.vue'
 import { useSettingsStore } from '../stores/settings.js'
@@ -716,6 +716,11 @@ watch(layerConfig, () => {
   if (!isLoaded.value || timestamps.value.length === 0) return
   goToFrame(frameIndex.value)
 }, { deep: true })
+
+watch(sidebarOpen, async () => {
+  await nextTick()
+  radarMap.value?.invalidateSize()
+})
 
 async function setLookback(hours) {
   if (isLoading.value) return

@@ -775,6 +775,13 @@ watch(layerConfig, () => {
   goToFrame(frameIndex.value)
 }, { deep: true })
 
+// When the sidebar opens/closes the map container resizes. Without this,
+// Leaflet's cached container bounds are stale and click coordinates are wrong.
+watch(sidebarOpen, async () => {
+  await nextTick()
+  radarMap.value?.invalidateSize()
+})
+
 // ---- Core load ----
 async function loadData({ preserve = false } = {}) {
   const { start, end } = computeRange()

@@ -551,7 +551,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import api from '../api.js'
 import { useConfigStore } from '../stores/config.js'
 import { useSettingsStore } from '../stores/settings.js'
@@ -1081,6 +1081,11 @@ watch(irEnabled, async (enabled) => {
 watch(ensembleActive, () => { preloadAllFrames() })
 watch(ensembleModels, () => { preloadAllFrames() }, { deep: true })
 watch(ensembleContours, () => { if (ensembleActive.value) preloadAllFrames() })
+
+watch(sidebarOpen, async () => {
+  await nextTick()
+  radarMap.value?.invalidateSize()
+})
 
 // Threshold slider fires reload only on release (`change` event) — see the
 // onThresholdCommit handler below. The intermediate `input` events still

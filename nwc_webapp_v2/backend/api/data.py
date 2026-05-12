@@ -22,6 +22,20 @@ from fastapi import APIRouter, HTTPException, Query
 
 logger = logging.getLogger(__name__)
 
+_radar_mask_cache = None
+
+def _get_radar_mask():
+    global _radar_mask_cache
+    if _radar_mask_cache is not None:
+        return _radar_mask_cache
+    import h5py
+    config = get_config()
+    mask_path = config.radar_mask_path
+    if mask_path.exists():
+        with h5py.File(mask_path, "r") as f:
+            _radar_mask_cache = f["mask"][()]
+    return _radar_mask_cache
+
 from nwc_webapp.config.config import get_config
 from nwc_webapp.data.checking import (
     check_missing_predictions,
@@ -71,10 +85,13 @@ async def sample_pixel(
     src = config.source_grid
 
     # lat/lon → tmerc x,y → grid (line, col)
+    # Use int() (floor truncation), not round(), to match the warp lookup in
+    # rendering.py which uses .astype(int). Both must truncate the same way or
+    # clicks near a 0.5 boundary return a different pixel than what's displayed.
     proj = Proj(proj="tmerc", lat_0=src.prj_lat, lon_0=src.prj_lon, x_0=0, y_0=0, ellps="WGS84")
     x_m, y_m = proj(lon, lat)
-    col = int(round(x_m / src.cRes + src.cOff))
-    line = int(round(y_m / src.lRes + src.lOff))
+    col = int(x_m / src.cRes + src.cOff)
+    line = int(y_m / src.lRes + src.lOff)
 
     in_bounds = (0 <= col < src.ncols) and (0 <= line < src.nlines)
 
@@ -95,6 +112,11 @@ async def sample_pixel(
     product_list = [p.strip() for p in products.split(",") if p.strip()]
     radar_products = config.radar_products
 
+    # Radar mask: same binary mask applied by the renderer. Masked pixels show
+    # as transparent in the overlay, so we also return null for them here so
+    # the popup doesn't report values that contradict what's displayed.
+    radar_mask = _get_radar_mask()
+
     for product in product_list:
         if product not in radar_products:
             result["values"][product] = None
@@ -106,6 +128,7 @@ async def sample_pixel(
 
         try:
             if file_format == "tiff":
+                # Satellite product — no radar mask applies.
                 file_path = config.find_product_file(product, dt, stem + ".tif")
                 if file_path is None:
                     file_path = config.find_product_file(product, dt, stem + ".tiff")
@@ -117,6 +140,10 @@ async def sample_pixel(
                 arr = np.array(pil_img, dtype=float)
                 value = float(arr[line, col])
             else:
+                # Apply radar mask: pixel outside coverage → null.
+                if radar_mask is not None and radar_mask[line, col] == 0:
+                    result["values"][product] = None
+                    continue
                 filename = stem + ".hdf"
                 file_path = config.find_product_file(product, dt, filename)
                 if file_path is None:

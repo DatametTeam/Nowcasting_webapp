@@ -368,7 +368,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, reactive, onUnmounted } from 'vue'
+import { ref, computed, watch, reactive, onUnmounted, nextTick } from 'vue'
 import { VueDatePicker } from '@vuepic/vue-datepicker'
 import '@vuepic/vue-datepicker/dist/main.css'
 import JSZip from 'jszip'
@@ -558,6 +558,11 @@ watch(layerConfig, () => {
   if (!isLoaded.value || timestamps.value.length === 0) return
   goToFrame(frameIndex.value)
 }, { deep: true })
+
+watch(sidebarOpen, async () => {
+  await nextTick()
+  radarMap.value?.invalidateSize()
+})
 
 // When a product is newly checked after loading, fetch its ZIP on demand.
 watch(

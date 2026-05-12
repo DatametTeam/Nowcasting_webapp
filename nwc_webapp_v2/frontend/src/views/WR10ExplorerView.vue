@@ -377,7 +377,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { VueDatePicker } from '@vuepic/vue-datepicker'
 import '@vuepic/vue-datepicker/dist/main.css'
 import RadarMap from '../components/RadarMap.vue'
@@ -590,6 +590,11 @@ watch(layerConfig, () => {
   if (!isLoaded.value || timestamps.value.length === 0) return
   goToFrame(frameIndex.value)
 }, { deep: true })
+
+watch(sidebarOpen, async () => {
+  await nextTick()
+  radarMap.value?.invalidateSize()
+})
 
 // ---- Load data ----
 async function loadData() {
