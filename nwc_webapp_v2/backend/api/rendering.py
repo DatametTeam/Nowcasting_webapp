@@ -212,11 +212,8 @@ async def get_wr10_overlay(
 # colormap.
 # ==========================================================================
 
-_CAGLIARI_IMG_SIZE = 600
-
-
 def _render_cagliari_frame(file_path: Path, legend_name: str) -> bytes:
-    """Load a Cagliari HDF5 file and return a PNG overlay."""
+    """Load a Cagliari HDF5 file and return a PNG overlay at full 960×960 resolution."""
     import h5py
 
     with h5py.File(file_path, "r") as f:
@@ -238,14 +235,6 @@ def _render_cagliari_frame(file_path: Path, legend_name: str) -> bytes:
             data[data == ud] = np.nan
     except (TypeError, ValueError):
         pass
-
-    # Nearest-neighbour downsample to output size (row 0 = north, no flip needed)
-    n = _CAGLIARI_IMG_SIZE
-    if data.shape != (n, n):
-        src_h, src_w = data.shape
-        row_idx = (np.arange(n) * src_h / n).astype(int)
-        col_idx = (np.arange(n) * src_w / n).astype(int)
-        data = data[np.ix_(row_idx, col_idx)]
 
     frame_cmap, frame_norm = _get_product_cmap_norm(legend_name)
     return _frame_to_png_bytes(data, frame_cmap, frame_norm, transparent_zero=False)
