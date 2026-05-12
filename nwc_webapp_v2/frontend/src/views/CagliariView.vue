@@ -283,6 +283,18 @@
               <div v-if="productFrameCount[product] > 0" class="text-xs text-green-400">
                 {{ productFrameCount[product] }} frames
               </div>
+              <!-- PPI elevation selector -->
+              <div v-if="product === 'PPI'" class="flex gap-1">
+                <button
+                  v-for="elev in PPI_ELEVATIONS"
+                  :key="elev"
+                  @click="changePpiElevation(elev)"
+                  class="flex-1 py-1 text-xs font-semibold rounded transition-colors"
+                  :class="selectedPpiIdx === elev
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-700 text-gray-400 hover:text-white'"
+                >{{ ppiLabel(elev) }}</button>
+              </div>
               <div class="flex items-center gap-2">
                 <span class="text-gray-400 text-xs w-12 flex-shrink-0">Opacity</span>
                 <input
@@ -421,19 +433,32 @@ const settings    = useSettingsStore()
 const configStore = useConfigStore()
 
 // ---- Products ----
-const CAGLIARI_PRODUCTS = ['RR', 'CZ']
+const CAGLIARI_PRODUCTS = ['RR', 'CZ', 'OZ', 'PPI']
 const MOSAIC_PRODUCTS   = ['SRI_MOSAIC', 'VMI_MOSAIC']
 const PRODUCTS          = [...CAGLIARI_PRODUCTS, ...MOSAIC_PRODUCTS]
 
 const MOSAIC_API_PRODUCT = { SRI_MOSAIC: 'SRI_adj', VMI_MOSAIC: 'VMI' }
 
-const PRODUCT_LABELS = { RR: 'Rain Rate', CZ: 'Reflectivity', SRI_MOSAIC: 'SRI Mosaic', VMI_MOSAIC: 'VMI Mosaic' }
+const PRODUCT_LABELS = {
+  RR: 'Rain Rate', CZ: 'Reflectivity', OZ: 'CAPPI', PPI: 'PPI',
+  SRI_MOSAIC: 'SRI Mosaic', VMI_MOSAIC: 'VMI Mosaic',
+}
 
 const ITALY_BOUNDS = [[35.0623, 4.51987], [47.5730, 20.4801]]
+
+// ---- PPI elevation selector ----
+const PPI_ELEVATIONS = ['801', '802', '803', '804', '805']
+const selectedPpiIdx = ref('801')
+
+function ppiLabel(idx) {
+  return `E${parseInt(idx) - 800}`
+}
 
 const layerConfig = ref({
   RR:         { enabled: false, opacity: 0.8 },
   CZ:         { enabled: true,  opacity: 1.0 },
+  OZ:         { enabled: false, opacity: 1.0 },
+  PPI:        { enabled: false, opacity: 1.0 },
   SRI_MOSAIC: { enabled: false, opacity: 0.7 },
   VMI_MOSAIC: { enabled: false, opacity: 0.7 },
 })
@@ -442,7 +467,7 @@ const visibleProducts = computed(() =>
   PRODUCTS.filter(p => layerConfig.value[p].enabled)
 )
 
-const COLORBAR_PRODUCT = { RR: 'RR', CZ: 'CZ', SRI_MOSAIC: 'RR', VMI_MOSAIC: 'CZ' }
+const COLORBAR_PRODUCT = { RR: 'RR', CZ: 'CZ', OZ: 'CZ', PPI: 'CZ', SRI_MOSAIC: 'RR', VMI_MOSAIC: 'CZ' }
 const colorbarsToShow = computed(() => {
   const seen = new Set()
   const result = []
@@ -454,7 +479,7 @@ const colorbarsToShow = computed(() => {
 })
 
 const productMeta      = ref({})
-const productFrameCount = ref({ RR: 0, CZ: 0, SRI_MOSAIC: 0, VMI_MOSAIC: 0 })
+const productFrameCount = ref({ RR: 0, CZ: 0, OZ: 0, PPI: 0, SRI_MOSAIC: 0, VMI_MOSAIC: 0 })
 
 // ---- Map ----
 const radarMap      = ref(null)
@@ -583,7 +608,10 @@ async function loadData() {
 
     const cagliariResults = await Promise.all(
       CAGLIARI_PRODUCTS.map(product =>
-        api.cagliariTimestamps(product, lookbackMinutes).catch(err => {
+        api.cagliariTimestamps(
+          product, lookbackMinutes,
+          product === 'PPI' ? selectedPpiIdx.value : null
+        ).catch(err => {
           console.error(`[CagliariView] timestamps failed for ${product}:`, err)
           return { timestamps: [], total: 0 }
         })
@@ -634,7 +662,8 @@ async function loadData() {
     await Promise.all([
       ...CAGLIARI_PRODUCTS.map(async (product, i) => {
         const found = new Set(cagliariResults[i].timestamps)
-        const urls  = sortedTs.map(ts => found.has(ts) ? api.cagliariOverlayUrl(ts, product) : null)
+        const ppiIdx = product === 'PPI' ? selectedPpiIdx.value : null
+        const urls   = sortedTs.map(ts => found.has(ts) ? api.cagliariOverlayUrl(ts, product, ppiIdx) : null)
         await radarMap.value?.loadProductFrames(product, urls, layerConfig.value[product].opacity, cagBounds)
       }),
       ...MOSAIC_PRODUCTS.map(async (product, i) => {
@@ -696,6 +725,22 @@ async function setLookback(hours) {
   await loadData()
 }
 
+async function changePpiElevation(idx) {
+  if (idx === selectedPpiIdx.value) return
+  selectedPpiIdx.value = idx
+  if (!isLoaded.value) return
+
+  const lookbackMinutes = lookbackHours.value * 60
+  const ppiResult = await api.cagliariTimestamps('PPI', lookbackMinutes, idx)
+    .catch(() => ({ timestamps: [], total: 0 }))
+  productFrameCount.value.PPI = ppiResult.total
+
+  const found = new Set(ppiResult.timestamps)
+  const urls  = timestamps.value.map(ts => found.has(ts) ? api.cagliariOverlayUrl(ts, 'PPI', idx) : null)
+  await radarMap.value?.loadProductFrames('PPI', urls, layerConfig.value.PPI.opacity, overlayBounds.value || undefined)
+  goToFrame(frameIndex.value)
+}
+
 function onSliderInput(e) {
   goToFrame(parseInt(e.target.value))
   followLive.value = false
@@ -751,7 +796,10 @@ async function onMapClick(latlng) {
   try {
     const [cagData, mosaicData] = await Promise.all([
       enabledCagliari.length > 0
-        ? api.cagliariSamplePixel({ lat: latlng.lat, lon: latlng.lng, timestamp: ts, products: enabledCagliari })
+        ? api.cagliariSamplePixel({
+            lat: latlng.lat, lon: latlng.lng, timestamp: ts, products: enabledCagliari,
+            ppiIdx: enabledCagliari.includes('PPI') ? selectedPpiIdx.value : null,
+          })
         : Promise.resolve(null),
       enabledMosaic.length > 0
         ? api.samplePixel({

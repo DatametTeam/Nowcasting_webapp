@@ -104,8 +104,20 @@ def _get_data_root() -> Path:
     return Path(cfg.get("local_data_root", "data/cagliari_xband"))
 
 
-def _get_product_folder(product: str) -> Path:
-    return _get_data_root() / product
+# Maps logical product names to the 2-char prefix used in filenames
+_PRODUCT_TO_FILE_PREFIX = {
+    "RR": "RR",
+    "CZ": "CZ",
+    "OZ": "OZ",
+    "PPI": "PZ",
+}
+
+
+def _get_product_folder(product: str, idx: str | None = None) -> Path:
+    root = _get_data_root()
+    if product == "PPI" and idx:
+        return root / "PPI" / idx
+    return root / product
 
 
 # ==========================================================================
@@ -138,18 +150,22 @@ def parse_cagliari_filename(filename: str):
         return None, None, None
 
 
-def find_cagliari_file(product: str, dt: datetime) -> Path | None:
-    """Return the path of the Cagliari file for a given product and timestamp, or None."""
-    folder = _get_product_folder(product)
+def find_cagliari_file(product: str, dt: datetime, idx: str | None = None) -> Path | None:
+    """Return the path of the Cagliari file for a given product and timestamp, or None.
+
+    For PPI files, pass idx (e.g. '801') to select the elevation subfolder.
+    """
+    folder = _get_product_folder(product, idx)
     if not folder.exists():
         return None
+    file_prefix = _PRODUCT_TO_FILE_PREFIX.get(product, product)
     yy  = dt.year - 2000
     doy = dt.timetuple().tm_yday
     ts_prefix = f"{yy:02d}{doy:03d}{dt.hour:02d}{dt.minute:02d}"  # 9 chars
     try:
         for fname in os.listdir(folder):
             m = _FNAME_RE.match(fname)
-            if m and m.group("prefix") == product and m.group("ts")[:9] == ts_prefix:
+            if m and m.group("prefix") == file_prefix and m.group("ts")[:9] == ts_prefix:
                 return folder / fname
     except OSError:
         pass
@@ -250,8 +266,9 @@ async def get_cagliari_config():
 
 @router.get("/timestamps")
 async def get_cagliari_timestamps(
-    product: str = Query("RR", description="Product name: RR or CZ"),
+    product: str = Query("RR", description="Product name: RR, CZ, OZ, or PPI"),
     lookback_minutes: int = Query(60, description="Lookback window in minutes"),
+    idx: str = Query(None, description="PPI elevation index (801-805). Required when product=PPI"),
 ):
     """List available Cagliari timestamps for a product within the lookback window."""
     cfg = _cagliari_cfg()
@@ -259,17 +276,18 @@ async def get_cagliari_timestamps(
     if product not in valid_products:
         raise HTTPException(status_code=400, detail=f"Unknown product: {product}. Available: {valid_products}")
 
-    folder = _get_product_folder(product)
+    folder = _get_product_folder(product, idx)
     if not folder.exists():
         return {"product": product, "timestamps": [], "total": 0}
 
+    file_prefix = _PRODUCT_TO_FILE_PREFIX.get(product, product)
     cutoff = datetime.utcnow() - timedelta(minutes=lookback_minutes + 6)
 
     found: list[tuple[datetime, str]] = []
     try:
         for fname in os.listdir(folder):
-            prefix, idx, dt = parse_cagliari_filename(fname)
-            if prefix == product and dt is not None and dt >= cutoff:
+            file_prefix_parsed, _, dt = parse_cagliari_filename(fname)
+            if file_prefix_parsed == file_prefix and dt is not None and dt >= cutoff:
                 found.append((dt, fname))
     except OSError as e:
         logger.warning("Cannot list Cagliari folder %s: %s", folder, e)
@@ -288,7 +306,8 @@ async def sample_cagliari_pixel(
     lat: float = Query(..., description="Latitude (WGS84)"),
     lon: float = Query(..., description="Longitude (WGS84)"),
     timestamp: str = Query(..., description="Datetime ISO (YYYY-MM-DDTHH:MM)"),
-    products: str = Query("RR", description="Comma-separated: RR, CZ"),
+    products: str = Query("RR", description="Comma-separated: RR, CZ, OZ, PPI"),
+    ppi_idx: str = Query(None, description="PPI elevation index (e.g. 801). Required when products includes PPI"),
 ):
     """
     Sample Cagliari Cartesian radar values at a clicked (lat, lon).
@@ -345,7 +364,7 @@ async def sample_cagliari_pixel(
         if product not in valid_products:
             result["values"][product] = None
             continue
-        file_path = find_cagliari_file(product, dt)
+        file_path = find_cagliari_file(product, dt, ppi_idx if product == "PPI" else None)
         if file_path is None:
             result["values"][product] = None
             continue

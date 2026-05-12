@@ -214,12 +214,12 @@ export default {
 
   // --- Cagliari X-band radar ---
   cagliariConfig: () => get('/cagliari/config'),
-  cagliariTimestamps: (product, lookbackMinutes) =>
-    get(`/cagliari/timestamps?product=${product}&lookback_minutes=${lookbackMinutes}`),
-  cagliariOverlayUrl: (timestamp, product) =>
-    `/api/render/overlay/cagliari/${encodeURIComponent(timestamp)}?product=${product}`,
-  cagliariSamplePixel: ({ lat, lon, timestamp, products }) =>
-    get(`/cagliari/sample?lat=${lat}&lon=${lon}&timestamp=${encodeURIComponent(timestamp)}&products=${products.join(',')}`),
+  cagliariTimestamps: (product, lookbackMinutes, idx = null) =>
+    get(`/cagliari/timestamps?product=${product}&lookback_minutes=${lookbackMinutes}${idx ? `&idx=${idx}` : ''}`),
+  cagliariOverlayUrl: (timestamp, product, idx = null) =>
+    `/api/render/overlay/cagliari/${encodeURIComponent(timestamp)}?product=${product}${idx ? `&idx=${idx}` : ''}`,
+  cagliariSamplePixel: ({ lat, lon, timestamp, products, ppiIdx = null }) =>
+    get(`/cagliari/sample?lat=${lat}&lon=${lon}&timestamp=${encodeURIComponent(timestamp)}&products=${products.join(',')}${ppiIdx ? `&ppi_idx=${ppiIdx}` : ''}`),
 
   // --- WR10 Explorer (date-range, including PPI) ---
   wr10ExplorerTimestamps: (start, end, products = 'VMI,SRI,PPI') =>

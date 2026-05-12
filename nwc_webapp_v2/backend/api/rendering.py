@@ -254,7 +254,8 @@ def _render_cagliari_frame(file_path: Path, legend_name: str) -> bytes:
 @router.get("/overlay/cagliari/{timestamp}")
 async def get_cagliari_overlay(
     timestamp: str,
-    product: str = Query("RR", description="Cagliari product: RR or CZ"),
+    product: str = Query("RR", description="Cagliari product: RR, CZ, OZ, or PPI"),
+    idx: str = Query(None, description="PPI elevation index (e.g. 801). Required when product=PPI"),
 ):
     """Generate a Cagliari radar overlay (RGBA PNG) for the map."""
     from api.cagliari import find_cagliari_file, _cagliari_cfg
@@ -264,7 +265,7 @@ async def get_cagliari_overlay(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid datetime: {e}")
 
-    file_path = find_cagliari_file(product, dt)
+    file_path = find_cagliari_file(product, dt, idx)
     if file_path is None:
         raise HTTPException(status_code=404, detail=f"Cagliari file not found: {product} @ {timestamp}")
 
