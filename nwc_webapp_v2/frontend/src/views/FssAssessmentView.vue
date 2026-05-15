@@ -46,7 +46,7 @@
           :title="wsConnected ? 'Live updates connected' : 'Live updates disconnected (polling fallback active)'"
         />
 
-        <!-- Right side: spinner / last-updated -->
+        <!-- Right side: download buttons + spinner / last-updated -->
         <div class="ml-auto flex items-center gap-2 text-xs text-gray-500">
           <template v-if="loading">
             <svg class="w-3.5 h-3.5 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
@@ -61,6 +61,28 @@
           <template v-else-if="error">
             <span class="text-red-500">{{ error }}</span>
           </template>
+          <button
+            v-if="chartData?.models?.length"
+            @click="downloadAllCharts"
+            class="download-btn"
+            title="Download all charts as PNG"
+          >
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Charts
+          </button>
+          <button
+            v-if="chartData?.models?.length"
+            @click="downloadCsv"
+            class="download-btn"
+            title="Download mean FSS values as CSV"
+          >
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            CSV
+          </button>
         </div>
       </div>
 
@@ -121,10 +143,21 @@
                 :ref="el => setChartRef(lt, thr, el)"
                 class="chart-cell rounded border border-gray-200 bg-white"
               />
-              <!-- Expand button (visible on hover) -->
+              <!-- Per-chart action buttons (visible on hover) -->
+              <button
+                @click.stop="downloadChart(lt, thr)"
+                class="chart-action-btn"
+                style="right: 32px"
+                title="Download chart as PNG"
+              >
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
               <button
                 @click.stop="openExpanded(lt, thr)"
-                class="expand-btn"
+                class="chart-action-btn"
+                style="right: 4px"
                 title="Expand chart"
               >
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -626,6 +659,61 @@ watch([selectedScale, activeTab], async () => {
   await fetchData()
 })
 
+// ── Download ─────────────────────────────────────────────────────────────────
+
+function triggerDownload(url, filename) {
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+}
+
+function downloadChart(lt, thr) {
+  const inst = chartInstances[chartKey(lt, thr)]
+  if (!inst) return
+  const url = inst.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#ffffff' })
+  const tab = activeTab.value === 'recent' ? '24h' : '60d'
+  triggerDownload(url, `FSS_lt${lt}min_thr${thr}mmh_${selectedScale.value}km_${tab}.png`)
+}
+
+async function downloadAllCharts() {
+  for (const lt of LEAD_TIMES) {
+    for (const thr of THRESHOLDS) {
+      downloadChart(lt, thr)
+      await new Promise(r => setTimeout(r, 200))
+    }
+  }
+}
+
+function downloadCsv() {
+  const data = chartData.value
+  if (!data?.means) return
+  const models = data.models ?? []
+  const tab = activeTab.value === 'recent' ? '24h' : '60d'
+
+  const header = ['Model']
+  for (const lt of LEAD_TIMES) {
+    for (const thr of THRESHOLDS) {
+      header.push(`LT${lt}min_THR${thr}mmh`)
+    }
+  }
+
+  const rows = [header.join(',')]
+  for (const model of models) {
+    const vals = [model]
+    for (const lt of LEAD_TIMES) {
+      for (const thr of THRESHOLDS) {
+        const v = data.means?.[model]?.[`lt${lt}`]?.[`thr${thr}`]
+        vals.push(v !== null && v !== undefined ? v.toFixed(4) : '')
+      }
+    }
+    rows.push(vals.join(','))
+  }
+
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' })
+  triggerDownload(URL.createObjectURL(blob), `FSS_means_${selectedScale.value}km_${tab}.csv`)
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatUpdated(iso) {
@@ -648,11 +736,10 @@ function formatUpdated(iso) {
   height: 100%;
 }
 
-/* Expand button — only visible on hover */
-.expand-btn {
+/* Per-chart action buttons (download + expand) — only visible on hover */
+.chart-action-btn {
   position: absolute;
   top: 4px;
-  right: 4px;
   z-index: 10;
   width: 24px;
   height: 24px;
@@ -668,12 +755,32 @@ function formatUpdated(iso) {
   color: #6b7280;
   padding: 0;
 }
-.chart-cell-wrapper:hover .expand-btn {
+.chart-cell-wrapper:hover .chart-action-btn {
   opacity: 1;
 }
-.expand-btn:hover {
+.chart-action-btn:hover {
   background: white;
   color: #111827;
+}
+
+/* Controls bar download buttons */
+.download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid #d1d5db;
+  background: white;
+  color: #374151;
+  font-size: 0.7rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.download-btn:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
 }
 
 /* Model selector pills */
