@@ -394,24 +394,23 @@
           </label>
         </div>
 
-        <!-- Threshold slider (0–50 mm/h, step 0.5) -->
+        <!-- Threshold slider — non-linear discrete steps (0.5–50 mm/h).
+             Fine resolution at low values where 1→2 mm/h matters;
+             coarser at high values where 30→35 is nearly irrelevant. -->
         <div class="flex items-center gap-2">
           <span class="text-xs text-gray-400 flex-shrink-0">Threshold</span>
-          <!-- Bind input event to update the live label, but only fire the
-               heavy reload on `change` (slider release) so we don't flood
-               the backend while the user is still picking a value. -->
           <input
             type="range"
-            :value="ensembleThreshold"
-            @input="ensembleThreshold = parseFloat($event.target.value)"
+            :value="thresholdIndex(ensembleThreshold)"
+            @input="ensembleThreshold = THRESHOLD_STEPS[parseInt($event.target.value)]"
             @change="onThresholdCommit"
             min="0"
-            max="50"
-            step="0.5"
+            :max="THRESHOLD_STEPS.length - 1"
+            step="1"
             class="flex-1 accent-purple-500 cursor-pointer"
           />
           <span class="text-xs font-semibold text-purple-300 tabular-nums w-16 text-right">
-            {{ ensembleThreshold.toFixed(1) }} mm/h
+            {{ fmtThreshold(ensembleThreshold) }} mm/h
           </span>
         </div>
 
@@ -485,6 +484,61 @@
         </div>
       </div>
 
+      <!-- Motion field layer (AMV / LK) -->
+      <div class="p-4 space-y-2">
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Motion Field</h3>
+        <div class="bg-gray-800 rounded-lg p-3 space-y-2">
+          <!-- Source selector -->
+          <div class="flex items-center gap-1">
+            <button
+              v-for="mode in ['none', 'amv', 'lk']"
+              :key="mode"
+              @click="motionMode = mode"
+              :class="['flex-1 py-1 text-xs font-semibold rounded transition-colors',
+                       motionMode === mode
+                         ? 'bg-blue-500 text-white'
+                         : 'bg-gray-700 text-gray-400 hover:text-white']"
+            >{{ mode === 'none' ? 'None' : mode.toUpperCase() }}</button>
+            <svg v-if="motionLoading" class="animate-spin h-3 w-3 text-blue-400 flex-shrink-0 ml-1" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" />
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          </div>
+          <!-- LK display sub-controls -->
+          <template v-if="motionMode === 'lk'">
+            <div class="flex items-center gap-1">
+              <button
+                v-for="dm in ['particles', 'arrows', 'both']"
+                :key="dm"
+                @click="lkDisplayMode = dm"
+                :class="['flex-1 py-1 text-[10px] font-semibold rounded transition-colors capitalize',
+                         lkDisplayMode === dm
+                           ? 'bg-teal-600 text-white'
+                           : 'bg-gray-700 text-gray-400 hover:text-white']"
+              >{{ dm }}</button>
+            </div>
+            <div v-if="lkDisplayMode !== 'particles'" class="flex items-center gap-2">
+              <span class="text-gray-400 text-[10px] w-12 flex-shrink-0">Arrows</span>
+              <input
+                type="range" min="0" max="1" step="0.05"
+                v-model.number="lkArrowOpacity"
+                class="flex-1 h-1 accent-teal-400 cursor-pointer"
+              />
+              <span class="text-gray-400 text-[10px] w-8 text-right tabular-nums">
+                {{ Math.round(lkArrowOpacity * 100) }}%
+              </span>
+            </div>
+          </template>
+          <div v-if="motionMode !== 'none' && activeMotionTs" class="text-gray-500 text-[10px]">
+            {{ motionMode.toUpperCase() }}: {{ activeMotionTs.replace('T', ' ') }} UTC
+            <span v-if="motionMode === 'amv'" class="text-gray-600 ml-1">(20 min cadence)</span>
+          </div>
+          <div v-if="motionMode !== 'none' && !activeMotionTs && !motionLoading" class="text-amber-400 text-[10px]">
+            No {{ motionMode.toUpperCase() }} data for current time
+          </div>
+        </div>
+      </div>
+
       <!-- Info -->
       <div class="p-4">
         <p v-if="lastRefresh" class="text-[10px] text-gray-400">
@@ -497,12 +551,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import api from '../api.js'
 import { useConfigStore } from '../stores/config.js'
 import { useSettingsStore } from '../stores/settings.js'
 import RadarMap from '../components/RadarMap.vue'
 import ColorBar from '../components/ColorBar.vue'
+import { useMotionLayer } from '../composables/useMotionLayer.js'
 
 const configStore = useConfigStore()
 const settings = useSettingsStore()
@@ -539,6 +594,10 @@ const selectedModel = ref('')
 // Used to keep old predictions visible on the map while a new job is computing.
 const lastPredUrls = ref([])
 const frameIndex = ref(12)  // Start at index 12 = "0 min" (current time)
+
+// Radar availability per observed timestamp. Keyed "YYYY-MM-DDTHH:MM" for frames 0-12.
+// Forecast frames (13-24) have no availability data → markers shown grey.
+const radarStatuses = ref({})
 const playing = ref(false)
 const speed = ref(1)
 const latestSRI = ref(null)
@@ -552,13 +611,26 @@ const irOpacity = ref(0.75)
 // ---- Probabilistic ensemble ----
 const ensembleActive = ref(false)
 const ensembleModels = ref([])     // populated in onMounted once model list is loaded
-const ensembleThreshold = ref(2.0) // default: 2 mm/h
 const ensembleContours = ref(false) // dark contour overlay (off by default)
+
+// Non-linear threshold steps: fine resolution at low rain rates where 1→2 mm/h
+// matters a lot, coarser at high rates where 30→35 is nearly irrelevant.
+const THRESHOLD_STEPS = [0.5, 1, 1.5, 2, 3, 4, 5, 7.5, 10, 15, 20, 25, 30, 40, 50]
+const ensembleThreshold = ref(2)   // default: 2 mm/h (must be a value in THRESHOLD_STEPS)
+
+function fmtThreshold(v) {
+  return v % 1 === 0 ? String(v) : v.toFixed(1)
+}
+function thresholdIndex(v) {
+  const i = THRESHOLD_STEPS.indexOf(v)
+  return i !== -1 ? i : THRESHOLD_STEPS.reduce((best, s, i) =>
+    Math.abs(s - v) < Math.abs(THRESHOLD_STEPS[best] - v) ? i : best, 0)
+}
 
 // Probability colorbar legend: Oranges palette (matplotlib), ticks in percent.
 // Stays legible on dark, OSM, and satellite basemaps alike.
 const probLegend = computed(() => ({
-  unit: `P > ${ensembleThreshold.value.toFixed(1)} mm/h`,
+  unit: `P > ${fmtThreshold(ensembleThreshold.value)} mm/h`,
   thresholds: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
   colors: [
     'rgb(255,245,235)', 'rgb(254,230,206)', 'rgb(253,208,162)',
@@ -714,7 +786,7 @@ async function onMapClick(latlng) {
         // Header summary + per-model breakdown.
         const summary = `
           <div class="pi-row" style="margin-bottom:4px;">
-            <span class="pi-label">P &gt; ${thr.toFixed(1)} mm/h</span>
+            <span class="pi-label">P &gt; ${fmtThreshold(thr)} mm/h</span>
             <span class="pi-value" style="color:#fdba74;">
               ${probPct === null ? 'N/A' : probPct + '%'}
               ${valid.length ? `<span style="color:rgba(255,255,255,0.5);font-weight:400;">&nbsp;(${exceed.length}/${valid.length})</span>` : ''}
@@ -750,6 +822,22 @@ async function onMapClick(latlng) {
           </div>`
       }
       body = rowPixel + rowValue
+    }
+
+    const motion = sampleMotionAt(latlng.lat, latlng.lng)
+    if (motion) {
+      const label    = motion.source === 'amv' ? 'AMV' : 'LK'
+      const cardinals = ['N','NE','E','SE','S','SW','W','NW']
+      const cardinal  = cardinals[Math.round(motion.direction / 45) % 8]
+      body += `
+        <div class="pi-row" style="margin-top:6px;border-top:1px solid rgba(255,255,255,0.12);padding-top:4px;">
+          <span class="pi-label">${label} speed</span>
+          <span class="pi-value">${motion.speed_kmh.toFixed(1)} km/h</span>
+        </div>
+        <div class="pi-row">
+          <span class="pi-label">${label} dir</span>
+          <span class="pi-value">${Math.round(motion.direction)}° ${cardinal}</span>
+        </div>`
     }
 
     radarMap.value.showPopup(
@@ -814,6 +902,43 @@ const latestTimestampDisplay = computed(() => {
   if (!latestSRI.value?.latest_file) return null
   return formatSriFilename(latestSRI.value.latest_file)
 })
+
+// Returns the ISO "YYYY-MM-DDTHH:MM" key for a given frame index, or null.
+function frameTimestamp(idx) {
+  if (!latestTimestamp.value) return null
+  const baseDt = new Date(latestTimestamp.value)
+  const frameDt = new Date(baseDt.getTime() + (idx - 12) * 5 * 60000)
+  const p = n => String(n).padStart(2, '0')
+  return `${frameDt.getUTCFullYear()}-${p(frameDt.getUTCMonth()+1)}-${p(frameDt.getUTCDate())}T${p(frameDt.getUTCHours())}:${p(frameDt.getUTCMinutes())}`
+}
+
+// Fetch radar status for the observed window whenever the base timestamp changes.
+watch(latestTimestamp, async (ts) => {
+  if (!ts) return
+  const start = frameTimestamp(0)
+  const end   = frameTimestamp(12)
+  if (!start || !end) return
+  const result = await api.radarStatusRange(start, end).catch(() => ({ statuses: {} }))
+  radarStatuses.value = result.statuses ?? {}
+  // Re-apply to current frame if it's an observed frame
+  if (radarMap.value && frameIndex.value <= 12) {
+    const curTs = frameTimestamp(frameIndex.value)
+    radarMap.value.updateRadarStatus(curTs ? (radarStatuses.value[curTs] ?? null) : null)
+  }
+})
+
+// ---- Motion field layer (AMV / LK) ----
+// Declared here (after latestTimestamp) so the computed can safely reference it.
+const _motionCurrentTs = computed(() => {
+  if (!latestTimestamp.value) return ''
+  const baseDt = new Date(latestTimestamp.value)
+  const frameDt = new Date(baseDt.getTime() + (frameIndex.value - 12) * 5 * 60000)
+  const p = n => String(n).padStart(2, '0')
+  return `${frameDt.getUTCFullYear()}-${p(frameDt.getUTCMonth()+1)}-${p(frameDt.getUTCDate())}T${p(frameDt.getUTCHours())}:${p(frameDt.getUTCMinutes())}`
+})
+const { motionMode, motionLoading, activeMotionTs, lkDisplayMode, lkArrowOpacity,
+        sampleMotionAt } =
+  useMotionLayer(radarMap, _motionCurrentTs)
 
 // ---- Preload all 25 frames when model or timestamp changes ----
 
@@ -927,6 +1052,13 @@ watch(frameIndex, (newIdx) => {
   if (radarMap.value) {
     radarMap.value.showFrame(newIdx)
     if (irEnabled.value) radarMap.value.showAllAtFrame(newIdx)
+    // Forecast frames have no availability data → grey; observed frames use real status.
+    if (newIdx > 12) {
+      radarMap.value.updateRadarStatus(null)
+    } else {
+      const ts = frameTimestamp(newIdx)
+      radarMap.value.updateRadarStatus(ts ? (radarStatuses.value[ts] ?? null) : null)
+    }
   }
 })
 
@@ -949,6 +1081,11 @@ watch(irEnabled, async (enabled) => {
 watch(ensembleActive, () => { preloadAllFrames() })
 watch(ensembleModels, () => { preloadAllFrames() }, { deep: true })
 watch(ensembleContours, () => { if (ensembleActive.value) preloadAllFrames() })
+
+watch(sidebarOpen, async () => {
+  await nextTick()
+  radarMap.value?.invalidateSize()
+})
 
 // Threshold slider fires reload only on release (`change` event) — see the
 // onThresholdCommit handler below. The intermediate `input` events still

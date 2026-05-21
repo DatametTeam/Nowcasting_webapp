@@ -1,0 +1,369 @@
+/**
+ * useMotionLayer — shared composable for the AMV / LK wind layer.
+ *
+ * Handles fetch, cache, map-update, and WebSocket-driven refresh so that
+ * RealTimeView, NowcastingView and WR10View share identical behaviour.
+ *
+ * Usage:
+ *   const { motionMode, motionLoading, activeMotionTs, lkDisplayMode,
+ *           lkArrowOpacity, updateMotionLayer, fetchTimestamps }
+ *     = useMotionLayer(radarMap, currentTs)
+ *
+ * @param {Ref<object>}  radarMap   — ref to the RadarMap component instance
+ * @param {Ref<string>}  currentTs  — current radar timestamp "YYYY-MM-DDTHH:MM" (or "")
+ */
+
+import { ref, watch, onUnmounted, isRef } from 'vue'
+import api from '../api.js'
+
+const BASE_DELAY_MS = 1_000
+const MAX_DELAY_MS  = 30_000
+
+export function useMotionLayer(radarMap, currentTs, lookbackHours = ref(24)) {
+  // Normalise: accept either a plain number or a Ref<number>
+  const _lookbackHours = isRef(lookbackHours) ? lookbackHours : ref(lookbackHours)
+  // 'none' | 'amv' | 'lk'
+  const motionMode     = ref('none')
+  const motionLoading  = ref(false)
+  const activeMotionTs = ref('')
+
+  // LK display sub-mode — only relevant when motionMode === 'lk'
+  // 'particles' = animated leaflet-velocity only
+  // 'arrows'    = static PNG quiver overlay only
+  // 'both'      = both layers simultaneously
+  const lkDisplayMode  = ref('particles')
+  const lkArrowOpacity = ref(0.8)
+
+  const _state = {
+    amv: { timestamps: ref([]), cache: {} },
+    lk:  { timestamps: ref([]), cache: {} },
+  }
+
+  // ── API wrappers ────────────────────────────────────────────────────────────
+
+  // Add 1h buffer so files at the start of the radar window aren't excluded by the cutoff
+  // (cutoff = now − lookbackHours; a few minutes of drift can drop the oldest frames).
+  function _fetchTs(source) {
+    const hours = _lookbackHours.value + 1
+    return source === 'amv' ? api.windTimestamps(hours) : api.lkTimestamps(hours)
+  }
+  function _fetchData(source, ts) { return source === 'amv' ? api.windData(ts)     : api.lkData(ts) }
+
+  // ── Nearest timestamp lookup ────────────────────────────────────────────────
+
+  function _nearestTs(source, radarTs) {
+    if (!radarTs) return ''
+    const { timestamps, cache } = _state[source]
+    if (timestamps.value.length === 0) return ''
+    let best = ''
+    for (const ts of timestamps.value) {
+      if (ts > radarTs) break
+      if (cache[ts] !== null) best = ts
+    }
+    return best
+  }
+
+  // ── Apply current display mode to the map ──────────────────────────────────
+  // Called whenever activeMotionTs, lkDisplayMode, or lkArrowOpacity changes.
+
+  function _applyDisplayMode(target) {
+    if (!radarMap.value || !target) return
+    const source = motionMode.value
+    const data   = _state[source]?.cache[target]
+
+    const showParticles = source === 'amv' || lkDisplayMode.value !== 'arrows'
+    const showArrows    = source === 'lk'  && lkDisplayMode.value !== 'particles'
+
+    if (showParticles && data) {
+      radarMap.value.setWindLayer(data)
+    } else {
+      radarMap.value.clearWindLayer()
+    }
+
+    if (showArrows) {
+      radarMap.value.setLkImage(api.lkImageUrl(target), lkArrowOpacity.value)
+    } else {
+      radarMap.value.clearLkImage()
+    }
+  }
+
+  // ── Layer update ────────────────────────────────────────────────────────────
+
+  async function updateMotionLayer() {
+    if (motionMode.value === 'none' || !radarMap.value) return
+
+    const source      = motionMode.value
+    const radarTsShort = (currentTs.value || '').slice(0, 16)
+    const target      = _nearestTs(source, radarTsShort)
+
+    if (!target) {
+      radarMap.value.clearWindLayer()
+      radarMap.value.clearLkImage()
+      activeMotionTs.value = ''
+      return
+    }
+
+    // Target unchanged — re-apply display mode in case opacity/mode changed
+    if (target === activeMotionTs.value) {
+      _applyDisplayMode(target)
+      return
+    }
+
+    motionLoading.value = true
+    try {
+      const { cache } = _state[source]
+      if (!(target in cache)) {
+        cache[target] = await _fetchData(source, target).catch(() => null)
+      }
+      if (!cache[target]) {
+        radarMap.value.clearWindLayer()
+        radarMap.value.clearLkImage()
+        activeMotionTs.value = ''
+        return
+      }
+      _applyDisplayMode(target)
+      activeMotionTs.value = target
+    } catch (e) {
+      console.warn('Motion layer fetch failed:', e)
+      activeMotionTs.value = ''
+    } finally {
+      motionLoading.value = false
+    }
+  }
+
+  // ── Timestamp fetch ─────────────────────────────────────────────────────────
+
+  async function fetchTimestamps(source) {
+    if (!source || source === 'none') return
+    try {
+      const { timestamps } = _state[source]
+      const result = await _fetchTs(source)
+      timestamps.value = result.timestamps ?? []
+      // Only pre-warm caches when this source is the active mode.
+      // Without this guard, a WebSocket lk_updated notification triggers
+      // prefetchData + _prefetchImages even when motionMode is 'none',
+      // flooding the server with requests for every timestamp in the window.
+      if (motionMode.value === source) {
+        prefetchData(source)
+        // Only prefetch arrow images when arrows are actually displayed
+        if (source === 'lk' && lkDisplayMode.value !== 'particles') _prefetchImages()
+      }
+    } catch (e) {
+      console.warn(`Could not fetch ${source} timestamps:`, e)
+    }
+  }
+
+  // Fetch JSON data newest-first and in batches of 4 so that playback frames
+  // (always the most recent) are cached before the old history is fetched,
+  // and the browser's 6-conn-per-origin pool isn't saturated all at once.
+  function prefetchData(source, windowStartTs = '') {
+    if (!source || source === 'none') return
+    const { timestamps, cache } = _state[source]
+    // Newest-first: playback always starts from recent frames, so cache those first.
+    // Without this, fetching 200+ old timestamps fills the connection pool before
+    // the frames being played are even queued.
+    const toFetch = timestamps.value
+      .filter(ts => ts >= windowStartTs && !(ts in cache))
+      .slice()
+      .reverse()
+
+    // Batch to 4 concurrent requests — stays within Chrome's 6-conn-per-origin limit
+    // while leaving headroom for other API calls (radar images, etc.).
+    const CONCURRENCY = 4
+    let idx = 0
+    function runBatch() {
+      const batch = toFetch.slice(idx, idx + CONCURRENCY)
+      if (!batch.length) return
+      idx += CONCURRENCY
+      Promise.all(batch.map(ts =>
+        _fetchData(source, ts)
+          .then(data  => { cache[ts] = data })
+          .catch(() => { cache[ts] = null })
+      )).then(runBatch)
+    }
+    runBatch()
+  }
+
+  // Pre-warm the browser image cache for all LK PNGs (newest-first).
+  // By the time the user plays the timeline, most PNGs are already cached
+  // so setUrl() calls in setLkImage() are served from cache instantly.
+  function _prefetchImages() {
+    const { timestamps } = _state.lk
+    const toFetch = [...timestamps.value].reverse()
+    for (const ts of toFetch) {
+      const img = new Image()
+      img.src = api.lkImageUrl(ts)
+    }
+  }
+
+  // ── Watchers ────────────────────────────────────────────────────────────────
+
+  watch(motionMode, async (mode) => {
+    radarMap.value?.clearWindLayer()
+    radarMap.value?.clearLkImage()
+    activeMotionTs.value = ''
+
+    if (mode === 'none') return
+
+    motionLoading.value = true
+    try {
+      if (_state[mode].timestamps.value.length === 0) {
+        // fetchTimestamps now handles prefetchData + _prefetchImages internally
+        await fetchTimestamps(mode)
+      } else {
+        // Timestamps already fetched — still need to pre-warm caches for this mode
+        prefetchData(mode)
+        if (mode === 'lk' && lkDisplayMode.value !== 'particles') _prefetchImages()
+      }
+      await updateMotionLayer()
+    } finally {
+      motionLoading.value = false
+    }
+  })
+
+  watch(currentTs, () => {
+    if (motionMode.value !== 'none') updateMotionLayer()
+  })
+
+  // When the lookback window changes, re-fetch timestamps for the active source
+  // so the timeline reflects the new window without toggling the layer off/on.
+  watch(_lookbackHours, async () => {
+    if (motionMode.value === 'none') return
+    const source = motionMode.value
+    _state[source].cache = {}
+    // fetchTimestamps now handles prefetchData + _prefetchImages internally
+    await fetchTimestamps(source)
+    updateMotionLayer()
+  })
+
+  // Re-apply layers whenever the LK display sub-mode or arrow opacity changes
+  watch(lkDisplayMode, () => {
+    if (motionMode.value === 'lk' && activeMotionTs.value) {
+      _applyDisplayMode(activeMotionTs.value)
+    }
+  })
+
+  watch(lkArrowOpacity, () => {
+    if (motionMode.value === 'lk' && activeMotionTs.value && lkDisplayMode.value !== 'particles') {
+      radarMap.value?.setLkImage(api.lkImageUrl(activeMotionTs.value), lkArrowOpacity.value)
+    }
+  })
+
+  // ── WebSocket helpers ────────────────────────────────────────────────────────
+
+  function _makeWs(url, onMessage) {
+    let ws        = null
+    let retryDelay = BASE_DELAY_MS
+    let retryTimer = null
+    let stopped   = false
+
+    function connect() {
+      if (stopped) return
+      ws = new WebSocket(url())
+      ws.onmessage = async (event) => {
+        try { await onMessage(JSON.parse(event.data)) } catch { /* ignore */ }
+      }
+      ws.onopen  = () => { retryDelay = BASE_DELAY_MS }
+      ws.onclose = () => {
+        ws = null
+        if (!stopped) {
+          retryTimer = setTimeout(() => { retryTimer = null; connect() }, retryDelay)
+          retryDelay = Math.min(retryDelay * 2, MAX_DELAY_MS)
+        }
+      }
+      ws.onerror = () => { /* onclose fires next */ }
+    }
+
+    connect()
+    return () => {
+      stopped = true
+      if (retryTimer) { clearTimeout(retryTimer); retryTimer = null }
+      if (ws) { ws.onclose = null; ws.close(); ws = null }
+    }
+  }
+
+  // ── WebSocket: LK live updates ──────────────────────────────────────────────
+  // The cron script calls POST /api/lk/notify → broadcasts lk_updated here.
+  const _stopLkWs = _makeWs(
+    () => { const p = location.protocol === 'https:' ? 'wss' : 'ws'; return `${p}://${location.host}/api/lk/ws` },
+    async (msg) => {
+      if (msg.type !== 'lk_updated') return
+      _state.lk.cache = {}
+      await fetchTimestamps('lk')
+      if (motionMode.value === 'lk') {
+        activeMotionTs.value = ''
+        await updateMotionLayer()
+      }
+    }
+  )
+
+  // ── WebSocket: AMV live updates ─────────────────────────────────────────────
+  // ProductWatcherService detects new shapefiles in the AMV folder and
+  // broadcasts amv_ready via /api/wind/ws (AMV is downloaded, not computed,
+  // so there is no notify script — the folder watcher is the trigger).
+  const _stopAmvWs = _makeWs(
+    () => { const p = location.protocol === 'https:' ? 'wss' : 'ws'; return `${p}://${location.host}/api/wind/ws` },
+    async (msg) => {
+      if (msg.type !== 'amv_ready') return
+      _state.amv.cache = {}
+      await fetchTimestamps('amv')
+      if (motionMode.value === 'amv') {
+        activeMotionTs.value = ''
+        await updateMotionLayer()
+      }
+    }
+  )
+
+  onUnmounted(() => {
+    _stopLkWs()
+    _stopAmvWs()
+  })
+
+  // ── Motion sampling (for map-click popups) ──────────────────────────────────
+  // Returns { speed_ms, speed_kmh, direction_deg, source } for the grid cell
+  // nearest to (lat, lng), or null if no motion layer is active / out of grid.
+
+  function sampleMotionAt(lat, lng) {
+    const source = motionMode.value
+    if (source === 'none') return null
+    const ts = activeMotionTs.value
+    if (!ts) return null
+    const data = _state[source]?.cache[ts]
+    if (!data || !Array.isArray(data) || data.length < 2) return null
+
+    const hdr = data[0].header
+    const { lo1, la1, nx, ny, dx, dy } = hdr
+    if (!dx || !dy) return null
+
+    const ci = Math.round((lng - lo1) / dx)
+    const ri = Math.round((la1 - lat) / dy)   // la1 = northernmost row → ri increases southward
+
+    if (ci < 0 || ci >= nx || ri < 0 || ri >= ny) return null
+
+    const idx = ri * nx + ci
+    const u = data[0].data[idx]
+    const v = data[1].data[idx]
+
+    if (!Number.isFinite(u) || !Number.isFinite(v)) return null
+
+    const speed_ms  = Math.sqrt(u * u + v * v)
+    // Direction toward: 0°=N, 90°=E (clockwise from north)
+    const direction = (Math.atan2(u, v) * 180 / Math.PI + 360) % 360
+
+    return { speed_ms, speed_kmh: speed_ms * 3.6, direction, source }
+  }
+
+  // ── Exposed ─────────────────────────────────────────────────────────────────
+
+  return {
+    motionMode,
+    motionLoading,
+    activeMotionTs,
+    lkDisplayMode,
+    lkArrowOpacity,
+    updateMotionLayer,
+    fetchTimestamps,
+    prefetchData,
+    sampleMotionAt,
+  }
+}

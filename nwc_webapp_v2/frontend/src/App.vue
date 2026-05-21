@@ -24,12 +24,18 @@
               v-for="item in navItems"
               :key="item.path"
               :to="item.path"
-              class="px-2 sm:px-4 py-1.5 sm:py-2 rounded-md text-xs sm:text-sm font-medium transition-colors duration-150 whitespace-nowrap flex-shrink-0"
-              :class="isActive(item.path)
-                ? 'bg-white/20 text-white'
-                : 'text-white/70 hover:bg-white/10 hover:text-white'"
+              class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors duration-150 flex-shrink-0 flex items-center justify-center text-center"
+              :class="[
+                item.lines ? '' : 'whitespace-nowrap',
+                isActive(item.path)
+                  ? 'bg-white/20 text-white'
+                  : 'text-white/70 hover:bg-white/10 hover:text-white'
+              ]"
             >
-              {{ item.label }}
+              <span v-if="item.lines" class="flex flex-col items-center leading-tight">
+                <span v-for="line in item.lines" :key="line">{{ line }}</span>
+              </span>
+              <template v-else>{{ item.label }}</template>
             </router-link>
           </div>
 
@@ -212,12 +218,15 @@ const BASE_LAYERS = ['Dark', 'OpenStreetMap', 'Satellite', 'Terrain']
 const settingsOpen = ref(false)
 
 const ALL_TABS = [
-  { key: 'realtime',   path: '/realtime',   label: 'Real Time' },
-  { key: 'nowcasting', path: '/nowcasting', label: 'Nowcasting' },
-  { key: 'wr10',       path: '/wr10',       label: 'WR10' },
-  { key: 'explorer',   path: '/explorer',   label: 'Data Explorer' },
-  { key: 'comparison', path: '/comparison', label: 'Model Comparison' },
-  { key: 'metrics',    path: '/metrics',    label: 'Metrics Analysis' },
+  { key: 'realtime',    path: '/realtime',      label: 'Real Time' },
+  { key: 'nowcasting',  path: '/nowcasting',    label: 'Nowcasting' },
+  { key: 'wr10',        path: '/wr10',           label: 'WR10' },
+  { key: 'wr10explorer',path: '/wr10-explorer',  label: 'WR10 Explorer' },
+  { key: 'cagliari',   path: '/cagliari',        label: 'Cagliari X-band', lines: ['Cagliari', 'X-band'] },
+  { key: 'explorer',   path: '/explorer',        label: 'Data Explorer',   lines: ['Data', 'Explorer'] },
+  { key: 'comparison', path: '/comparison',      label: 'Model Comparison',lines: ['Model', 'Comparison'] },
+  { key: 'metrics',    path: '/metrics',         label: 'Metrics Analysis',lines: ['Metrics', 'Analysis'] },
+  { key: 'assessment', path: '/assessment',      label: 'RT Assessment',   lines: ['RT', 'Assessment'] },
 ]
 
 const navItems = computed(() =>

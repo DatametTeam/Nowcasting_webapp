@@ -138,8 +138,8 @@ export default {
   /**
    * Get available HDF5 timestamps for a radar product in a date range (max 48h).
    */
-  explorerTimestamps: (start, end, product = 'SRI_adj') =>
-    get(`/data/explorer/timestamps?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&product=${product}`),
+  explorerTimestamps: (start, end, product = 'SRI_adj', from = '') =>
+    get(`/data/explorer/timestamps?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&product=${product}${from ? `&_from=${from}` : ''}`),
 
   /**
    * Returns the URL for a product overlay at a given timestamp.
@@ -194,8 +194,14 @@ export default {
     postBlob('/metrics/fit-diagram', { models, pod_values, far_values, csi_values, threshold }),
 
   // --- Wind / AMV ---
-  windTimestamps: () => get('/wind/timestamps'),
+  windTimestamps: (hours = 24) => get(`/wind/timestamps?lookback_hours=${hours}`),
   windData: (timestamp) => get(`/wind/data?timestamp=${encodeURIComponent(timestamp)}`),
+
+  // --- LK optical flow ---
+  lkTimestamps: (hours = 24) => get(`/lk/timestamps?lookback_hours=${hours}`),
+  lkData: (timestamp) => get(`/lk/data?timestamp=${encodeURIComponent(timestamp)}`),
+  // URL (not a fetch) — used as ImageOverlay src and for browser cache pre-warming
+  lkImageUrl: (timestamp) => `/api/lk/image?timestamp=${encodeURIComponent(timestamp)}`,
 
   // --- WR10 small radar ---
   wr10Config: () => get('/wr10/config'),
@@ -205,4 +211,33 @@ export default {
     `/api/render/overlay/wr10/${encodeURIComponent(timestamp)}?product=${product}`,
   wr10SamplePixel: ({ lat, lon, timestamp, products }) =>
     get(`/wr10/sample?lat=${lat}&lon=${lon}&timestamp=${encodeURIComponent(timestamp)}&products=${products.join(',')}`),
+
+  // --- Cagliari X-band radar ---
+  cagliariConfig: () => get('/cagliari/config'),
+  cagliariTimestamps: (product, lookbackMinutes, idx = null) =>
+    get(`/cagliari/timestamps?product=${product}&lookback_minutes=${lookbackMinutes}${idx ? `&idx=${idx}` : ''}`),
+  cagliariOverlayUrl: (timestamp, product, idx = null) =>
+    `/api/render/overlay/cagliari/${encodeURIComponent(timestamp)}?product=${product}${idx ? `&idx=${idx}` : ''}`,
+  cagliariSamplePixel: ({ lat, lon, timestamp, products, ppiIdx = null }) =>
+    get(`/cagliari/sample?lat=${lat}&lon=${lon}&timestamp=${encodeURIComponent(timestamp)}&products=${products.join(',')}${ppiIdx ? `&ppi_idx=${ppiIdx}` : ''}`),
+
+  // --- WR10 Explorer (date-range, including PPI) ---
+  wr10ExplorerTimestamps: (start, end, products = 'VMI,SRI,PPI') =>
+    get(`/wr10/explorer/timestamps?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&products=${products}`),
+  wr10PpiOverlayUrl: (timestamp, elevation, correction) =>
+    `/api/render/overlay/wr10/${encodeURIComponent(timestamp)}?product=PPI&elevation=${elevation}&correction=${correction}`,
+
+  // --- FSS real-time assessment ---
+  fssRecent: (scale = 5, hours = 24) =>
+    get(`/fss/recent?scale=${scale}&hours=${hours}`),
+  fssDaily: (scale = 5, days = 60) =>
+    get(`/fss/daily?scale=${scale}&days=${days}`),
+
+  // --- Radar availability status ---
+  /**
+   * Return active radar sites for every status file in [start, end].
+   * Response: { statuses: { "YYYY-MM-DDTHH:MM": ["BRIC", "ARMIDDA", ...], ... } }
+   */
+  radarStatusRange: (start, end) =>
+    get(`/radar-status/range?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`),
 }

@@ -1,12 +1,13 @@
 <!--
-  WR10View.vue — Real-time monitor for the WR10 small X-band radar.
+  CagliariView.vue — Real-time monitor for the Cagliari X-band radar.
 
-  Shows SRI and VMI products from the local WR10 radar for a rolling lookback
-  window.  Auto-loads on mount, polls every 5 minutes for new data, and also
-  receives instant push notifications via WebSocket (/api/wr10/ws).
+  Shows RR (rain rate) and CZ (corrected reflectivity) products from the
+  Cagliari radar for a rolling lookback window.  Auto-loads on mount, polls
+  every 5 minutes for new data, and also receives instant push notifications
+  via WebSocket (/api/cagliari/ws).
 
-  Architecture mirrors RealTimeView but is simpler: no model predictions,
-  no complex search-window logic — just watch the folder and show what's there.
+  Architecture is identical to WR10View: no model predictions, just folder-
+  watching and map display.
 -->
 <template>
   <div class="h-[calc(100dvh-3rem)] sm:h-[calc(100vh-3.5rem)] flex overflow-hidden">
@@ -40,7 +41,7 @@
         <span class="text-sm font-medium hidden sm:inline">Menu</span>
       </button>
 
-      <!-- Loading indicator — visible on the map when sidebar is closed -->
+      <!-- Loading indicator -->
       <div
         v-if="isLoading && !sidebarOpen"
         class="absolute top-14 right-3 z-[1000] flex items-center gap-2 px-3 h-9 rounded-full
@@ -176,7 +177,7 @@
 
           <!-- Title -->
           <div class="pt-1">
-            <h2 class="text-white font-bold text-base">WR10 Radar</h2>
+            <h2 class="text-white font-bold text-base">Cagliari X-band</h2>
             <p class="text-gray-400 text-xs mt-0.5">Local X-band radar monitor</p>
           </div>
 
@@ -259,9 +260,9 @@
 
           <!-- Layers -->
           <div class="space-y-2">
-            <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">WR10 Layers</h3>
+            <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Cagliari Layers</h3>
             <div
-              v-for="product in WR10_PRODUCTS"
+              v-for="product in CAGLIARI_PRODUCTS"
               :key="product"
               class="bg-gray-800 rounded-lg p-3 space-y-2"
             >
@@ -281,6 +282,18 @@
               </div>
               <div v-if="productFrameCount[product] > 0" class="text-xs text-green-400">
                 {{ productFrameCount[product] }} frames
+              </div>
+              <!-- PPI elevation selector -->
+              <div v-if="product === 'PPI'" class="flex gap-1">
+                <button
+                  v-for="elev in PPI_ELEVATIONS"
+                  :key="elev"
+                  @click="changePpiElevation(elev)"
+                  class="flex-1 py-1 text-xs font-semibold rounded transition-colors"
+                  :class="selectedPpiIdx === elev
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-700 text-gray-400 hover:text-white'"
+                >{{ ppiLabel(elev) }}</button>
               </div>
               <div class="flex items-center gap-2">
                 <span class="text-gray-400 text-xs w-12 flex-shrink-0">Opacity</span>
@@ -337,7 +350,6 @@
           <div class="space-y-2">
             <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Motion Field</h3>
             <div class="bg-gray-800 rounded-lg p-3 space-y-2">
-              <!-- Source selector -->
               <div class="flex items-center gap-1">
                 <button
                   v-for="mode in ['none', 'amv', 'lk']"
@@ -353,7 +365,6 @@
                   <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
               </div>
-              <!-- LK display sub-controls -->
               <template v-if="motionMode === 'lk'">
                 <div class="flex items-center gap-1">
                   <button
@@ -391,8 +402,8 @@
           <!-- Radar info -->
           <div class="bg-gray-800 rounded-lg p-3 space-y-1 text-xs text-gray-400">
             <p class="font-semibold text-gray-300">Radar Info</p>
-            <p>Type: X-band (WR10)</p>
-            <p>Range: 72 km</p>
+            <p>Type: X-band (Cagliari)</p>
+            <p>Range: 60 km</p>
             <p v-if="overlayBounds">
               Lat {{ overlayBounds[0][0].toFixed(2) }}° – {{ overlayBounds[1][0].toFixed(2) }}°
             </p>
@@ -414,32 +425,40 @@ import RadarMap from '../components/RadarMap.vue'
 import ColorBar from '../components/ColorBar.vue'
 import { useSettingsStore } from '../stores/settings.js'
 import { useConfigStore } from '../stores/config.js'
-import { useWr10Ws } from '../composables/useWr10Ws.js'
+import { useCagliariWs } from '../composables/useCagliariWs.js'
 import { useMotionLayer } from '../composables/useMotionLayer.js'
 import api from '../api.js'
 
-const settings  = useSettingsStore()
+const settings    = useSettingsStore()
 const configStore = useConfigStore()
 
 // ---- Products ----
-// WR10_PRODUCTS: local X-band radar (WR10 bounds)
-// MOSAIC_PRODUCTS: national mosaic from HDF files (Italy bounds)
-const WR10_PRODUCTS    = ['SRI', 'VMI']
-const MOSAIC_PRODUCTS  = ['SRI_MOSAIC', 'VMI_MOSAIC']
-const PRODUCTS         = [...WR10_PRODUCTS, ...MOSAIC_PRODUCTS]
+const CAGLIARI_PRODUCTS = ['RR', 'CZ', 'OZ', 'PPI']
+const MOSAIC_PRODUCTS   = ['SRI_MOSAIC', 'VMI_MOSAIC']
+const PRODUCTS          = [...CAGLIARI_PRODUCTS, ...MOSAIC_PRODUCTS]
 
-// Maps each mosaic layer key to the product name used by the groundtruth endpoint
 const MOSAIC_API_PRODUCT = { SRI_MOSAIC: 'SRI_adj', VMI_MOSAIC: 'VMI' }
 
-// Display labels for the timeline and layer headings
-const PRODUCT_LABELS = { SRI: 'SRI', VMI: 'VMI', SRI_MOSAIC: 'SRI Mosaic', VMI_MOSAIC: 'VMI Mosaic' }
+const PRODUCT_LABELS = {
+  RR: 'Rain Rate', CZ: 'Reflectivity', OZ: 'CAPPI', PPI: 'PPI',
+  SRI_MOSAIC: 'SRI Mosaic', VMI_MOSAIC: 'VMI Mosaic',
+}
 
-// National mosaic overlay bounds (same as the full Italian radar composite)
 const ITALY_BOUNDS = [[35.0623, 4.51987], [47.5730, 20.4801]]
 
+// ---- PPI elevation selector ----
+const PPI_ELEVATIONS = ['801', '802', '803', '804', '805']
+const selectedPpiIdx = ref('801')
+
+function ppiLabel(idx) {
+  return `E${parseInt(idx) - 800}`
+}
+
 const layerConfig = ref({
-  SRI:       { enabled: false, opacity: 0.8 },
-  VMI:       { enabled: true,  opacity: 1.0 },
+  RR:         { enabled: false, opacity: 0.8 },
+  CZ:         { enabled: true,  opacity: 1.0 },
+  OZ:         { enabled: false, opacity: 1.0 },
+  PPI:        { enabled: false, opacity: 1.0 },
   SRI_MOSAIC: { enabled: false, opacity: 0.7 },
   VMI_MOSAIC: { enabled: false, opacity: 0.7 },
 })
@@ -448,9 +467,7 @@ const visibleProducts = computed(() =>
   PRODUCTS.filter(p => layerConfig.value[p].enabled)
 )
 
-// SRI and SRI_MOSAIC share the same colormap; same for VMI/VMI_MOSAIC.
-// Show at most one colorbar per colormap type.
-const COLORBAR_PRODUCT = { SRI: 'SRI', VMI: 'VMI', SRI_MOSAIC: 'SRI', VMI_MOSAIC: 'VMI' }
+const COLORBAR_PRODUCT = { RR: 'RR', CZ: 'CZ', OZ: 'CZ', PPI: 'CZ', SRI_MOSAIC: 'RR', VMI_MOSAIC: 'CZ' }
 const colorbarsToShow = computed(() => {
   const seen = new Set()
   const result = []
@@ -461,19 +478,19 @@ const colorbarsToShow = computed(() => {
   return result
 })
 
-const productMeta     = ref({})    // { SRI: { legend, label, unit }, … }
-const productFrameCount = ref({ SRI: 0, VMI: 0, SRI_MOSAIC: 0, VMI_MOSAIC: 0 })
+const productMeta      = ref({})
+const productFrameCount = ref({ RR: 0, CZ: 0, OZ: 0, PPI: 0, SRI_MOSAIC: 0, VMI_MOSAIC: 0 })
 
 // ---- Map ----
-const radarMap     = ref(null)
-const radarCenter  = ref([41.842, 12.647])
-const radarZoom    = ref(10)
-const overlayBounds = ref(null)  // [[lat_sw, lon_sw], [lat_ne, lon_ne]]
+const radarMap      = ref(null)
+const radarCenter   = ref([39.271488, 9.122883])
+const radarZoom     = ref(10)
+const overlayBounds = ref(null)
 
 // ---- Timeline ----
-const timestamps  = ref([])
-const frameIndex  = ref(0)
-const isLoaded    = ref(false)
+const timestamps = ref([])
+const frameIndex = ref(0)
+const isLoaded   = ref(false)
 
 // ---- Lookback ----
 const lookbackHours = ref(settings.defaultLookback ?? 1)
@@ -483,9 +500,9 @@ const _motionCurrentTs = computed(() => (timestamps.value[frameIndex.value] ?? '
 const { motionMode, motionLoading, activeMotionTs, lkDisplayMode, lkArrowOpacity,
         sampleMotionAt } =
   useMotionLayer(radarMap, _motionCurrentTs, lookbackHours)
-const isLoading   = ref(false)
-const loadError   = ref('')
-const followLive  = ref(true)
+const isLoading  = ref(false)
+const loadError  = ref('')
+const followLive = ref(true)
 
 // ---- Playback ----
 const SPEEDS    = [0.5, 1, 2, 4]
@@ -550,9 +567,8 @@ const hourTicks = computed(() => {
 })
 
 // ---- WebSocket ----
-const { connected: wsConnected } = useWr10Ws({
-  onWr10Update: (data) => {
-    // New file arrived — reload immediately instead of waiting for the next 5-min tick
+const { connected: wsConnected } = useCagliariWs({
+  onCagliariUpdate: () => {
     if (!isLoading.value) loadData()
   },
 })
@@ -564,7 +580,6 @@ function _scheduleNextPoll() {
   clearTimeout(_pollTimer)
   const now = new Date()
   const msToNextMark = (5 * 60 * 1000) - ((now.getMinutes() % 5) * 60 + now.getSeconds()) * 1000 - now.getMilliseconds()
-  // Add a small grace delay so the file has time to finish writing
   const delay = msToNextMark + 15_000
   _pollTimer = setTimeout(async () => {
     await loadData()
@@ -573,12 +588,6 @@ function _scheduleNextPoll() {
 }
 
 // ---- Helpers ----
-
-/**
- * Given a sorted array of ISO timestamps and a target ISO timestamp,
- * return the largest element that is <= target, or null if none exists.
- * Used to snap each WR10 slot to the closest previous mosaic frame.
- */
 function findPreviousOrEqualTs(sortedTs, target) {
   let lo = 0, hi = sortedTs.length - 1, result = null
   while (lo <= hi) {
@@ -597,22 +606,18 @@ async function loadData() {
   try {
     const lookbackMinutes = lookbackHours.value * 60
 
-    // WR10 timestamps — these drive the timeline slider
-    const wr10Results = await Promise.all(
-      WR10_PRODUCTS.map(product =>
-        api.wr10Timestamps(product, lookbackMinutes).catch(err => {
-          console.error(`[WR10View] WR10 timestamps failed for ${product}:`, err)
+    const cagliariResults = await Promise.all(
+      CAGLIARI_PRODUCTS.map(product =>
+        api.cagliariTimestamps(
+          product, lookbackMinutes,
+          product === 'PPI' ? selectedPpiIdx.value : null
+        ).catch(err => {
+          console.error(`[CagliariView] timestamps failed for ${product}:`, err)
           return { timestamps: [], total: 0 }
         })
       )
     )
 
-    // Mosaic timestamps — fetch a slightly extended window (+15 min) so the oldest
-    // WR10 slot always has a previous mosaic frame to snap to.
-    // IMPORTANT: floor start to the nearest 5-minute mark so the backend's
-    // "generate expected timestamps at +5min steps" sequence lands on actual
-    // HDF filenames (DD-MM-YYYY-HH-MM.hdf).  An un-aligned start like 14:07
-    // generates 14:07, 14:12, 14:17 … which never matches files at 14:05, 14:10 …
     const now = new Date()
     const MOSAIC_EXTRA_MIN = 15
     const mosaicStart = new Date(now - (lookbackMinutes + MOSAIC_EXTRA_MIN) * 60 * 1000)
@@ -621,20 +626,19 @@ async function loadData() {
     const endISO   = now.toISOString().slice(0, 16)
     const mosaicResults = await Promise.all(
       MOSAIC_PRODUCTS.map(product =>
-        api.explorerTimestamps(startISO, endISO, MOSAIC_API_PRODUCT[product], 'wr10-mosaic').catch(err => {
-          console.error(`[WR10View] mosaic timestamps failed for ${product}:`, err)
+        api.explorerTimestamps(startISO, endISO, MOSAIC_API_PRODUCT[product], 'cagliari-mosaic').catch(err => {
+          console.error(`[CagliariView] mosaic timestamps failed for ${product}:`, err)
           return { timestamps: [], total_found: 0 }
         })
       )
     )
 
-    // Timeline is driven by WR10 only — union of SRI + VMI WR10 timestamps
     const tsSet = new Set()
-    wr10Results.forEach(r => r.timestamps.forEach(ts => tsSet.add(ts)))
+    cagliariResults.forEach(r => r.timestamps.forEach(ts => tsSet.add(ts)))
     const sortedTs = Array.from(tsSet).sort()
 
     if (sortedTs.length === 0) {
-      loadError.value = 'No WR10 data found in the selected window.'
+      loadError.value = 'No Cagliari data found in the selected window.'
       isLoaded.value = false
       return
     }
@@ -645,30 +649,25 @@ async function loadData() {
 
     timestamps.value = sortedTs
 
-    // Track frame counts per product
-    wr10Results.forEach((r, i) => {
-      productFrameCount.value[WR10_PRODUCTS[i]] = r.total
+    cagliariResults.forEach((r, i) => {
+      productFrameCount.value[CAGLIARI_PRODUCTS[i]] = r.total
     })
     mosaicResults.forEach((r, i) => {
       productFrameCount.value[MOSAIC_PRODUCTS[i]] = r.total_found ?? r.total ?? 0
     })
 
-    // Load overlays — WR10 layers with WR10 bounds, mosaic layers with Italy bounds.
-    // For each WR10 slot, the mosaic layer shows the closest previous mosaic frame
-    // (same frame repeats until the next mosaic timestamp arrives).
     radarMap.value?.clearAllProducts()
-    const wr10Bounds = overlayBounds.value || undefined
+    const cagBounds = overlayBounds.value || undefined
 
     await Promise.all([
-      // WR10 products — one URL per WR10 timestamp (null if that product lacks the slot)
-      ...WR10_PRODUCTS.map(async (product, i) => {
-        const found = new Set(wr10Results[i].timestamps)
-        const urls  = sortedTs.map(ts => found.has(ts) ? api.wr10OverlayUrl(ts, product) : null)
-        await radarMap.value?.loadProductFrames(product, urls, layerConfig.value[product].opacity, wr10Bounds)
+      ...CAGLIARI_PRODUCTS.map(async (product, i) => {
+        const found = new Set(cagliariResults[i].timestamps)
+        const ppiIdx = product === 'PPI' ? selectedPpiIdx.value : null
+        const urls   = sortedTs.map(ts => found.has(ts) ? api.cagliariOverlayUrl(ts, product, ppiIdx) : null)
+        await radarMap.value?.loadProductFrames(product, urls, layerConfig.value[product].opacity, cagBounds)
       }),
-      // Mosaic products — snap each WR10 slot to the closest previous mosaic timestamp
       ...MOSAIC_PRODUCTS.map(async (product, i) => {
-        const apiProduct  = MOSAIC_API_PRODUCT[product]
+        const apiProduct   = MOSAIC_API_PRODUCT[product]
         const mosaicSorted = [...mosaicResults[i].timestamps].sort()
         const urls = sortedTs.map(ts => {
           const closest = findPreviousOrEqualTs(mosaicSorted, ts)
@@ -689,7 +688,7 @@ async function loadData() {
     }
 
   } catch (e) {
-    console.error('[WR10View] loadData error:', e)
+    console.error('[CagliariView] loadData error:', e)
     loadError.value = e.message || 'Unknown error'
   } finally {
     isLoading.value = false
@@ -713,7 +712,6 @@ function goToLatest() {
   if (timestamps.value.length > 0) goToFrame(timestamps.value.length - 1)
 }
 
-// Re-render current frame when layer visibility/opacity changes
 watch(layerConfig, () => {
   if (!isLoaded.value || timestamps.value.length === 0) return
   goToFrame(frameIndex.value)
@@ -724,7 +722,6 @@ watch(sidebarOpen, async () => {
   radarMap.value?.invalidateSize()
 })
 
-// ---- Lookback change ----
 async function setLookback(hours) {
   if (isLoading.value) return
   if (hours === lookbackHours.value && isLoaded.value) return
@@ -733,13 +730,27 @@ async function setLookback(hours) {
   await loadData()
 }
 
-// ---- Slider ----
+async function changePpiElevation(idx) {
+  if (idx === selectedPpiIdx.value) return
+  selectedPpiIdx.value = idx
+  if (!isLoaded.value) return
+
+  const lookbackMinutes = lookbackHours.value * 60
+  const ppiResult = await api.cagliariTimestamps('PPI', lookbackMinutes, idx)
+    .catch(() => ({ timestamps: [], total: 0 }))
+  productFrameCount.value.PPI = ppiResult.total
+
+  const found = new Set(ppiResult.timestamps)
+  const urls  = timestamps.value.map(ts => found.has(ts) ? api.cagliariOverlayUrl(ts, 'PPI', idx) : null)
+  await radarMap.value?.loadProductFrames('PPI', urls, layerConfig.value.PPI.opacity, overlayBounds.value || undefined)
+  goToFrame(frameIndex.value)
+}
+
 function onSliderInput(e) {
   goToFrame(parseInt(e.target.value))
   followLive.value = false
 }
 
-// ---- Animation ----
 function togglePlay() {
   isPlaying.value ? stopAnimation() : startAnimation()
 }
@@ -777,9 +788,9 @@ async function onMapClick(latlng) {
   const ts = timestamps.value[frameIndex.value]
   if (!ts) return
 
-  const enabledWr10    = WR10_PRODUCTS.filter(p => layerConfig.value[p].enabled)
-  const enabledMosaic  = MOSAIC_PRODUCTS.filter(p => layerConfig.value[p].enabled)
-  if (enabledWr10.length === 0 && enabledMosaic.length === 0) return
+  const enabledCagliari = CAGLIARI_PRODUCTS.filter(p => layerConfig.value[p].enabled)
+  const enabledMosaic   = MOSAIC_PRODUCTS.filter(p => layerConfig.value[p].enabled)
+  if (enabledCagliari.length === 0 && enabledMosaic.length === 0) return
 
   const tzLabel = settings.timeZone === 'utc' ? 'UTC' : 'Local'
   radarMap.value.showPopup(latlng, `
@@ -788,10 +799,12 @@ async function onMapClick(latlng) {
   `)
 
   try {
-    // Run both sampling calls in parallel (skipping if no enabled products)
-    const [wr10Data, mosaicData] = await Promise.all([
-      enabledWr10.length > 0
-        ? api.wr10SamplePixel({ lat: latlng.lat, lon: latlng.lng, timestamp: ts, products: enabledWr10 })
+    const [cagData, mosaicData] = await Promise.all([
+      enabledCagliari.length > 0
+        ? api.cagliariSamplePixel({
+            lat: latlng.lat, lon: latlng.lng, timestamp: ts, products: enabledCagliari,
+            ppiIdx: enabledCagliari.includes('PPI') ? selectedPpiIdx.value : null,
+          })
         : Promise.resolve(null),
       enabledMosaic.length > 0
         ? api.samplePixel({
@@ -805,18 +818,17 @@ async function onMapClick(latlng) {
 
     let body = ''
 
-    // WR10 section
-    if (wr10Data) {
-      if (!wr10Data.in_bounds) {
-        body += `<div class="pi-row"><span class="pi-label">WR10: outside coverage</span></div>`
+    if (cagData) {
+      if (!cagData.in_bounds) {
+        body += `<div class="pi-row"><span class="pi-label">Cagliari: outside coverage</span></div>`
       } else {
         body += `
           <div class="pi-row" style="margin-bottom:4px;">
             <span class="pi-label">range / az</span>
-            <span class="pi-value">${wr10Data.range_km} km / ${wr10Data.azimuth_deg}°</span>
+            <span class="pi-value">${cagData.range_km} km / ${cagData.azimuth_deg}°</span>
           </div>`
-        for (const p of enabledWr10) {
-          const v = wr10Data.values?.[p]
+        for (const p of enabledCagliari) {
+          const v = cagData.values?.[p]
           const u = productMeta.value[p]?.unit || ''
           body += `
             <div class="pi-row">
@@ -827,7 +839,6 @@ async function onMapClick(latlng) {
       }
     }
 
-    // Mosaic section
     if (mosaicData) {
       if (!mosaicData.in_bounds) {
         body += `<div class="pi-row"><span class="pi-label">Mosaic: outside coverage</span></div>`
@@ -873,32 +884,25 @@ async function onMapClick(latlng) {
 
 // ---- Lifecycle ----
 onMounted(async () => {
-  // Block the WebSocket handler from triggering a loadData() while we are
-  // still fetching the WR10 config.  Without this, a WS notification arriving
-  // during the config fetch starts a concurrent load (isLoading is still false
-  // at that point), and the two calls race on clearAllProducts/productGenerations,
-  // leaving stale removed-from-map layers in productLayerMap.
   isLoading.value = true
 
   try {
-    const cfg = await api.wr10Config()
+    const cfg = await api.cagliariConfig()
     radarCenter.value   = cfg.center
     radarZoom.value     = cfg.zoom ?? 10
     overlayBounds.value = cfg.overlay_bounds
     productMeta.value   = cfg.products ?? {}
   } catch (e) {
-    console.warn('[WR10View] Failed to fetch config, using defaults:', e)
+    console.warn('[CagliariView] Failed to fetch config, using defaults:', e)
   }
 
-  // Add metadata for mosaic layers (reuse WR10 legends since they share the same products)
   productMeta.value['SRI_MOSAIC'] = { unit: 'mm/h', legend: 'R',  label: 'SRI Mosaic', thresholds: [], colors: [] }
   productMeta.value['VMI_MOSAIC'] = { unit: 'dBZ',  legend: 'CZ', label: 'VMI Mosaic', thresholds: [], colors: [] }
 
   isLoading.value = false
   await loadData()
-  // Mark the WR10 radar position as always active — it's the local sensor this view shows.
-  const [wLat, wLon] = radarCenter.value
-  radarMap.value?.addFixedMarker(wLat, wLon, 'active', 'WR10 — X-band radar')
+  const [cLat, cLon] = radarCenter.value
+  radarMap.value?.addFixedMarker(cLat, cLon, 'active', 'Cagliari — X-band radar')
   _scheduleNextPoll()
 })
 
@@ -909,7 +913,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* Timeline slider — identical to RealTimeView */
 .timeline-slider {
   background: rgba(255, 255, 255, 0.2);
 }

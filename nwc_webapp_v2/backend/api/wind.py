@@ -20,17 +20,20 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
+
+from ws.manager import ConnectionManager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/wind", tags=["wind"])
+wind_ws_manager = ConnectionManager()
 
 # In-memory cache: timestamp string → velocity JSON list.
 # Populated on first request; lives for the lifetime of the server process.
@@ -141,19 +144,22 @@ def _shapefile_to_velocity(path: Path, ref_time: str) -> list[dict]:
 
 
 @router.get("/timestamps")
-async def get_wind_timestamps():
+async def get_wind_timestamps(
+    lookback_hours: int = Query(24, ge=1, le=720, description="Only return timestamps within this many hours"),
+):
     """
-    Return a sorted list of ISO timestamps for which AMV shapefiles exist.
-    Format: "YYYY-MM-DDTHH:MM" (UTC, no seconds — matches radar timestamp format).
+    Return a sorted list of ISO timestamps for which AMV shapefiles exist,
+    limited to the last `lookback_hours` hours.
     """
     folder = _amv_folder()
     if not folder or not folder.is_dir():
         return {"timestamps": []}
 
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=lookback_hours)
     result = []
     for shp in folder.glob("*.shp"):
         dt = _parse_filename(shp.name)
-        if dt is not None:
+        if dt is not None and dt >= cutoff:
             result.append(dt.strftime("%Y-%m-%dT%H:%M"))
 
     result.sort()
@@ -190,3 +196,26 @@ async def get_wind_data(timestamp: str):
             raise HTTPException(status_code=500, detail=f"Failed to process AMV file: {exc}")
 
     return JSONResponse(content=_velocity_cache[timestamp])
+
+
+@router.post("/notify")
+async def wind_notify():
+    """
+    Called by a cron/pipeline script after a new AMV shapefile is saved.
+    Broadcasts amv_ready to all connected WS clients.
+    """
+    ts = datetime.utcnow().isoformat()
+    _velocity_cache.clear()   # invalidate so next request reads fresh shapefile
+    await wind_ws_manager.broadcast({"type": "amv_ready", "ts": ts})
+    logger.info("AMV notify broadcast sent at %s", ts)
+    return {"ok": True, "ts": ts}
+
+
+@router.websocket("/ws")
+async def wind_websocket(websocket: WebSocket):
+    await wind_ws_manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        wind_ws_manager.disconnect(websocket)

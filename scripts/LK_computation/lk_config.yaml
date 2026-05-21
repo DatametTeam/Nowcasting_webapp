@@ -1,0 +1,88 @@
+# Lucas-Kanade optical flow computation configuration
+# All paths can be absolute or relative to this config file's directory.
+
+# ── Input data ──────────────────────────────────────────────────────────────
+data:
+  folder: "/data/SRI_adj"                # folder containing SRI HDF files
+  file_pattern: "%d-%m-%Y-%H-%M.hdf"    # strftime pattern for HDF filenames
+  hdf_key: "/dataset1/data1/data"        # dataset key inside each HDF file
+  product: "SRI"                         # label only (SRI or VMI)
+  n_frames: 7                            # 7 frames = 6 pairs; divisible by 2 and 3 so
+                                         # 10-min and 15-min radar oscillation cancels out
+  timestep_s: 300                        # seconds between frames (5 min)
+  scale_factor: 1.0                      # multiply raw HDF values by this
+  offset: 0.0                            # add this after scale_factor
+  duplicate_threshold: 0.05             # frames closer than this (mm/h max diff) are dropped
+
+# ── Preprocessing ────────────────────────────────────────────────────────────
+preprocessing:
+  threshold_mm_h: 0.1                    # values below this are set to zero (rain/no-rain mask)
+  log_transform: true                    # apply 10*log10(R + epsilon) before LK
+  log_epsilon: 0.01                      # avoids log(0); added before log transform
+  smoothing_sigma: 1.0                   # Gaussian blur sigma in pixels (0 = disabled)
+
+# ── Radar grid projection (Transverse Mercator) ──────────────────────────────
+# These match the values in src/nwc_webapp/geo/coordinates.py exactly.
+# pixel (row, col) → TM coords (meters):
+#   x_m = (col - xoff) * xres
+#   y_m = (row - yoff) * yres
+projection:
+  proj: "tmerc"
+  lat_0: 42.0
+  lon_0: 12.5
+  xoff: 600.0       # column offset (origin column in the TM grid)
+  xres: 1000.0      # meters per pixel in the column direction (east = positive)
+  yoff: 650.0       # row offset
+  yres: -1000.0     # meters per pixel in the row direction (negative = south = down)
+
+# ── Output lat/lon grid (same extent as the AMV layer) ───────────────────────
+# leaflet-velocity scans rows north → south, columns west → east.
+output_grid:
+  lo1: 4.5          # westernmost longitude
+  la1: 47.75        # northernmost latitude (row 0)
+  lo2: 19.5         # easternmost longitude
+  la2: 35.5         # southernmost latitude (last row)
+  nx: 60            # number of columns
+  ny: 50            # number of rows
+
+# ── Lucas-Kanade parameters (pysteps dense_lucaskanade) ──────────────────────
+lk:
+  fd_method: "shitomasi"   # feature detection: "shitomasi" or "harris"
+  nr_levels: 6             # pyramid levels (more = handles large displacements)
+  nr_iter: 15              # LK iterations per level
+  nr_features: 200         # max tracked feature points
+  max_speed_kmh: 200       # discard vectors faster than this (outlier rejection)
+
+# ── Duplicate frame detection ─────────────────────────────────────────────────
+# Some radars update every 10 min instead of 5 — the same SRI field gets
+# repeated at consecutive 5-min slots.  Duplicates are dropped before LK
+# so they don't pull motion estimates toward zero.
+# (Set duplicate_threshold: 0 to disable)
+# data.duplicate_threshold: 0.05   ← lives under data: section above
+
+# ── Rain mask ────────────────────────────────────────────────────────────────
+# Zero out flow vectors outside precipitation areas to avoid unrealistic
+# extrapolation into dry regions (e.g. south Italy when rain is only in north).
+rain_mask:
+  enabled: true
+  threshold_mm_h: 0.2      # pixels below this (in all frames) are rain-free
+  buffer_km: 35            # dilation radius in km around rain cells (1 px = 1 km)
+                           # set to 0 for a hard mask with no halo
+
+# ── Output ───────────────────────────────────────────────────────────────────
+output:
+  dir: "/data/LK"          # directory where JSON files are saved
+  filename: "latest_flow.json"   # always overwritten with the most recent result
+  keep_history: true       # also save timestamped copies (DD-MM-YYYY-HH-MM.json) — needed for the slider
+  save_arrows: true        # also save quiver-arrow SVG (DD-MM-YYYY-HH-MM.svg) for static overlay
+  arrow_checkerboard: false  # if true, keep only ~1500 arrows (diamond pattern); false = all ~3000
+
+# ── Backend notification ──────────────────────────────────────────────────────
+notify:
+  url: "http://localhost:8001/api/lk/notify"
+  timeout_s: 5             # HTTP timeout for the notify POST
+
+# ── Polling (used by run_lk.sh) ──────────────────────────────────────────────
+polling:
+  max_wait_s: 180          # give up if HDF does not arrive within this many seconds
+  interval_s: 10           # check every N seconds

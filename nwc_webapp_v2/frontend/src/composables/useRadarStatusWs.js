@@ -1,16 +1,11 @@
 /**
- * useRealtimeWs — WebSocket client for real-time state updates.
+ * useRadarStatusWs — WebSocket client for radar availability update notifications.
  *
- * Connects to /api/realtime/ws and calls onStateUpdate(data) whenever
- * the backend broadcasts a state_update message (new SRI file arrived,
- * model status changed, etc.).
+ * Connects to /api/radar-status/ws and calls onRadarStatusUpdated() whenever
+ * the backend broadcasts a radar_status_updated message (cron script finished
+ * downloading a new SITES txt file from FTP).
  *
  * Auto-reconnects with exponential back-off (1s → 2s → 4s … capped at 30s).
- * Falls back gracefully: if the WS is unavailable the 5-min clock-aligned
- * poll in RealTimeView continues working as before.
- *
- * Usage:
- *   const { connected } = useRealtimeWs({ onStateUpdate: (data) => { ... } })
  */
 
 import { ref, onUnmounted } from 'vue'
@@ -18,17 +13,17 @@ import { ref, onUnmounted } from 'vue'
 const BASE_DELAY_MS = 1_000
 const MAX_DELAY_MS  = 30_000
 
-export function useRealtimeWs({ onStateUpdate, onProductReady } = {}) {
+export function useRadarStatusWs({ onRadarStatusUpdated } = {}) {
   const connected = ref(false)
 
-  let ws        = null
+  let ws         = null
   let retryDelay = BASE_DELAY_MS
   let retryTimer = null
-  let stopped   = false
+  let stopped    = false
 
   function wsUrl() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    return `${proto}://${location.host}/api/realtime/ws`
+    return `${proto}://${location.host}/api/radar-status/ws`
   }
 
   function connect() {
@@ -43,24 +38,22 @@ export function useRealtimeWs({ onStateUpdate, onProductReady } = {}) {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data)
-        if (msg.type === 'state_update' && onStateUpdate) {
-          onStateUpdate(msg.data)
-        } else if (msg.type === 'product_ready' && onProductReady) {
-          onProductReady(msg.product, msg.timestamp)
+        if (msg.type === 'radar_status_updated' && onRadarStatusUpdated) {
+          onRadarStatusUpdated(msg)
         }
       } catch {
         // malformed frame — ignore
       }
     }
 
-    ws.onclose = () => {
+    ws.onclose = (e) => {
       connected.value = false
       ws = null
       if (!stopped) scheduleReconnect()
     }
 
     ws.onerror = () => {
-      // onclose fires right after, which handles reconnect
+      // onclose fires right after, handles reconnect
     }
   }
 

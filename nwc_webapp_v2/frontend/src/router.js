@@ -25,6 +25,9 @@ import DataExplorerView from './views/DataExplorerView.vue'
 import ModelComparisonView from './views/ModelComparisonView.vue'
 import MetricsView from './views/MetricsView.vue'
 import WR10View from './views/WR10View.vue'
+import WR10ExplorerView from './views/WR10ExplorerView.vue'
+import CagliariView from './views/CagliariView.vue'
+import FssAssessmentView from './views/FssAssessmentView.vue'
 
 const routes = [
   { path: '/', redirect: '/realtime' },
@@ -38,6 +41,16 @@ const routes = [
     path: '/wr10',
     name: 'WR10',
     component: WR10View,
+  },
+  {
+    path: '/wr10-explorer',
+    name: 'WR10 Explorer',
+    component: WR10ExplorerView,
+  },
+  {
+    path: '/cagliari',
+    name: 'Cagliari X-band',
+    component: CagliariView,
   },
   {
     path: '/nowcasting',
@@ -58,6 +71,11 @@ const routes = [
     path: '/metrics',
     name: 'Metrics Analysis',
     component: MetricsView,
+  },
+  {
+    path: '/assessment',
+    name: 'RT Assessment',
+    component: FssAssessmentView,
   },
 ]
 

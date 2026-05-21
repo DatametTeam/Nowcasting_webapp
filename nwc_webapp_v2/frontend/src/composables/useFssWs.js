@@ -1,16 +1,10 @@
 /**
- * useRealtimeWs — WebSocket client for real-time state updates.
+ * useFssWs — WebSocket client for FSS assessment update notifications.
  *
- * Connects to /api/realtime/ws and calls onStateUpdate(data) whenever
- * the backend broadcasts a state_update message (new SRI file arrived,
- * model status changed, etc.).
+ * Connects to /api/fss/ws and calls onFssUpdated() whenever the backend
+ * broadcasts an fss_updated message (cron script finished writing CSVs).
  *
  * Auto-reconnects with exponential back-off (1s → 2s → 4s … capped at 30s).
- * Falls back gracefully: if the WS is unavailable the 5-min clock-aligned
- * poll in RealTimeView continues working as before.
- *
- * Usage:
- *   const { connected } = useRealtimeWs({ onStateUpdate: (data) => { ... } })
  */
 
 import { ref, onUnmounted } from 'vue'
@@ -18,17 +12,17 @@ import { ref, onUnmounted } from 'vue'
 const BASE_DELAY_MS = 1_000
 const MAX_DELAY_MS  = 30_000
 
-export function useRealtimeWs({ onStateUpdate, onProductReady } = {}) {
+export function useFssWs({ onFssUpdated } = {}) {
   const connected = ref(false)
 
-  let ws        = null
+  let ws         = null
   let retryDelay = BASE_DELAY_MS
   let retryTimer = null
-  let stopped   = false
+  let stopped    = false
 
   function wsUrl() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    return `${proto}://${location.host}/api/realtime/ws`
+    return `${proto}://${location.host}/api/fss/ws`
   }
 
   function connect() {
@@ -43,10 +37,8 @@ export function useRealtimeWs({ onStateUpdate, onProductReady } = {}) {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data)
-        if (msg.type === 'state_update' && onStateUpdate) {
-          onStateUpdate(msg.data)
-        } else if (msg.type === 'product_ready' && onProductReady) {
-          onProductReady(msg.product, msg.timestamp)
+        if (msg.type === 'fss_updated' && onFssUpdated) {
+          onFssUpdated(msg)
         }
       } catch {
         // malformed frame — ignore
@@ -60,7 +52,7 @@ export function useRealtimeWs({ onStateUpdate, onProductReady } = {}) {
     }
 
     ws.onerror = () => {
-      // onclose fires right after, which handles reconnect
+      // onclose fires right after, handles reconnect
     }
   }
 

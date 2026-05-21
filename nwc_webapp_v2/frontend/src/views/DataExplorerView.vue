@@ -251,6 +251,7 @@
           <span v-if="isLoading">Loading {{ loadProgress.loaded }}/{{ loadProgress.total }}</span>
           <span v-else>Load Data</span>
         </button>
+        <p class="text-gray-500 text-xs text-center -mt-1">Only checked layers will be loaded</p>
 
         <!-- ---- Radar Layers ---- -->
         <div class="space-y-2">
@@ -292,6 +293,15 @@
                   title="Move layer down (toward bottom)"
                 >▼</button>
               </div>
+            </div>
+
+            <!-- Incremental load progress (shown when fetching this product on demand) -->
+            <div v-if="incrementalLoading[product]" class="flex items-center gap-1.5 text-blue-400 text-xs">
+              <svg class="animate-spin h-3 w-3 flex-shrink-0" viewBox="0 0 24 24" fill="none">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+              </svg>
+              <span>Loading {{ incrementalLoading[product].loaded }}/{{ incrementalLoading[product].total }}</span>
             </div>
 
             <!-- Opacity slider (fix #11: min=0) -->
@@ -358,7 +368,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, reactive, onUnmounted, nextTick } from 'vue'
 import { VueDatePicker } from '@vuepic/vue-datepicker'
 import '@vuepic/vue-datepicker/dist/main.css'
 import JSZip from 'jszip'
@@ -453,14 +463,18 @@ const layerConfig = ref({
 })
 
 // ---- Animation state ----
-const timestamps    = ref([])
-const frameIndex    = ref(0)
+const timestamps     = ref([])
+const frameIndex     = ref(0)
+const radarStatuses  = ref({})  // { "YYYY-MM-DDTHH:MM": ["SITE1", ...] }
 const isPlaying     = ref(false)
 const isLoading     = ref(false)
 const isLoaded      = ref(false)
 const loadProgress  = ref({ loaded: 0, total: 0 })
 const productStats  = ref({})   // { product: { found, expected, missingTs: string[] } }
 const showMissingFor = ref(null)
+const loadedProducts    = ref(new Set())   // products whose ZIP has been fetched
+const incrementalLoading = reactive({})    // { product: { loaded, total } } during on-demand fetch
+let   explorerSortedTs  = []              // unified timestamp list — reused by incremental loader
 
 let playInterval = null
 
@@ -535,6 +549,8 @@ function goToFrame(idx) {
       : 0
   }
   radarMap.value.showAllAtFrame(idx, opacities)
+  const ts = timestamps.value[idx]
+  radarMap.value.updateRadarStatus(ts ? (radarStatuses.value[ts] ?? null) : null)
 }
 
 // Watch layerConfig (enabled + opacity) and re-render current frame (fixes #5 and opacity)
@@ -542,6 +558,69 @@ watch(layerConfig, () => {
   if (!isLoaded.value || timestamps.value.length === 0) return
   goToFrame(frameIndex.value)
 }, { deep: true })
+
+watch(sidebarOpen, async () => {
+  await nextTick()
+  radarMap.value?.invalidateSize()
+})
+
+// When a product is newly checked after loading, fetch its ZIP on demand.
+watch(
+  () => productOrder.value.map(p => layerConfig.value[p].enabled),
+  (newEnabled, oldEnabled) => {
+    if (!isLoaded.value) return
+    productOrder.value.forEach((product, i) => {
+      if (newEnabled[i] && !oldEnabled[i] && !loadedProducts.value.has(product)) {
+        loadProductIncremental(product)
+      }
+    })
+  }
+)
+
+// ---- On-demand single-product loader ----
+async function loadProductIncremental(product) {
+  if (loadedProducts.value.has(product)) return
+  if (!explorerSortedTs.length) return
+
+  const stats = productStats.value[product]
+  if (!stats) return
+
+  const sortedTs = explorerSortedTs
+  const tsToIdx  = new Map(sortedTs.map((ts, i) => [ts, i]))
+  const foundTs  = sortedTs.filter(ts => !stats.missingSet.has(ts))
+
+  // Mark loaded immediately to prevent double-fetch on rapid toggles
+  loadedProducts.value = new Set([...loadedProducts.value, product])
+  incrementalLoading[product] = { loaded: 0, total: foundTs.length }
+
+  const urls     = new Array(sortedTs.length).fill(null)
+  const blobUrls = []
+
+  try {
+    if (foundTs.length > 0) {
+      const zipBlob = await api.explorerBatchOverlay(product, foundTs)
+      const zip     = await JSZip.loadAsync(zipBlob)
+
+      await Promise.all(foundTs.map(async (ts, foundIdx) => {
+        const file = zip.file(`${String(foundIdx).padStart(4, '0')}.png`)
+        if (file) {
+          const blob    = await file.async('blob')
+          const blobUrl = URL.createObjectURL(blob)
+          blobUrls.push(blobUrl)
+          urls[tsToIdx.get(ts)] = blobUrl
+        }
+        incrementalLoading[product].loaded++
+      }))
+    }
+
+    await radarMap.value?.loadProductFrames(product, urls, layerConfig.value[product].opacity)
+    blobUrls.forEach(url => URL.revokeObjectURL(url))
+    radarMap.value?.setProductOrder(productOrder.value)
+    goToFrame(frameIndex.value)
+  } finally {
+    delete incrementalLoading[product]
+  }
+}
 
 // ---- Load data ----
 async function loadData() {
@@ -554,6 +633,8 @@ async function loadData() {
   productStats.value = {}
   showMissingFor.value = null
   loadProgress.value = { loaded: 0, total: 0 }
+  loadedProducts.value = new Set()
+  Object.keys(incrementalLoading).forEach(k => delete incrementalLoading[k])
 
   radarMap.value?.clearAllProducts()
 
@@ -561,82 +642,83 @@ async function loadData() {
   const end   = endDateTime.value
 
   try {
-    // Fetch timestamps for ALL 4 products in parallel (fix #3)
-    const results = await Promise.all(
-      productOrder.value.map(product =>
-        api.explorerTimestamps(start, end, product).catch(() => ({
-          timestamps: [], missing: [], total_expected: 0, total_found: 0, product,
-        }))
-      )
-    )
+    // Always fetch timestamps for all products (lightweight — just filename checks, no images).
+    // Stats for disabled products are stored so the incremental loader can use them later.
+    // Radar status is fetched in parallel at no extra latency cost.
+    const [results, statusResult] = await Promise.all([
+      Promise.all(
+        productOrder.value.map(product =>
+          api.explorerTimestamps(start, end, product, 'data-explorer').catch(() => ({
+            timestamps: [], missing: [], total_expected: 0, total_found: 0, product,
+          }))
+        )
+      ),
+      api.radarStatusRange(start, end).catch(() => ({ statuses: {} })),
+    ])
+    radarStatuses.value = statusResult.statuses
 
-    // Unified sorted timestamp set (union of all found timestamps)
+    // Unified sorted timestamp set (union of all found timestamps across all products)
     const tsSet = new Set()
     results.forEach(r => r.timestamps.forEach(ts => tsSet.add(ts)))
     const sortedTs = Array.from(tsSet).sort()
     timestamps.value = sortedTs
+    explorerSortedTs = sortedTs   // persist for incremental loader
 
-    // Store per-product stats
+    // Store per-product stats for all products (incremental loader needs disabled ones too)
     results.forEach((r, i) => {
       const product = productOrder.value[i]
-      const missingSet = new Set(r.missing)
       productStats.value[product] = {
         found:     r.total_found,
         expected:  r.total_expected,
-        missingTs: r.missing,   // array of ISO strings
-        missingSet,
+        missingTs: r.missing,
+        missingSet: new Set(r.missing),
       }
     })
 
     if (sortedTs.length === 0) { isLoading.value = false; return }
 
-    // Build a lookup from timestamp → index in sortedTs (used when mapping ZIP frames)
     const tsToIdx = new Map(sortedTs.map((ts, i) => [ts, i]))
 
-    // Load all products in parallel via batch endpoint:
-    // One ZIP per product instead of one request per frame.
-    // This collapses ~144 requests (throttled 6 at a time by browser) into 1.
-    loadProgress.value.total = productOrder.value.length * sortedTs.length
+    // Only download ZIPs for checked products — the key lazy-loading saving.
+    const enabledProducts = productOrder.value.filter(p => layerConfig.value[p].enabled)
+    loadProgress.value.total = enabledProducts.length * sortedTs.length
 
     await Promise.all(productOrder.value.map(async (product) => {
       const stats = productStats.value[product]
-      // Only send timestamps that actually exist for this product
-      const foundTs = sortedTs.filter(ts => !stats?.missingSet?.has(ts))
+      const urls    = new Array(sortedTs.length).fill(null)
+      const blobUrls = []
 
-      // Pre-fill with nulls; found frames will be filled in below
-      const urls = new Array(sortedTs.length).fill(null)
-      const blobUrls = []  // tracked so we can revoke after Leaflet loads them
+      if (layerConfig.value[product].enabled) {
+        const foundTs = sortedTs.filter(ts => !stats?.missingSet?.has(ts))
 
-      if (foundTs.length > 0) {
-        const zipBlob = await api.explorerBatchOverlay(product, foundTs)
-        const zip = await JSZip.loadAsync(zipBlob)
+        if (foundTs.length > 0) {
+          const zipBlob = await api.explorerBatchOverlay(product, foundTs)
+          const zip = await JSZip.loadAsync(zipBlob)
 
-        // Unpack each PNG: create a blob URL and slot it into the right position
-        await Promise.all(foundTs.map(async (ts, foundIdx) => {
-          const file = zip.file(`${String(foundIdx).padStart(4, '0')}.png`)
-          if (file) {
-            const blob = await file.async('blob')
-            const blobUrl = URL.createObjectURL(blob)
-            blobUrls.push(blobUrl)
-            urls[tsToIdx.get(ts)] = blobUrl
-          }
-          loadProgress.value.loaded++
-        }))
-      } else {
-        // All frames missing for this product — still advance the counter
-        loadProgress.value.loaded += sortedTs.length
+          await Promise.all(foundTs.map(async (ts, foundIdx) => {
+            const file = zip.file(`${String(foundIdx).padStart(4, '0')}.png`)
+            if (file) {
+              const blob = await file.async('blob')
+              const blobUrl = URL.createObjectURL(blob)
+              blobUrls.push(blobUrl)
+              urls[tsToIdx.get(ts)] = blobUrl
+            }
+            loadProgress.value.loaded++
+          }))
+        } else {
+          loadProgress.value.loaded += sortedTs.length
+        }
+
+        loadedProducts.value = new Set([...loadedProducts.value, product])
       }
-
+      // Disabled products: register empty layer array so RadarMap knows the product exists
       await radarMap.value?.loadProductFrames(product, urls, layerConfig.value[product].opacity)
-
-      // Revoke blob URLs now that Leaflet has decoded the images into DOM elements
       blobUrls.forEach(url => URL.revokeObjectURL(url))
     }))
 
     isLoaded.value = true
     frameIndex.value = 0
     goToFrame(0)
-    // Apply stacking order: IR_108 is last in productOrder → bottommost on map
     radarMap.value?.setProductOrder(productOrder.value)
 
   } catch (e) {

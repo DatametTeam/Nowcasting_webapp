@@ -76,6 +76,35 @@ function effectiveBounds() {
   return props.overlayBounds || RADAR_BOUNDS
 }
 
+// Radar station markers keyed by site name so icons can be updated per-frame
+let radarMarkers = {}
+
+/**
+ * Build a DivIcon for a radar site using status-specific PNG assets.
+ * status: 'active' → radar_avail.png | 'inactive' → radar_not_avail.png | 'unknown' → radar.png (white)
+ */
+function makeRadarDivIcon(status) {
+  const src = status === 'active'   ? '/radar_avail.png'
+            : status === 'inactive' ? '/radar_not_avail.png'
+            : '/radar.png'
+  const style = status === 'unknown'
+    ? 'width:22px;height:22px;display:block;filter:brightness(0) invert(1)'
+    : 'width:22px;height:22px;display:block'
+  return L.divIcon({
+    html: `<img src="${src}" style="${style}">`,
+    className: 'radar-status-icon',
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+    tooltipAnchor: [0, -14],
+  })
+}
+
+// Normalize site name for comparison: remove spaces, uppercase.
+// Needed because the FTP file uses "ILMONTE" while RADARS has "IL MONTE".
+function _normalizeRadarName(name) {
+  return name.replace(/\s+/g, '').toUpperCase()
+}
+
 // Multi-product layer map for DataExplorer:
 // { productKey: { layers: [...ImageOverlay|null], activeIndex: number, opacity: number } }
 let productLayerMap = {}
@@ -189,17 +218,9 @@ onMounted(() => {
   })
   map.addControl(searchControl)
 
-  // Add radar station markers with custom icon and tooltip on hover
-  const radarIcon = L.icon({
-    iconUrl: '/radar.png',
-    iconSize: [22, 22],
-    iconAnchor: [11, 11],
-    tooltipAnchor: [0, -14],
-    className: 'radar-icon',
-  })
-
+  // Add radar station markers — stored by name so status colors can be updated later
   for (const [name, lat, lon] of RADARS) {
-    L.marker([lat, lon], { icon: radarIcon, interactive: true })
+    radarMarkers[name] = L.marker([lat, lon], { icon: makeRadarDivIcon('unknown'), interactive: true })
       .bindTooltip(name, {
         permanent: false,
         direction: 'top',
@@ -230,6 +251,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   clearFrames()
+  radarMarkers = {}
   if (map) {
     map.remove()
     map = null
@@ -419,7 +441,13 @@ function clearAllProducts() {
   for (const product of Object.keys(productLayerMap)) {
     removeProduct(product)
   }
-  productGenerations = {}
+  // Increment every known generation so any in-flight loadProductFrames call
+  // sees myGen !== current and discards its results.  Resetting to {} instead
+  // would give both the old and new load the same generation (1), making the
+  // stale-load check useless and leaving removed layers in productLayerMap.
+  for (const key of Object.keys(productGenerations)) {
+    productGenerations[key]++
+  }
 }
 
 /**
@@ -429,8 +457,12 @@ function clearAllProducts() {
  * @param {string} product - Product key (e.g. 'SRI_adj', 'VMI')
  * @param {string[]} urls - Array of image URLs, one per unified timestamp
  * @param {number} opacity - Initial opacity for visible frames
+ * @param {Array|null} bounds - Optional [[lat_sw,lon_sw],[lat_ne,lon_ne]].
+ *   When null, falls back to props.overlayBounds or the default Italian radar bounds.
+ *   Pass explicit bounds when a product covers a different area than the default
+ *   (e.g. WR10 local radar vs. the full national mosaic).
  */
-async function loadProductFrames(product, urls, opacity = 0.7) {
+async function loadProductFrames(product, urls, opacity = 0.7, bounds = null) {
   if (!map) return
 
   // Use per-product generation so parallel loads of different products
@@ -441,6 +473,7 @@ async function loadProductFrames(product, urls, opacity = 0.7) {
   removeProduct(product)
 
   const layers = new Array(urls.length).fill(null)
+  const productBounds = bounds || effectiveBounds()
 
   const promises = urls.map((url, index) => {
     if (!url) return Promise.resolve({ index, success: false })
@@ -459,14 +492,14 @@ async function loadProductFrames(product, urls, opacity = 0.7) {
 
   for (const result of results) {
     if (result.success) {
-      layers[result.index] = L.imageOverlay(result.url, effectiveBounds(), {
+      layers[result.index] = L.imageOverlay(result.url, productBounds, {
         opacity: 0,
         interactive: false,
       }).addTo(map)
     }
   }
 
-  productLayerMap[product] = { layers, activeIndex: -1, opacity }
+  productLayerMap[product] = { layers, activeIndex: -1, opacity, bounds: productBounds }
 }
 
 /**
@@ -560,7 +593,7 @@ async function appendProductFrames(product, urls) {
       img.crossOrigin = 'anonymous'
       img.onload = () => {
         if (productLayerMap[product]) {
-          entry.layers[globalIndex] = L.imageOverlay(url, effectiveBounds(), {
+          entry.layers[globalIndex] = L.imageOverlay(url, entry.bounds || effectiveBounds(), {
             opacity: 0,
             interactive: false,
           }).addTo(map)
@@ -602,7 +635,7 @@ async function resolveProductFrame(product, index, url) {
       img.crossOrigin = 'anonymous'
       img.onload = () => {
         if (productLayerMap[product]) {
-          entry.layers[index] = L.imageOverlay(src, effectiveBounds(), {
+          entry.layers[index] = L.imageOverlay(src, entry.bounds || effectiveBounds(), {
             opacity: 0,
             interactive: false,
           }).addTo(map)
@@ -646,6 +679,12 @@ function setProductOrder(topToBottom) {
 // ---- Wind / AMV velocity layer ----
 let velocityLayer = null
 
+// ---- LK arrow image overlay ----
+// Bounds match lk_config.yaml output_grid exactly: [[lat_sw, lon_sw], [lat_ne, lon_ne]]
+const LK_ARROW_BOUNDS = [[35.5, 4.5], [47.75, 19.5]]
+let lkImageLayer     = null
+let _lkTargetOpacity = 0.8   // tracks the desired opacity so load/error handlers stay in sync
+
 /**
  * Render (or update) the leaflet-velocity wind layer with new data.
  * `velocityData` is the two-element array [U, V] from /api/wind/data.
@@ -682,6 +721,78 @@ function clearWindLayer() {
   velocityLayer = null
 }
 
+/**
+ * Show (or update) the LK quiver-arrow PNG as an ImageOverlay.
+ *
+ * The layer starts invisible (opacity 0) and becomes visible only once the
+ * image actually loads. If the PNG is missing (404), the 'error' event fires
+ * and we keep it hidden — no broken-image placeholder appears on the map.
+ */
+function setLkImage(url, opacity = 0.8) {
+  if (!map) return
+  _lkTargetOpacity = opacity
+
+  if (lkImageLayer) {
+    // Hide while the new URL is loading; load/error handlers will restore opacity.
+    lkImageLayer.setOpacity(0)
+    lkImageLayer.setUrl(url)
+    return
+  }
+
+  // Create hidden; attach load/error before adding to map so no frame is missed.
+  lkImageLayer = L.imageOverlay(url, LK_ARROW_BOUNDS, {
+    opacity: 0,
+    interactive: false,
+  })
+  lkImageLayer.on('load',  () => lkImageLayer?.setOpacity(_lkTargetOpacity))
+  lkImageLayer.on('error', () => lkImageLayer?.setOpacity(0))   // 404 or network error → stay invisible
+  lkImageLayer.addTo(map)
+}
+
+/** Remove the LK arrow overlay (called when toggling off arrows or changing mode). */
+function clearLkImage() {
+  if (!map || !lkImageLayer) return
+  map.removeLayer(lkImageLayer)
+  lkImageLayer = null
+}
+
+/**
+ * Update radar marker icon colors to reflect availability at the current frame.
+ *
+ * @param {string[]|null} activeNames - List of active site names from the status file,
+ *   or null when no status data is available (all markers revert to gray).
+ *
+ * Name comparison is normalized (spaces stripped, uppercase) so that "IL MONTE"
+ * in RADARS matches "ILMONTE" in the FTP status files.
+ */
+function updateRadarStatus(activeNames) {
+  if (!activeNames) {
+    for (const marker of Object.values(radarMarkers)) {
+      marker.setIcon(makeRadarDivIcon('unknown'))
+    }
+    return
+  }
+  const activeSet = new Set(activeNames.map(_normalizeRadarName))
+  for (const [name, marker] of Object.entries(radarMarkers)) {
+    const status = activeSet.has(_normalizeRadarName(name)) ? 'active' : 'inactive'
+    marker.setIcon(makeRadarDivIcon(status))
+  }
+}
+
+/**
+ * Add a one-off marker that is NOT tracked in radarMarkers, so it is unaffected
+ * by updateRadarStatus() calls. Returns the Leaflet marker instance.
+ */
+function addFixedMarker(lat, lon, status = 'active', tooltip = '') {
+  if (!map) return null
+  const marker = L.marker([lat, lon], { icon: makeRadarDivIcon(status), interactive: !!tooltip })
+  if (tooltip) {
+    marker.bindTooltip(tooltip, { permanent: false, direction: 'top', className: 'radar-tooltip', offset: [0, -14] })
+  }
+  marker.addTo(map)
+  return marker
+}
+
 // Expose methods for the parent component to call
 defineExpose({
   // Single-product (backward compat — used by RealTimeView)
@@ -693,6 +804,12 @@ defineExpose({
   invalidateSize, showPopup, closePopup,
   // Wind / AMV
   setWindLayer, clearWindLayer,
+  // LK arrow image overlay
+  setLkImage, clearLkImage,
+  // Radar status coloring
+  updateRadarStatus,
+  // Fixed markers (not affected by updateRadarStatus)
+  addFixedMarker,
 })
 </script>
 
@@ -775,9 +892,15 @@ defineExpose({
   background: rgba(255, 255, 255, 0.1);
 }
 
-/* Invert radar icons to white on dark/satellite base maps */
+/* Invert radar icons to white on dark/satellite base maps (legacy class, kept for safety) */
 .dark-basemap .radar-icon {
   filter: invert(1);
+}
+
+/* Strip Leaflet's default white box around divIcon wrappers used for radar status markers */
+.radar-status-icon {
+  background: none !important;
+  border: none !important;
 }
 
 /* Radar station tooltip — dark style matching the map theme */

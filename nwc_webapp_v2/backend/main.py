@@ -23,6 +23,7 @@ FastAPI also auto-generates API docs at http://localhost:8000/docs (very useful!
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
@@ -35,8 +36,12 @@ from api.jobs import router as jobs_router
 from api.rendering import router as rendering_router
 from api.metrics import router as metrics_router
 from api.realtime import router as realtime_router
-from api.wind import router as wind_router
+from api.wind import router as wind_router, wind_ws_manager
+from api.lk import router as lk_router, lk_ws_manager
 from api.wr10 import router as wr10_router, wr10_ws_manager
+from api.cagliari import router as cagliari_router, cagliari_ws_manager
+from api.fss import router as fss_router, fss_ws_manager
+from api.radar_status import router as radar_status_router, radar_status_ws_manager
 
 # Create the FastAPI application instance
 app = FastAPI(
@@ -57,6 +62,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Compress JSON responses (LK/AMV data, radar metadata) automatically.
+# LK JSON is ~60 KB uncompressed → ~12 KB gzipped — ~5x smaller on the wire.
+# All modern browsers advertise Accept-Encoding: gzip so this is always active.
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 
 # ============================================================================
@@ -76,7 +85,11 @@ app.include_router(rendering_router)
 app.include_router(metrics_router)
 app.include_router(realtime_router)
 app.include_router(wind_router)
+app.include_router(lk_router)
 app.include_router(wr10_router)
+app.include_router(cagliari_router)
+app.include_router(fss_router)
+app.include_router(radar_status_router)
 
 
 # ============================================================================
@@ -86,11 +99,7 @@ app.include_router(wr10_router)
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint."""
-    return {
-        "status": "ok",
-        "app": "Weather Nowcasting API",
-        "version": "2.0.0",
-    }
+    return {"status": "ok", "app": "Weather Nowcasting API", "version": "2.0.0"}
 
 
 # ============================================================================
@@ -115,7 +124,10 @@ if static_dir.exists():
         file_path = static_dir / full_path
         if file_path.is_file():
             return FileResponse(file_path)
-        return FileResponse(static_dir / "index.html")
+        # no-cache so browsers always revalidate index.html and pick up new
+        # hashed JS/CSS bundles after a redeploy (assets themselves stay cached)
+        return FileResponse(static_dir / "index.html",
+                            headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
 # ============================================================================
@@ -136,6 +148,11 @@ async def startup_event():
     from ws.manager import ws_manager
     ws_manager.set_event_loop(asyncio.get_running_loop())
     wr10_ws_manager.set_event_loop(asyncio.get_running_loop())
+    cagliari_ws_manager.set_event_loop(asyncio.get_running_loop())
+    fss_ws_manager.set_event_loop(asyncio.get_running_loop())
+    lk_ws_manager.set_event_loop(asyncio.get_running_loop())
+    wind_ws_manager.set_event_loop(asyncio.get_running_loop())
+    radar_status_ws_manager.set_event_loop(asyncio.get_running_loop())
 
     # Initialise the config singleton with the explicit path before any
     # route handler calls get_config(). This makes nwc_webapp_v2/cfg.yaml
@@ -161,4 +178,12 @@ async def startup_event():
         from services.wr10 import WR10Service
         WR10Service().start()
         print(f"  WR10 watcher:   auto-started")
+
+        from services.cagliari import CagliariService
+        CagliariService().start()
+        print(f"  Cagliari watcher: auto-started")
+
+        from services.product_watcher import ProductWatcherService
+        ProductWatcherService().start()
+        print(f"  Product watcher: auto-started")
         print("=" * 60)
