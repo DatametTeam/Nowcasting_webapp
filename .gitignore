@@ -58,3 +58,6 @@ htmlcov/
 # Local project files
 CLAUDE.md
 TODO.md
+
+# Test data files
+tests/
