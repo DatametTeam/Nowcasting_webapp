@@ -50,8 +50,8 @@ router = APIRouter(prefix="/api/render", tags=["rendering"])
 # ==========================================================================
 
 # WR10 radar parameters (from HDF5 where/what attributes)
-_WR10_RADAR_LAT = 41.84239959716797
-_WR10_RADAR_LON = 12.646699905395508
+_WR10_RADAR_LAT = 39.18960189819336
+_WR10_RADAR_LON = 9.15820026397705
 _WR10_N_RAYS = 360
 _WR10_N_BINS = 480
 _WR10_RSCALE = 150.0   # metres per range bin

@@ -466,7 +466,7 @@ const productFrameCount = ref({ SRI: 0, VMI: 0, SRI_MOSAIC: 0, VMI_MOSAIC: 0 })
 
 // ---- Map ----
 const radarMap     = ref(null)
-const radarCenter  = ref([41.842, 12.647])
+const radarCenter  = ref([39.190, 9.158])
 const radarZoom    = ref(10)
 const overlayBounds = ref(null)  // [[lat_sw, lon_sw], [lat_ne, lon_ne]]
 

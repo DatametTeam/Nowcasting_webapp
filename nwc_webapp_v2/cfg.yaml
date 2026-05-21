@@ -154,8 +154,8 @@ logging:
 # WR10 small X-band radar configuration
 wr10:
   # Radar location (from HDF5 where/lat, where/lon attributes)
-  radar_lat: 41.84239959716797
-  radar_lon: 12.646699905395508
+  radar_lat: 39.18960189819336
+  radar_lon: 9.15820026397705
   # Polar scan geometry (from HDF5 dataset1/where attributes)
   n_rays: 360
   n_bins: 480

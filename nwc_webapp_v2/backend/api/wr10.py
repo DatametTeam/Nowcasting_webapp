@@ -176,8 +176,8 @@ def get_overlay_bounds() -> list:
     if _overlay_bounds is not None:
         return _overlay_bounds
     cfg = _wr10_cfg()
-    lat = cfg.get("radar_lat", 41.84239959716797)
-    lon = cfg.get("radar_lon", 12.646699905395508)
+    lat = cfg.get("radar_lat", 39.18960189819336)
+    lon = cfg.get("radar_lon", 9.15820026397705)
     n_bins = cfg.get("n_bins", 480)
     rscale = cfg.get("rscale", 150.0)
     max_m = n_bins * rscale
@@ -221,8 +221,8 @@ async def get_wr10_config():
 
     cfg = _wr10_cfg()
     bounds = get_overlay_bounds()
-    lat = cfg.get("radar_lat", 41.84239959716797)
-    lon = cfg.get("radar_lon", 12.646699905395508)
+    lat = cfg.get("radar_lat", 39.18960189819336)
+    lon = cfg.get("radar_lon", 9.15820026397705)
     products = {}
     for name, meta in cfg.get("products", {}).items():
         legend_name = meta.get("legend", "CZ")
@@ -317,8 +317,8 @@ async def sample_wr10_pixel(
         raise HTTPException(status_code=400, detail=f"Invalid datetime: {e}")
 
     cfg = _wr10_cfg()
-    radar_lat = cfg.get("radar_lat", 41.84239959716797)
-    radar_lon = cfg.get("radar_lon", 12.646699905395508)
+    radar_lat = cfg.get("radar_lat", 39.18960189819336)
+    radar_lon = cfg.get("radar_lon", 9.15820026397705)
     n_rays    = cfg.get("n_rays",  360)
     n_bins    = cfg.get("n_bins",  480)
     rscale    = cfg.get("rscale",  150.0)
