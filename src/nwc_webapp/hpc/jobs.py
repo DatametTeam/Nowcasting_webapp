@@ -23,6 +23,25 @@ logger = setup_logger(__name__)
 # zombies so a finished process would appear alive forever).
 _server_processes: dict[str, subprocess.Popen] = {}
 
+# Secondary registry keyed by model name — used to kill a stuck process before
+# spawning a replacement, preventing multiple instances of the same model.
+_model_processes: dict[str, subprocess.Popen] = {}
+
+
+def kill_model_process(model: str) -> None:
+    """Terminate any running inference subprocess for *model*, if one exists."""
+    proc = _model_processes.get(model)
+    if proc is None:
+        return
+    if proc.poll() is None:
+        logger.warning(f"[{model}] Killing stuck inference process (PID {proc.pid})")
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    _model_processes.pop(model, None)
+
 
 def get_server_process_status(job_id: str) -> str:
     """
@@ -364,6 +383,8 @@ def start_realtime_prediction_server(model: str, latest_sri: str) -> Optional[st
         "python", server_cfg.inference_script_path,
         "--cfg_path", str(config_path),
     ]
+    kill_model_process(model)  # terminate any stuck previous run first
+
     logger.info(f"[{model}] Launching real-time inference: {' '.join(cmd)}")
     logger.info(f"[{model}] Inference log: {log_file}")
     try:
@@ -371,6 +392,7 @@ def start_realtime_prediction_server(model: str, latest_sri: str) -> Optional[st
             proc = subprocess.Popen(cmd, stdout=lf, stderr=subprocess.STDOUT)
         job_id = f"server_{proc.pid}"
         _server_processes[job_id] = proc
+        _model_processes[model] = proc
         logger.info(f"✅ [{model}] Inference started, PID: {proc.pid}")
         return job_id
     except Exception as e:

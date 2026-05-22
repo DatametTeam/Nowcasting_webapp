@@ -373,9 +373,11 @@ class RealtimeService:
             # Timeout check
             if datetime.now() - start_time > timeout:
                 logger.warning("HPC job monitoring timed out after 30 minutes")
+                from nwc_webapp.hpc.jobs import kill_model_process
                 with self._lock:
                     for model in models:
                         if self._models[model]["status"] not in ("ready", "failed"):
+                            kill_model_process(model)
                             self._models[model]["status"] = "failed"
                 break
 
