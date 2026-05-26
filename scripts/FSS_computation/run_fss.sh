@@ -57,6 +57,13 @@ for MODEL in $MODELS; do
     || echo "[$(date '+%Y-%m-%d %H:%M:%S')]  [WARNING] $MODEL exited with error $?"
 done
 
+echo "[$(date '+%Y-%m-%d %H:%M:%S')]  → Probabilistic (ensemble)"
+"$PYTHON" "$SCRIPT_DIR/fss_ensemble.py" \
+    --config "$CONFIG" \
+    --date   "$TARGET_DATE" \
+    --time   "$TARGET_TIME" \
+|| echo "[$(date '+%Y-%m-%d %H:%M:%S')]  [WARNING] Probabilistic ensemble exited with error $?"
+
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] All models done — notifying webapp"
 curl -sf -X POST "$NOTIFY_URL" \
     && echo "[$(date '+%Y-%m-%d %H:%M:%S')] Notified OK" \

@@ -1,0 +1,23 @@
+# FSS metrics configuration
+# Add new models to the 'models' list to include them in crontab runs.
+
+models:
+  - ConvLSTM
+  - SPROG
+  - IAM4VP
+  - ConvLSTM_v2
+  - ConvLSTM_ssim
+
+thresholds: [2, 5, 10, 25, 50]   # mm/h
+scales: [1, 3, 5, 10, 20]        # pixels
+lead_times: [15, 30, 45, 60]     # minutes
+
+ensemble_model_name: "Probabilistic"
+min_votes: 3   # ensemble predicts rain when at least this many models agree
+
+data_folder: "/data/SRI_adj"
+datetime_format: "%d-%m-%Y-%H-%M"
+hdf_key: "/dataset1/data1/data"
+
+predictions_root: "/data/nwc_webapp/real_time_results"
+fss_root: "/data/FSS_metrics"
