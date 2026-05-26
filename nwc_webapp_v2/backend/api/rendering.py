@@ -24,11 +24,16 @@ PERFORMANCE OPTIMIZATIONS:
 """
 import asyncio
 import io
+import logging
+import threading
 import zipfile
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List
+
+logger = logging.getLogger(__name__)
 
 import h5py
 import numpy as np
@@ -462,10 +467,160 @@ def _frame_to_png_bytes(frame, frame_cmap=None, frame_norm=None, transparent_zer
 # frontend builds new URLs with different timestamps.
 _CACHE_HEADERS = {"Cache-Control": "public, max-age=3600"}
 
+# ==========================================================================
+# Server-side PNG cache — holds up to 12 h of rendered frames
+# ==========================================================================
+# Key: (timestamp_iso, product) → PNG bytes
+# Eviction: when the number of distinct timestamps exceeds _PNG_CACHE_MAX_TIMESTAMPS,
+# the oldest timestamp and all its products are dropped together so the cache
+# stays time-aligned (all 5 products for a slot are always present or absent).
+_PNG_CACHE_MAX_TIMESTAMPS = 144  # 12 h × 12 timestamps/h
+_png_cache: OrderedDict[tuple, bytes] = OrderedDict()
+_png_cache_timestamps: OrderedDict[str, None] = OrderedDict()  # insertion-ordered set
+_png_cache_lock = threading.Lock()
+
+
+def _cache_get(timestamp_iso: str, product: str) -> bytes | None:
+    with _png_cache_lock:
+        return _png_cache.get((timestamp_iso, product))
+
+
+def _cache_put(timestamp_iso: str, product: str, data: bytes) -> None:
+    with _png_cache_lock:
+        _png_cache[(timestamp_iso, product)] = data
+        if timestamp_iso not in _png_cache_timestamps:
+            _png_cache_timestamps[timestamp_iso] = None
+            while len(_png_cache_timestamps) > _PNG_CACHE_MAX_TIMESTAMPS:
+                oldest_ts, _ = _png_cache_timestamps.popitem(last=False)
+                for key in [k for k in _png_cache if k[0] == oldest_ts]:
+                    del _png_cache[key]
+
 
 # ==========================================================================
 # Overlay endpoints
 # ==========================================================================
+
+def _render_groundtruth_frame(dt: datetime, product: str) -> bytes:
+    """
+    Render one radar product frame to PNG bytes (CPU-bound, runs in a thread).
+
+    Raises:
+        ValueError  — unknown product
+        FileNotFoundError — data file missing
+        OSError     — file mid-write / unreadable
+        RuntimeError — unexpected HDF5 structure
+    """
+    config = get_config()
+    products = config.radar_products
+    if product not in products:
+        raise ValueError(f"Unknown product: {product}")
+
+    product_cfg = products[product]
+    product_folder = config.get_product_folder(product)
+    if not product_folder and not config.data_archive_folder:
+        raise FileNotFoundError(f"No data folder configured for {product}")
+
+    legend_name = product_cfg.get("legend", "R")
+    p_cmap, p_norm = _get_product_cmap_norm(legend_name)
+    file_format = product_cfg.get("file_format", "hdf")
+
+    if file_format == "tiff":
+        stem = dt.strftime("%d-%m-%Y-%H-%M")
+        file_path = config.find_product_file(product, dt, stem + ".tif")
+        if file_path is None:
+            file_path = config.find_product_file(product, dt, stem + ".tiff")
+        if file_path is None:
+            raise FileNotFoundError(f"File not found: {stem}.tif")
+        try:
+            pil_img = Image.open(file_path)
+            frame = np.array(pil_img, dtype=float)
+        except (Image.UnidentifiedImageError, OSError) as e:
+            raise OSError(f"File not yet readable: {file_path.name} ({e})")
+        clip_min = p_norm.thresh[0] if hasattr(p_norm, "thresh") else -100
+        clip_max = p_norm.thresh[-1] if hasattr(p_norm, "thresh") else 100
+        frame = np.clip(frame, clip_min, clip_max)
+        frame = _warp_frame(frame)
+        return _frame_to_png_bytes(frame, p_cmap, p_norm, transparent_zero=False)
+    else:
+        filename = dt.strftime("%d-%m-%Y-%H-%M") + ".hdf"
+        file_path = config.find_product_file(product, dt, filename)
+        if file_path is None:
+            raise FileNotFoundError(f"File not found: {filename}")
+        try:
+            with h5py.File(file_path, "r") as f:
+                if "dataset1/data1/data" in f:
+                    frame = f["dataset1/data1/data"][()].astype(float)
+                else:
+                    raise RuntimeError("Unknown HDF5 structure")
+        except OSError as e:
+            raise OSError(f"File not yet readable: {file_path.name} ({e})")
+        mask = _get_radar_mask()
+        if mask is not None:
+            frame = frame * mask
+        frame[frame < 0] = 0
+        clip_max = p_norm.thresh[-1] if hasattr(p_norm, "thresh") else 200
+        frame = np.clip(frame, 0, clip_max)
+        frame = _warp_frame(frame)
+        return _frame_to_png_bytes(frame, p_cmap, p_norm)
+
+
+def prerender_recent_frames(hours: int = 12) -> None:
+    """
+    Render the last `hours` of radar frames for all products and populate the
+    server-side PNG cache. Called once at startup in a background thread so the
+    cache is warm before the first user connects.
+    """
+    config = get_config()
+    products = list(config.radar_products.keys())
+
+    now = datetime.now()
+    start = now - timedelta(hours=hours)
+    dt = start.replace(second=0, microsecond=0)
+    dt = dt.replace(minute=(dt.minute // 5) * 5)
+    timestamps = []
+    while dt <= now:
+        timestamps.append(dt)
+        dt += timedelta(minutes=5)
+
+    total = len(timestamps) * len(products)
+    logger.info("PNG cache pre-render: %d timestamps × %d products = %d frames", len(timestamps), len(products), total)
+
+    def _render_one(dt: datetime, product: str) -> None:
+        ts_iso = dt.isoformat()
+        if _cache_get(ts_iso, product) is not None:
+            return
+        try:
+            data = _render_groundtruth_frame(dt, product)
+            _cache_put(ts_iso, product, data)
+        except Exception:
+            pass  # file missing or unreadable — skip silently
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [pool.submit(_render_one, dt, p) for dt in timestamps for p in products]
+        done = sum(1 for f in futures if f.exception() is None)
+
+    logger.info("PNG cache pre-render complete: %d/%d frames cached", done, total)
+
+
+def prerender_timestamp(timestamp_iso: str) -> None:
+    """
+    Pre-render all products for a single timestamp and add them to the cache.
+    Called by RealtimeService when new radar data arrives.
+    """
+    try:
+        dt = datetime.fromisoformat(timestamp_iso)
+    except ValueError:
+        return
+    config = get_config()
+    for product in config.radar_products:
+        if _cache_get(timestamp_iso, product) is not None:
+            continue
+        try:
+            data = _render_groundtruth_frame(dt, product)
+            _cache_put(timestamp_iso, product, data)
+        except Exception:
+            pass
+
 
 @router.get("/overlay/groundtruth/{timestamp}")
 async def get_groundtruth_overlay(
@@ -475,102 +630,31 @@ async def get_groundtruth_overlay(
     """
     Generate a radar product overlay image (RGBA PNG) for the map.
 
-    The default product is SRI_adj (rain rate), which powers the "past"
-    section of the real-time timeline. The Data Explorer tab uses this
-    endpoint for all products by passing ?product=VMI, ?product=ETM, etc.
+    Checks the server-side PNG cache first — cache is pre-populated at startup
+    and updated when new radar data arrives, so most requests return immediately.
     """
     try:
         dt = datetime.fromisoformat(timestamp)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid datetime: {e}")
 
-    config = get_config()
+    cached = _cache_get(timestamp, product)
+    if cached is not None:
+        return Response(content=cached, media_type="image/png", headers=_CACHE_HEADERS)
 
-    # Resolve product folder and legend
-    products = config.radar_products
-    if product not in products:
-        raise HTTPException(status_code=400, detail=f"Unknown product: {product}")
+    loop = asyncio.get_event_loop()
+    try:
+        png_bytes = await loop.run_in_executor(None, _render_groundtruth_frame, dt, product)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except OSError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    product_cfg = products[product]
-    product_folder = config.get_product_folder(product)
-    if not product_folder and not config.data_archive_folder:
-        raise HTTPException(status_code=404, detail=f"No data folder configured for {product} in this environment")
-
-    legend_name = product_cfg.get("legend", "R")
-    p_cmap, p_norm = _get_product_cmap_norm(legend_name)
-    file_format = product_cfg.get("file_format", "hdf")
-
-    if file_format == "tiff":
-        # IR_108 and other TIFF satellite products
-        # Try .tif first (recent flat folder + archive), then .tiff variant
-        stem = dt.strftime("%d-%m-%Y-%H-%M")
-        file_path = config.find_product_file(product, dt, stem + ".tif")
-        if file_path is None:
-            file_path = config.find_product_file(product, dt, stem + ".tiff")
-        if file_path is None:
-            raise HTTPException(status_code=404, detail=f"File not found: {stem}.tif")
-
-        # Load TIFF — PIL handles all common TIFF variants.
-        # File may still be mid-write when the 1s poll catches it; treat
-        # truncated/unreadable files as "not yet ready" (404) so the frontend
-        # retries on the next tick instead of seeing a 500.
-        try:
-            pil_img = Image.open(file_path)
-            frame = np.array(pil_img, dtype=float)
-        except (Image.UnidentifiedImageError, OSError) as e:
-            raise HTTPException(
-                status_code=404,
-                detail=f"File not yet readable (likely still being written): {file_path.name} ({e})",
-            )
-
-        # TIFF is (height=1400, width=1200), same spatial extent as HDF5 radar data.
-        # No radar mask — satellite has wider coverage than the radar composite.
-        clip_min = p_norm.thresh[0] if hasattr(p_norm, "thresh") else -100
-        clip_max = p_norm.thresh[-1] if hasattr(p_norm, "thresh") else 100
-        frame = np.clip(frame, clip_min, clip_max)
-
-        frame = _warp_frame(frame)
-        # transparent_zero=False: temperatures ≤ 0 are valid cold cloud tops,
-        # the legend's own alpha=0 for warm values handles clear-sky transparency.
-        png_bytes = _frame_to_png_bytes(frame, p_cmap, p_norm, transparent_zero=False)
-    else:
-        # Default: HDF5 radar products (SRI_adj, VMI, ETM, VIL)
-        filename = dt.strftime("%d-%m-%Y-%H-%M") + ".hdf"
-        # Check both recent flat folder and archive YYYY/MM/DD/product/ structure
-        file_path = config.find_product_file(product, dt, filename)
-        if file_path is None:
-            raise HTTPException(status_code=404, detail=f"File not found: {filename}")
-
-        # Same race as the TIFF branch: a poll can hit the file mid-write.
-        # h5py raises OSError for truncated/invalid HDF5 — return 404 so the
-        # frontend retries on the next tick instead of seeing a 500.
-        try:
-            with h5py.File(file_path, "r") as f:
-                if "dataset1/data1/data" in f:
-                    frame = f["dataset1/data1/data"][()].astype(float)
-                else:
-                    raise HTTPException(status_code=500, detail="Unknown HDF5 structure")
-        except OSError as e:
-            raise HTTPException(
-                status_code=404,
-                detail=f"File not yet readable (likely still being written): {file_path.name} ({e})",
-            )
-
-        # Apply radar mask (cached in memory)
-        mask = _get_radar_mask()
-        if mask is not None:
-            frame = frame * mask
-
-        frame[frame < 0] = 0
-
-        # Use per-product colormap — must be done BEFORE clipping so we know
-        # the legend's actual max threshold (e.g. ETM: 12000 m, SRI: 100 mm/h).
-        clip_max = p_norm.thresh[-1] if hasattr(p_norm, "thresh") else 200
-        frame = np.clip(frame, 0, clip_max)
-
-        frame = _warp_frame(frame)
-        png_bytes = _frame_to_png_bytes(frame, p_cmap, p_norm)
-
+    _cache_put(timestamp, product, png_bytes)
     return Response(content=png_bytes, media_type="image/png", headers=_CACHE_HEADERS)
 
 

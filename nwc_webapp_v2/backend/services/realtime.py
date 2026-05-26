@@ -239,6 +239,17 @@ class RealtimeService:
                     self._notification = f"New data found! {self._format_display(latest)}"
                 self._broadcast()
 
+                # Pre-render the new timestamp for all products in the background
+                # so the cache is warm before the frontend requests the new frame.
+                if sri_dt is not None:
+                    from api.rendering import prerender_timestamp
+                    threading.Thread(
+                        target=prerender_timestamp,
+                        args=(sri_dt.isoformat(),),
+                        daemon=True,
+                        name=f"png-prerender-{sri_dt.strftime('%H%M')}",
+                    ).start()
+
                 # --- Submit PBS jobs for models that need predictions ---
                 sri_stem = latest.replace(".hdf", "")
                 for model in config.models:

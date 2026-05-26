@@ -186,4 +186,11 @@ async def startup_event():
         from services.product_watcher import ProductWatcherService
         ProductWatcherService().start()
         print(f"  Product watcher: auto-started")
+
+        # Pre-populate the PNG cache in the background so the real-time tab
+        # loads instantly for the first user (last 12 h of all products).
+        import threading
+        from api.rendering import prerender_recent_frames
+        threading.Thread(target=prerender_recent_frames, args=(12,), daemon=True, name="png-prerender").start()
+        print(f"  PNG cache:       pre-render started (last 12 h)")
         print("=" * 60)
