@@ -13,7 +13,7 @@
 set -uo pipefail
 
 PYTHON="/home/ubuntu/miniconda3/envs/protezionecivile/bin/python"
-SCRIPT_DIR="/home/ubuntu/projects/scripts/FSS_computation"
+SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 CONFIG="$SCRIPT_DIR/fss_config.yaml"
 NOTIFY_URL="http://localhost:8001/api/fss/notify"
 
