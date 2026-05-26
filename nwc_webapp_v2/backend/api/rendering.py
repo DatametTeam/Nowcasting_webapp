@@ -581,25 +581,33 @@ def prerender_recent_frames(hours: int = 12) -> None:
     while dt <= now:
         timestamps.append(dt)
         dt += timedelta(minutes=5)
+    timestamps.reverse()  # newest first — most recent frames ready before first user connects
 
     total = len(timestamps) * len(products)
-    logger.info("PNG cache pre-render: %d timestamps × %d products = %d frames", len(timestamps), len(products), total)
+    cached_count = 0
+    cached_lock = threading.Lock()
+
+    print(f"  PNG cache: pre-rendering {len(timestamps)} timestamps × {len(products)} products ({total} frames)...")
 
     def _render_one(dt: datetime, product: str) -> None:
+        nonlocal cached_count
         ts_iso = dt.isoformat()
         if _cache_get(ts_iso, product) is not None:
+            with cached_lock:
+                cached_count += 1
             return
         try:
             data = _render_groundtruth_frame(dt, product)
             _cache_put(ts_iso, product, data)
+            with cached_lock:
+                cached_count += 1
         except Exception:
             pass  # file missing or unreadable — skip silently
 
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = [pool.submit(_render_one, dt, p) for dt in timestamps for p in products]
-        done = sum(1 for f in futures if f.exception() is None)
+        list(pool.map(lambda args: _render_one(*args), [(dt, p) for dt in timestamps for p in products]))
 
-    logger.info("PNG cache pre-render complete: %d/%d frames cached", done, total)
+    print(f"  PNG cache: pre-render complete — {cached_count}/{total} frames cached")
 
 
 def prerender_timestamp(timestamp_iso: str) -> None:
