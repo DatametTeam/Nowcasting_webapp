@@ -4,10 +4,10 @@
   - Metrics: static image grid (12 lead times) + CSI tables
 -->
 <template>
-  <div class="min-h-[calc(100vh-3.5rem)]">
+  <div class="h-[calc(100vh-3.5rem)] flex flex-col overflow-hidden">
 
     <!-- Sub-tab nav -->
-    <div class="bg-gray-900 border-b border-white/10 flex px-4 gap-1 pt-2">
+    <div class="flex-shrink-0 bg-gray-900 border-b border-white/10 flex px-4 gap-1 pt-2">
       <button
         v-for="tab in ['maps', 'metrics']" :key="tab"
         @click="activeTab = tab"
@@ -20,10 +20,10 @@
     </div>
 
     <!-- Maps tab: full-height comparison map -->
-    <ComparisonMapsTab v-if="activeTab === 'maps'" />
+    <ComparisonMapsTab v-if="activeTab === 'maps'" class="flex-1 min-h-0" />
 
     <!-- Metrics tab: existing static comparison content -->
-    <div v-else class="bg-gray-50">
+    <div v-else class="flex-1 overflow-auto bg-gray-50">
 
     <!-- ================================================================ -->
     <!-- TOP BAR: Config panel (dark gradient, like real-time bottom bar)  -->
