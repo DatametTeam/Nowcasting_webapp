@@ -30,7 +30,7 @@ import 'leaflet/dist/leaflet.css'
 import 'leaflet.sync'
 
 const RADAR_BOUNDS = [[35.0623, 4.51987], [47.5730, 20.4801]]
-const OVERLAY_OPACITY = 0.75
+const OVERLAY_OPACITY = 1.0
 
 const props = defineProps({
   label:         { type: String,  required: true },
