@@ -651,12 +651,14 @@ watch(
   { flush: 'post' },
 )
 
-// Trigger: timestamp or range changed (panels stay the same)
+// Trigger: timestamp or range changed (panels stay the same, but we still
+// need to re-align views — user may have pre-selected models before setting
+// the time, so the activePanels watcher already fired without a valid config)
 watch(
   [singleDt, startDt, endDt, selectedLeadTimeMin, mode],
   async () => {
     if (!hasValidConfig.value || activePanels.value.length === 0) return
-    await nextTick()
+    await rewireSyncAndAlign()
     await preloadAllPanels()
   },
 )
