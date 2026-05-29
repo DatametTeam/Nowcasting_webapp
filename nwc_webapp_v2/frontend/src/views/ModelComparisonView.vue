@@ -1,14 +1,29 @@
 <!--
-  ModelComparisonView.vue — Side-by-side model comparison with all 12 lead times.
-
-  Recreates the old Streamlit model_comparison.py layout:
-  - 12 rows (one per lead time: +5 to +60 min)
-  - Each row: GT + model prediction images (4/5 width) + CSI table (1/5 width)
-  - Synchronized zoom/pan within each row (scroll to zoom, drag to pan)
-  - CSI computed once via POST /api/metrics/comparison, displayed per row
+  ModelComparisonView.vue — Model comparison tab with two sub-tabs:
+  - Maps: synchronized Leaflet maps, slider, FSS sidebar
+  - Metrics: static image grid (12 lead times) + CSI tables
 -->
 <template>
-  <div class="min-h-[calc(100vh-3.5rem)] bg-gray-50">
+  <div class="min-h-[calc(100vh-3.5rem)]">
+
+    <!-- Sub-tab nav -->
+    <div class="bg-gray-900 border-b border-white/10 flex px-4 gap-1 pt-2">
+      <button
+        v-for="tab in ['maps', 'metrics']" :key="tab"
+        @click="activeTab = tab"
+        :class="['px-4 py-1.5 text-xs font-semibold rounded-t-lg capitalize transition-colors',
+          activeTab === tab
+            ? 'bg-white text-gray-900'
+            : 'text-gray-400 hover:text-gray-200 hover:bg-white/5']">
+        {{ tab === 'maps' ? 'Maps' : 'Metrics' }}
+      </button>
+    </div>
+
+    <!-- Maps tab: full-height comparison map -->
+    <ComparisonMapsTab v-if="activeTab === 'maps'" />
+
+    <!-- Metrics tab: existing static comparison content -->
+    <div v-else class="bg-gray-50">
 
     <!-- ================================================================ -->
     <!-- TOP BAR: Config panel (dark gradient, like real-time bottom bar)  -->
@@ -447,6 +462,7 @@
         <p class="text-gray-400 text-sm">Select one or more models and a date/time, then click <strong>Load Comparison</strong></p>
       </div>
     </div>
+    </div>  <!-- /metrics tab -->
   </div>
 </template>
 
@@ -456,6 +472,9 @@ import { VueDatePicker } from '@vuepic/vue-datepicker'
 import '@vuepic/vue-datepicker/dist/main.css'
 import api from '../api.js'
 import { useConfigStore } from '../stores/config.js'
+import ComparisonMapsTab from './ComparisonMapsTab.vue'
+
+const activeTab = ref('maps')
 
 const configStore = useConfigStore()
 

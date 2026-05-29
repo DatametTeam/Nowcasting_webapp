@@ -259,6 +259,83 @@ async def get_daily_fss(
     }
 
 
+@router.get("/lookup")
+async def get_fss_lookup(
+    ts: str = Query(None, description="ISO init timestamp for point lookup"),
+    start: str = Query(None, description="ISO range start (init time) for range mean"),
+    end: str = Query(None, description="ISO range end (init time) for range mean"),
+    lt: int = Query(30, description="Lead time in minutes (15, 30, 45, 60)"),
+    scale: int = Query(5, description="Spatial scale km (1, 5, 20)"),
+):
+    """
+    Return FSS values for a single timestamp and/or mean over a range.
+
+    For the comparison map FSS sidebar:
+    - point: FSS at a single init time (current slider frame)
+    - range_mean: mean FSS over an init-time range (range mode overview)
+    """
+    models = _discover_models()
+    thresholds = [5.0, 10.0, 25.0]
+    col = f"sc_{scale}"
+
+    dt_point: pd.Timestamp | None = None
+    dt_start: pd.Timestamp | None = None
+    dt_end: pd.Timestamp | None = None
+
+    if ts:
+        try:
+            dt_point = pd.Timestamp(ts).floor("5min")
+        except Exception:
+            pass
+    if start and end:
+        try:
+            dt_start = pd.Timestamp(start).floor("5min")
+            dt_end = pd.Timestamp(end).floor("5min")
+        except Exception:
+            pass
+
+    point_out: dict | None = None
+    range_out: dict | None = None
+
+    if dt_point is not None:
+        point_out = {}
+        for model in models:
+            point_out[model] = {}
+            for thr in thresholds:
+                thr_key = f"thr{int(thr)}"
+                df = _load_series(model, lt, thr, scale)
+                if not df.empty and col in df.columns and dt_point in df.index:
+                    v = df.loc[dt_point, col]
+                    point_out[model][thr_key] = round(float(v), 4) if pd.notna(v) else None
+                else:
+                    point_out[model][thr_key] = None
+
+    if dt_start is not None and dt_end is not None:
+        range_out = {}
+        for model in models:
+            range_out[model] = {}
+            for thr in thresholds:
+                thr_key = f"thr{int(thr)}"
+                df = _load_series(model, lt, thr, scale)
+                if not df.empty and col in df.columns:
+                    sub = df.loc[(df.index >= dt_start) & (df.index <= dt_end), col].dropna()
+                    range_out[model][thr_key] = round(float(sub.mean()), 4) if not sub.empty else None
+                else:
+                    range_out[model][thr_key] = None
+
+    return {
+        "ts": ts,
+        "start": start,
+        "end": end,
+        "lt": lt,
+        "scale": scale,
+        "models": models,
+        "thresholds": [int(t) for t in thresholds],
+        "point": point_out,
+        "range_mean": range_out,
+    }
+
+
 @router.post("/notify")
 async def fss_notify():
     """
