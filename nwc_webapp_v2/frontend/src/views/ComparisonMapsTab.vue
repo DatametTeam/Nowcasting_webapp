@@ -558,12 +558,21 @@ function invalidateAllMaps() {
   getMaps().forEach(m => m.invalidateSize())
 }
 
+// Full set of maps that were pairwise synced last time rewireSyncAndAlign()
+// ran — including maps whose panel has since been removed. leaflet.sync
+// keeps synced maps in each map's own internal list, so a survivor still
+// references a since-destroyed map unless we explicitly unsync it here.
+let syncedMaps = []
+
 async function rewireSyncAndAlign() {
   await nextTick()
   const maps = getMaps()
+
+  syncedMaps.forEach(m1 => syncedMaps.forEach(m2 => { if (m1 !== m2) m1.unsync?.(m2) }))
+  syncedMaps = maps
+
   if (maps.length < 2) return
 
-  maps.forEach(m1 => maps.forEach(m2 => { if (m1 !== m2) m1.unsync?.(m2) }))
   maps.forEach(m1 => maps.forEach(m2 => { if (m1 !== m2) m1.sync(m2) }))
 
   // Align all maps to the reference (groundtruth) view
