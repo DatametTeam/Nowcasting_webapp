@@ -30,6 +30,8 @@ models:
   - ConvLSTM
   - IAM4VP
   - SPROG
+  - ConvLSTM_ssim
+  - ConvLSTM_ssim_noBug
 
 # Metrics thresholds
 csi_threshold: [1, 5, 10, 20, 50]
@@ -132,7 +134,7 @@ pbs:
   # Set to false to disable job submission entirely (watch-folder mode).
   # Use this when predictions are generated externally (e.g. on HPC) and
   # delivered to the predictions folder via rsync/NFS.
-  submit_jobs: false
+  submit_jobs: True
 
   # Path to the inference script in the spatiotemporal-nowcast repository
   inference_script_path: "/home/ubuntu/spatiotemporal-nowcast/spatiotemporal_forecast/scripts/webapp_predictions.py"

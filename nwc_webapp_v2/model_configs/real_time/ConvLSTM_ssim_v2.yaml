@@ -6,8 +6,8 @@ hydra:
     chdir: false
 
 trainings_artifacts:
-   training_cfg_path: '/home/ubuntu/NWC_MODELS/ConvLSTM_v2/config_used.yaml'
-   checkpoint_path: '/home/ubuntu/NWC_MODELS/ConvLSTM_v2/epoch=42-FractionalSkillScore_10_10=0.58.ckpt'
+   training_cfg_path: '/home/ubuntu/NWC_MODELS/ConvLSTM_ssim_v2/config_used.yaml'
+   checkpoint_path: '/home/ubuntu/NWC_MODELS/ConvLSTM_ssim_v2/epoch=52-FractionalSkillScore_10_10=0.62.ckpt'
 
 # model:
 #   name: steps
@@ -20,7 +20,6 @@ trainings_artifacts:
 #     kmperpixel: 1.0
 #     timestep: 5.0
 #     num_workers: 24  
-
 
 
 #sample_strategy:
@@ -41,7 +40,7 @@ windows_extraction_args:
   parallel: False
 
 
-save_path: /data/nwc_webapp/real_time_results/ConvLSTM_v2
+save_path: /data/nwc_webapp/real_time_results/ConvLSTM_ssim_v2
 save_npz: False
 save_npy: True
 # device: 'cuda:3'
