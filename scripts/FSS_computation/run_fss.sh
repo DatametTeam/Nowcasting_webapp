@@ -13,8 +13,9 @@
 set -uo pipefail
 
 PYTHON="/home/ubuntu/miniconda3/envs/protezionecivile/bin/python"
-SCRIPT_DIR="/home/ubuntu/projects/scripts/FSS_computation"
+SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 CONFIG="$SCRIPT_DIR/fss_config.yaml"
+MAIN_CFG="$SCRIPT_DIR/../../nwc_webapp_v2/cfg.yaml"
 NOTIFY_URL="http://localhost:8001/api/fss/notify"
 
 MAX_WAIT=180    # seconds to poll before giving up
@@ -44,8 +45,8 @@ done
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] File arrived (+${waited}s) — processing"
 
-# Read model list from config
-MODELS=$("$PYTHON" -c "import yaml; cfg=yaml.safe_load(open('$CONFIG')); print('\n'.join(cfg['models']))")
+# Read model list from the main webapp config (single source of truth)
+MODELS=$("$PYTHON" -c "import yaml; print('\n'.join(yaml.safe_load(open('$MAIN_CFG'))['models']))")
 
 for MODEL in $MODELS; do
     echo "[$(date '+%Y-%m-%d %H:%M:%S')]  → $MODEL"
@@ -56,6 +57,13 @@ for MODEL in $MODELS; do
         --time  "$TARGET_TIME" \
     || echo "[$(date '+%Y-%m-%d %H:%M:%S')]  [WARNING] $MODEL exited with error $?"
 done
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')]  → Probabilistic (ensemble)"
+"$PYTHON" "$SCRIPT_DIR/fss_ensemble.py" \
+    --config "$CONFIG" \
+    --date   "$TARGET_DATE" \
+    --time   "$TARGET_TIME" \
+|| echo "[$(date '+%Y-%m-%d %H:%M:%S')]  [WARNING] Probabilistic ensemble exited with error $?"
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] All models done — notifying webapp"
 curl -sf -X POST "$NOTIFY_URL" \

@@ -23,16 +23,24 @@ router = APIRouter(prefix="/api/fss", tags=["fss"])
 fss_ws_manager = ConnectionManager()
 
 _cfg_cache = None
+_full_cfg_cache = None
+
+
+def _full_cfg() -> dict:
+    global _full_cfg_cache
+    if _full_cfg_cache is not None:
+        return _full_cfg_cache
+    cfg_path = Path(__file__).parent.parent.parent / "cfg.yaml"
+    with open(cfg_path) as f:
+        _full_cfg_cache = yaml.safe_load(f)
+    return _full_cfg_cache
 
 
 def _fss_cfg() -> dict:
     global _cfg_cache
     if _cfg_cache is not None:
         return _cfg_cache
-    cfg_path = Path(__file__).parent.parent.parent / "cfg.yaml"
-    with open(cfg_path) as f:
-        cfg = yaml.safe_load(f)
-    _cfg_cache = cfg.get("fss", {})
+    _cfg_cache = _full_cfg().get("fss", {})
     return _cfg_cache
 
 
@@ -48,10 +56,16 @@ def _thr_str(thr: float) -> str:
 
 
 def _discover_models() -> list[str]:
+    """Directories under the FSS root, filtered to the webapp's active models
+    (cfg.yaml `models:`) plus the ensemble pseudo-model, so retired models'
+    leftover CSVs don't reappear on the page."""
     root = _fss_root()
     if not root.exists():
         return []
-    return [d.name for d in sorted(root.iterdir()) if d.is_dir()]
+    allowed = set(_full_cfg().get("models", []))
+    ensemble_name = _fss_cfg().get("ensemble_model_name", "Probabilistic")
+    allowed.add(ensemble_name)
+    return [d.name for d in sorted(root.iterdir()) if d.is_dir() and d.name in allowed]
 
 
 def _load_series(
@@ -256,6 +270,83 @@ async def get_daily_fss(
         "series": series_out,
         "means": means_out,
         "min_valid": {str(int(k)): v for k, v in min_valid_map.items()},
+    }
+
+
+@router.get("/lookup")
+async def get_fss_lookup(
+    ts: str = Query(None, description="ISO init timestamp for point lookup"),
+    start: str = Query(None, description="ISO range start (init time) for range mean"),
+    end: str = Query(None, description="ISO range end (init time) for range mean"),
+    lt: int = Query(30, description="Lead time in minutes (15, 30, 45, 60)"),
+    scale: int = Query(5, description="Spatial scale km (1, 5, 20)"),
+):
+    """
+    Return FSS values for a single timestamp and/or mean over a range.
+
+    For the comparison map FSS sidebar:
+    - point: FSS at a single init time (current slider frame)
+    - range_mean: mean FSS over an init-time range (range mode overview)
+    """
+    models = _discover_models()
+    thresholds = [5.0, 10.0, 25.0]
+    col = f"sc_{scale}"
+
+    dt_point: pd.Timestamp | None = None
+    dt_start: pd.Timestamp | None = None
+    dt_end: pd.Timestamp | None = None
+
+    if ts:
+        try:
+            dt_point = pd.Timestamp(ts).floor("5min")
+        except Exception:
+            pass
+    if start and end:
+        try:
+            dt_start = pd.Timestamp(start).floor("5min")
+            dt_end = pd.Timestamp(end).floor("5min")
+        except Exception:
+            pass
+
+    point_out: dict | None = None
+    range_out: dict | None = None
+
+    if dt_point is not None:
+        point_out = {}
+        for model in models:
+            point_out[model] = {}
+            for thr in thresholds:
+                thr_key = f"thr{int(thr)}"
+                df = _load_series(model, lt, thr, scale)
+                if not df.empty and col in df.columns and dt_point in df.index:
+                    v = df.loc[dt_point, col]
+                    point_out[model][thr_key] = round(float(v), 4) if pd.notna(v) else None
+                else:
+                    point_out[model][thr_key] = None
+
+    if dt_start is not None and dt_end is not None:
+        range_out = {}
+        for model in models:
+            range_out[model] = {}
+            for thr in thresholds:
+                thr_key = f"thr{int(thr)}"
+                df = _load_series(model, lt, thr, scale)
+                if not df.empty and col in df.columns:
+                    sub = df.loc[(df.index >= dt_start) & (df.index <= dt_end), col].dropna()
+                    range_out[model][thr_key] = round(float(sub.mean()), 4) if not sub.empty else None
+                else:
+                    range_out[model][thr_key] = None
+
+    return {
+        "ts": ts,
+        "start": start,
+        "end": end,
+        "lt": lt,
+        "scale": scale,
+        "models": models,
+        "thresholds": [int(t) for t in thresholds],
+        "point": point_out,
+        "range_mean": range_out,
     }
 
 
