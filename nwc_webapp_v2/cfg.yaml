@@ -49,6 +49,9 @@ radar_status:
 fss:
   server_fss_root: "/data/FSS_metrics"
   local_fss_root: "data/FSS_metrics"
+  # Name of the probabilistic ensemble pseudo-model (voting across `models` above).
+  # Not itself in `models`, but always shown on the RT Assessment page alongside them.
+  ensemble_model_name: "Probabilistic"
 
 # HPC paths (used when running on davinci cluster)
 hpc_paths:

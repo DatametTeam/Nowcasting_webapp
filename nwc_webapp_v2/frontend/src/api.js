@@ -232,6 +232,8 @@ export default {
     get(`/fss/recent?scale=${scale}&hours=${hours}`),
   fssDaily: (scale = 5, days = 60) =>
     get(`/fss/daily?scale=${scale}&days=${days}`),
+  fssLookup: (params) =>
+    get(`/fss/lookup?${params.toString()}`),
 
   // --- Radar availability status ---
   /**

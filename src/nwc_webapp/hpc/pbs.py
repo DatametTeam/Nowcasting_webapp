@@ -99,7 +99,7 @@ def get_model_job_status(model):
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
                 )
-                if job_name in result2.stdout:
+                if re.search(rf'\b{re.escape(job_name)}\b', result2.stdout):
                     for line2 in result2.stdout.splitlines():
                         if "job_state" in line2:
                             status = line2.split("=", 1)[1].strip()

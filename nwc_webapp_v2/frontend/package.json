@@ -16,6 +16,7 @@
     "leaflet": "^1.9.4",
     "leaflet-geosearch": "^4.2.2",
     "leaflet-velocity": "^2.1.4",
+    "leaflet.sync": "^0.2.4",
     "pinia": "^2.2.0",
     "vue": "^3.5.0",
     "vue-chartjs": "^5.3.3",

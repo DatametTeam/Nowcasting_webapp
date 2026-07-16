@@ -502,7 +502,26 @@ async def explorer_timestamps(
     file_format = product_cfg.get("file_format", "hdf")
     file_ext = ".tif" if file_format == "tiff" else ".hdf"
 
-    # Generate all expected 5-minute timestamps
+    # Build a set of available filenames with a single listdir per folder
+    # instead of one Path.exists() call per timestamp (288+ stat calls for 12 h).
+    available: set[str] = set()
+
+    flat_folder = config.get_product_folder(product)
+    if flat_folder and flat_folder.exists():
+        available.update(p.name for p in flat_folder.iterdir() if p.is_file())
+
+    archive_base = config.data_archive_folder
+    if archive_base:
+        # Archive is YYYY/MM/DD/{product}/ — collect each unique day in range.
+        day = start_dt.date()
+        end_day = end_dt.date()
+        while day <= end_day:
+            archive_dir = archive_base / day.strftime("%Y") / day.strftime("%m") / day.strftime("%d") / product
+            if archive_dir.exists():
+                available.update(p.name for p in archive_dir.iterdir() if p.is_file())
+            day += timedelta(days=1)
+
+    # Generate all expected 5-minute timestamps and check against the set
     expected = []
     current = start_dt
     while current <= end_dt:
@@ -513,16 +532,7 @@ async def explorer_timestamps(
     missing = []
     for dt in expected:
         stem = dt.strftime("%d-%m-%Y-%H-%M")
-        primary_filename = stem + file_ext
-        alt_filename = (stem + ".tiff") if file_format == "tiff" else None
-
-        # Use find_product_file so both the recent flat folder and the archive
-        # YYYY/MM/DD/product/ structure are checked transparently.
-        resolved = config.find_product_file(product, dt, primary_filename)
-        if resolved is None and alt_filename:
-            resolved = config.find_product_file(product, dt, alt_filename)
-
-        if resolved is not None:
+        if (stem + file_ext) in available or (file_format == "tiff" and (stem + ".tiff") in available):
             found.append(dt.isoformat())
         else:
             missing.append(dt.isoformat())
