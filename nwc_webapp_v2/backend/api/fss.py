@@ -23,16 +23,24 @@ router = APIRouter(prefix="/api/fss", tags=["fss"])
 fss_ws_manager = ConnectionManager()
 
 _cfg_cache = None
+_full_cfg_cache = None
+
+
+def _full_cfg() -> dict:
+    global _full_cfg_cache
+    if _full_cfg_cache is not None:
+        return _full_cfg_cache
+    cfg_path = Path(__file__).parent.parent.parent / "cfg.yaml"
+    with open(cfg_path) as f:
+        _full_cfg_cache = yaml.safe_load(f)
+    return _full_cfg_cache
 
 
 def _fss_cfg() -> dict:
     global _cfg_cache
     if _cfg_cache is not None:
         return _cfg_cache
-    cfg_path = Path(__file__).parent.parent.parent / "cfg.yaml"
-    with open(cfg_path) as f:
-        cfg = yaml.safe_load(f)
-    _cfg_cache = cfg.get("fss", {})
+    _cfg_cache = _full_cfg().get("fss", {})
     return _cfg_cache
 
 
@@ -48,10 +56,16 @@ def _thr_str(thr: float) -> str:
 
 
 def _discover_models() -> list[str]:
+    """Directories under the FSS root, filtered to the webapp's active models
+    (cfg.yaml `models:`) plus the ensemble pseudo-model, so retired models'
+    leftover CSVs don't reappear on the page."""
     root = _fss_root()
     if not root.exists():
         return []
-    return [d.name for d in sorted(root.iterdir()) if d.is_dir()]
+    allowed = set(_full_cfg().get("models", []))
+    ensemble_name = _fss_cfg().get("ensemble_model_name", "Probabilistic")
+    allowed.add(ensemble_name)
+    return [d.name for d in sorted(root.iterdir()) if d.is_dir() and d.name in allowed]
 
 
 def _load_series(

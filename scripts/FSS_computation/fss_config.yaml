@@ -1,18 +1,14 @@
 # FSS metrics configuration
-# Add new models to the 'models' list to include them in crontab runs.
-
-models:
-  - ConvLSTM
-  - SPROG
-  - IAM4VP
-  - ConvLSTM_v2
-  - ConvLSTM_ssim
+#
+# NB: the `models` list is no longer set here. It's read at runtime from
+# ../../nwc_webapp_v2/cfg.yaml (single source of truth, shared with the webapp)
+# so that FSS computation always matches the webapp's active models.
+# `ensemble_model_name` also comes from there (nwc_webapp_v2/cfg.yaml -> fss:).
 
 thresholds: [2, 5, 10, 25, 50]   # mm/h
 scales: [1, 3, 5, 10, 20]        # pixels
 lead_times: [15, 30, 45, 60]     # minutes
 
-ensemble_model_name: "Probabilistic"
 min_votes: 3   # ensemble predicts rain when at least this many models agree
 
 data_folder: "/data/SRI_adj"

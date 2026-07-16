@@ -298,11 +298,20 @@ def load_config(config_path: str) -> dict:
         "thresholds",
         "scales",
         "lead_times",
-        "models",
     ]
     missing = [k for k in required if k not in cfg]
     if missing:
         raise ValueError(f"Missing required config keys: {missing}")
+
+    # Active models and ensemble name come from the main webapp config
+    # (single source of truth, shared with nwc_webapp_v2/backend).
+    main_cfg_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "..", "nwc_webapp_v2", "cfg.yaml"
+    )
+    with open(main_cfg_path) as f:
+        main_cfg = yaml.safe_load(f)
+    cfg["models"] = main_cfg["models"]
+    cfg["ensemble_model_name"] = main_cfg.get("fss", {}).get("ensemble_model_name", "Probabilistic")
     return cfg
 
 
