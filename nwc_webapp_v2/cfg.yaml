@@ -30,6 +30,8 @@ models:
   - ConvLSTM
   - IAM4VP
   - SPROG
+  - ConvLSTM_ssim
+  - ConvLSTM_ssim_noBug
 
 # Metrics thresholds
 csi_threshold: [1, 5, 10, 20, 50]
