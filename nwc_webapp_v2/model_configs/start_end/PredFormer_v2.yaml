@@ -68,7 +68,7 @@ dataframe_strategy:
   name: from_hdf_folder_start_end
   args:
     data_folder: /data/nwc_webapp/data
-    fallback_folder: /data/nwc_webapp/data1/SRI_adj
+    fallback_folder: /data/SRI_adj
     datetime_format: '%d-%m-%Y-%H-%M'
     start_date: 2026-04-15 01:30
     end_date: 2026-04-15 03:30
