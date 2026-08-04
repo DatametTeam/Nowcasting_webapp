@@ -419,6 +419,7 @@ import ColorBar from '../components/ColorBar.vue'
 import { useSettingsStore } from '../stores/settings.js'
 import { useConfigStore } from '../stores/config.js'
 import { useTorchiaroloWs } from '../composables/useTorchiaroloWs.js'
+import { useRealtimeWs } from '../composables/useRealtimeWs.js'
 import { useMotionLayer } from '../composables/useMotionLayer.js'
 import api from '../api.js'
 
@@ -558,10 +559,24 @@ const hourTicks = computed(() => {
   return ticks
 })
 
-// ---- WebSocket ----
+// ---- WebSockets ----
+// Torchiarolo drives the timeline: a new file there rebuilds everything.
 const { connected: wsConnected } = useTorchiaroloWs({
   onTorchiaroloUpdate: () => {
     if (!isLoading.value) loadData()
+  },
+})
+
+// The national products arrive on their own schedule (about a minute after
+// Torchiarolo), so top up just the mosaic layers when they land instead of
+// waiting for the next full reload.
+const MOSAIC_WATCHED = new Set(Object.values(MOSAIC_API_PRODUCT))
+
+useRealtimeWs({
+  onProductReady: (data) => {
+    if (!MOSAIC_WATCHED.has(data?.product)) return
+    if (isLoading.value) return
+    reloadMosaics()
   },
 })
 
@@ -579,15 +594,58 @@ function _scheduleNextPoll() {
   }, delay)
 }
 
-// ---- Helpers ----
-function findPreviousOrEqualTs(sortedTs, target) {
-  let lo = 0, hi = sortedTs.length - 1, result = null
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1
-    if (sortedTs[mid] <= target) { result = sortedTs[mid]; lo = mid + 1 }
-    else hi = mid - 1
+// ---- Mosaic layers ----
+//
+// The national mosaic lands about a minute after the Torchiarolo file for the
+// same slot, so at the moment a Torchiarolo push triggers a reload the newest
+// mosaic frame usually does not exist yet. We match strictly on equal
+// timestamps and leave the frame empty rather than substituting an older
+// mosaic, which would silently show a 5-minute-stale field next to fresh data.
+// The gap fills itself in: ProductWatcherService broadcasts 'product_ready'
+// when the mosaic arrives, and we reload just those layers then.
+const MOSAIC_EXTRA_MIN = 15
+
+async function fetchMosaicUrls(sortedTs) {
+  const lookbackMinutes = lookbackHours.value * 60
+  const now = new Date()
+  const mosaicStart = new Date(now - (lookbackMinutes + MOSAIC_EXTRA_MIN) * 60 * 1000)
+  mosaicStart.setMinutes(Math.floor(mosaicStart.getMinutes() / 5) * 5, 0, 0)
+  const startISO = mosaicStart.toISOString().slice(0, 16)
+  const endISO   = now.toISOString().slice(0, 16)
+
+  const results = await Promise.all(
+    MOSAIC_PRODUCTS.map(product =>
+      api.explorerTimestamps(startISO, endISO, MOSAIC_API_PRODUCT[product], 'torchiarolo-mosaic').catch(err => {
+        console.error(`[TorchiaroloView] mosaic timestamps failed for ${product}:`, err)
+        return { timestamps: [], total_found: 0 }
+      })
+    )
+  )
+
+  return MOSAIC_PRODUCTS.map((product, i) => {
+    const found = new Set(results[i].timestamps)
+    return sortedTs.map(ts => found.has(ts) ? api.explorerOverlayUrl(MOSAIC_API_PRODUCT[product], ts) : null)
+  })
+}
+
+async function loadMosaicLayers(sortedTs) {
+  const urlsPerProduct = await fetchMosaicUrls(sortedTs)
+  await Promise.all(MOSAIC_PRODUCTS.map(async (product, i) => {
+    const urls = urlsPerProduct[i]
+    productFrameCount.value[product] = urls.filter(Boolean).length
+    await radarMap.value?.loadProductFrames(product, urls, layerConfig.value[product].opacity, ITALY_BOUNDS)
+  }))
+}
+
+/** Refresh only the mosaic layers, leaving the Torchiarolo layers untouched. */
+async function reloadMosaics() {
+  if (!isLoaded.value || timestamps.value.length === 0) return
+  try {
+    await loadMosaicLayers(timestamps.value)
+    goToFrame(frameIndex.value)
+  } catch (e) {
+    console.error('[TorchiaroloView] mosaic reload failed:', e)
   }
-  return result
 }
 
 // ---- Core load ----
@@ -603,21 +661,6 @@ async function loadData() {
         api.torchiaroloTimestamps(product, lookbackMinutes).catch(err => {
           console.error(`[TorchiaroloView] timestamps failed for ${product}:`, err)
           return { timestamps: [], total: 0 }
-        })
-      )
-    )
-
-    const now = new Date()
-    const MOSAIC_EXTRA_MIN = 15
-    const mosaicStart = new Date(now - (lookbackMinutes + MOSAIC_EXTRA_MIN) * 60 * 1000)
-    mosaicStart.setMinutes(Math.floor(mosaicStart.getMinutes() / 5) * 5, 0, 0)
-    const startISO = mosaicStart.toISOString().slice(0, 16)
-    const endISO   = now.toISOString().slice(0, 16)
-    const mosaicResults = await Promise.all(
-      MOSAIC_PRODUCTS.map(product =>
-        api.explorerTimestamps(startISO, endISO, MOSAIC_API_PRODUCT[product], 'torchiarolo-mosaic').catch(err => {
-          console.error(`[TorchiaroloView] mosaic timestamps failed for ${product}:`, err)
-          return { timestamps: [], total_found: 0 }
         })
       )
     )
@@ -641,9 +684,6 @@ async function loadData() {
     torchiaroloResults.forEach((r, i) => {
       productFrameCount.value[TORCHIAROLO_PRODUCTS[i]] = r.total
     })
-    mosaicResults.forEach((r, i) => {
-      productFrameCount.value[MOSAIC_PRODUCTS[i]] = r.total_found ?? r.total ?? 0
-    })
 
     radarMap.value?.clearAllProducts()
     const torBounds = overlayBounds.value || undefined
@@ -654,15 +694,7 @@ async function loadData() {
         const urls  = sortedTs.map(ts => found.has(ts) ? api.torchiaroloOverlayUrl(ts, product) : null)
         await radarMap.value?.loadProductFrames(product, urls, layerConfig.value[product].opacity, torBounds)
       }),
-      ...MOSAIC_PRODUCTS.map(async (product, i) => {
-        const apiProduct   = MOSAIC_API_PRODUCT[product]
-        const mosaicSorted = [...mosaicResults[i].timestamps].sort()
-        const urls = sortedTs.map(ts => {
-          const closest = findPreviousOrEqualTs(mosaicSorted, ts)
-          return closest ? api.explorerOverlayUrl(apiProduct, closest) : null
-        })
-        await radarMap.value?.loadProductFrames(product, urls, layerConfig.value[product].opacity, ITALY_BOUNDS)
-      }),
+      loadMosaicLayers(sortedTs),
     ])
 
     isLoaded.value = true
