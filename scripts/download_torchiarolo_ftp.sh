@@ -6,7 +6,7 @@
 echo "==== CRON RUN $(date -u) TORCHIAROLO ===="
 
 PYTHON="/home/ubuntu/miniconda3/envs/protezionecivile/bin/python"
-SCRIPT="/home/ubuntu/project/Nowcasting_webapp/scripts/SERVER_download_torchiarolo_from_ftp.py"
+SCRIPT="/home/ubuntu/projects/Nowcasting_webapp/scripts/SERVER_download_torchiarolo_from_ftp.py"
 
 LOG_DIR="/data/torchiarolo"
 mkdir -p "$LOG_DIR"
