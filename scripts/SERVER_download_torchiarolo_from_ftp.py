@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """
-Download the Torchiarolo (Puglia) radar composite products from the
-Protezione Civile FTP server.
+Download a Torchiarolo (Puglia) radar composite product from the Protezione
+Civile FTP server.
 
-Source: ftp://ftp.protezionecivile.it/PUGLIA/{ETM,SRI,VIL,VMI}/DD-MM-YYYY-HH-MM.hdf
+Source: ftp://ftp.protezionecivile.it/PUGLIA/{product}/DD-MM-YYYY-HH-MM.hdf
+Products: ETM, SRI, VIL, VMI
 
-All four products are delivered for the same 5-minute slot, so a single run
-waits for the trigger product (SRI) and then pulls the whole set. This keeps
-the four products in sync per timestamp, which the webapp relies on when it
-stacks them as map layers on a shared timeline.
+Mirrors SERVER_download_prd_from_ftp.py: one product per invocation, so each
+cron entry polls its own directory for its own file. The four products are
+published independently, so a single job triggering on one of them and then
+grabbing the rest would race whichever product happens to lag.
 
 Filenames encode UTC, like the other ODIM products on this server.
+
+Usage: SERVER_download_torchiarolo_from_ftp.py <Product> [interval_minutes]
 """
 
 import os
@@ -34,122 +37,138 @@ FAST_SLEEP = 1
 SLOW_SLEEP = 30
 LOG_INTERVAL_FAST = 30
 
-# All products delivered per slot. SRI is listed first and used as the trigger:
-# once it appears the others are published too.
-PRODUCTS = ["SRI", "VMI", "ETM", "VIL"]
-PRIMARY_PRODUCT = "SRI"
+# This FTP server occasionally stalls a connection instead of refusing it, so
+# every curl call is bounded — otherwise a single hang can outlast TOTAL_TIMEOUT,
+# which is only checked between attempts.
+CONNECT_TIMEOUT = 15
+LIST_TIMEOUT = 30
+DOWNLOAD_TIMEOUT = 60
 
 
 # -------------------------
 # HELPERS
 # -------------------------
-def setup_logging():
-    os.makedirs(DEST_BASE, exist_ok=True)
+def setup_logger(log_path):
     logging.basicConfig(
-        filename=os.path.join(DEST_BASE, "download.log"),
+        filename=log_path,
         level=logging.INFO,
         format="%(asctime)s - %(message)s",
     )
 
 
-def expected_slot(interval_minutes=5):
-    """Return the previous slot timestamp in UTC — the one whose data should now be arriving.
-
-    Filenames encode UTC, so we must work in UTC here. Publication lags the
-    slot by roughly 4 minutes, so at :02 we target :55 rather than :00.
-    """
-    now_ts = datetime.now(timezone.utc).timestamp()
-    slot_seconds = interval_minutes * 60
-    current_ts = (now_ts // slot_seconds) * slot_seconds
-    return datetime.fromtimestamp(current_ts - slot_seconds, tz=timezone.utc).replace(tzinfo=None)
-
-
-def product_url(product):
-    return f"{FTP_BASE}{product}/"
-
-
-def dest_dir(product):
-    return os.path.join(DEST_BASE, product)
-
-
-def curl_list(product):
-    """List filenames in the FTP subdirectory for the given product."""
-    cmd = ["curl", "-s", "--list-only", "--ftp-pasv",
-           "-u", f"{USERNAME}:{PASSWORD}", product_url(product)]
+def curl_list_files(server_url):
+    # --ftp-pasv: passive mode required by the server firewall
+    # --list-only: returns plain filenames instead of full directory listing
+    cmd = [
+        "curl", "-s", "--list-only", "--ftp-pasv",
+        "--connect-timeout", str(CONNECT_TIMEOUT),
+        "--max-time", str(LIST_TIMEOUT),
+        "-u", f"{USERNAME}:{PASSWORD}",
+        server_url,
+    ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     return result.stdout
 
 
-def download_file(product, filename, local_path):
-    # Download to a temp name and rename, so the folder watcher in the webapp
-    # never sees a half-written file.
-    tmp_path = f"{local_path}.part"
-    cmd = ["curl", "-s", "--ftp-pasv", "-u", f"{USERNAME}:{PASSWORD}",
-           "-o", tmp_path, f"{product_url(product)}{filename}"]
-    if subprocess.run(cmd).returncode != 0 or not os.path.getsize(tmp_path):
+def expected_slot(interval_minutes):
+    """Return the previous slot timestamp in UTC — the one whose data should now be arriving.
+
+    Filenames encode UTC, so we must work in UTC here rather than relying on
+    the server's timezone.
+    """
+    now_ts = datetime.now(timezone.utc).timestamp()
+    slot_seconds = interval_minutes * 60
+    current = (now_ts // slot_seconds) * slot_seconds
+    return datetime.fromtimestamp(current - slot_seconds, tz=timezone.utc).replace(tzinfo=None)
+
+
+def download_file(server_url, filename, dest_path):
+    # Download to a temp name and rename, so the webapp's folder watcher never
+    # sees a half-written file.
+    tmp_path = f"{dest_path}.part"
+    cmd = [
+        "curl", "-s", "--ftp-pasv",
+        "--connect-timeout", str(CONNECT_TIMEOUT),
+        "--max-time", str(DOWNLOAD_TIMEOUT),
+        "-u", f"{USERNAME}:{PASSWORD}",
+        "-o", tmp_path, f"{server_url}{filename}",
+    ]
+    ok = subprocess.run(cmd).returncode == 0 and os.path.getsize(tmp_path) > 0
+    if not ok:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         return False
-    os.rename(tmp_path, local_path)
+    os.rename(tmp_path, dest_path)
     return True
 
 
 # -------------------------
 # MAIN
 # -------------------------
-def main():
-    setup_logging()
+def main(product, interval=5):
+    server_url = f"{FTP_BASE}{product}/"
 
-    slot = expected_slot()
+    destination_dir = os.path.join(DEST_BASE, product)
+    os.makedirs(destination_dir, exist_ok=True)
+    log_path = os.path.join(DEST_BASE, "download.log")
+    setup_logger(log_path)
+
+    slot = expected_slot(interval)
     base_name = slot.strftime("%d-%m-%Y-%H-%M")
-    primary_file = f"{base_name}.hdf"
+    filename = f"{base_name}.hdf"
+    local_path = os.path.join(destination_dir, filename)
 
-    # Already have every product for this slot (e.g. an overlapping cron run
-    # already handled it)?
-    local_paths = {p: os.path.join(dest_dir(p), primary_file) for p in PRODUCTS}
-    if all(os.path.exists(path) for path in local_paths.values()):
+    # Already downloaded (e.g. by an overlapping cron instance for the same slot).
+    if os.path.exists(local_path):
         return
 
-    logging.info(f"Waiting for slot {base_name}")
+    logging.info(f"Waiting for slot {base_name} ({product})")
 
     start_time = time.time()
     last_log_time = 0
 
     while True:
         elapsed = time.time() - start_time
-        listing = curl_list(PRIMARY_PRODUCT)
+        raw = curl_list_files(server_url)
 
-        if primary_file in listing:
-            all_ok = True
-            for product in PRODUCTS:
-                local_path = local_paths[product]
-                if os.path.exists(local_path):
-                    continue
-                os.makedirs(dest_dir(product), exist_ok=True)
-                if download_file(product, primary_file, local_path):
-                    logging.info(f"Downloaded: {product}/{primary_file}")
-                else:
-                    logging.error(f"Download failed: {product}/{primary_file}")
-                    all_ok = False
-            if all_ok:
-                print(f"Downloaded all products for slot {base_name}")
-            else:
-                print(f"Downloaded slot {base_name} (some files failed — check log)")
-            break
+        if filename in raw:
+            if download_file(server_url, filename, local_path):
+                logging.info(f"Downloaded: {product}/{filename}")
+                print(f"Downloaded {base_name} for {product}")
+                break
+            # Listed but the transfer failed — the server drops requests
+            # intermittently, so fall through and retry rather than giving up.
+            logging.warning(f"Download failed, will retry: {product}/{filename}")
 
         if elapsed < FAST_PHASE_SECONDS:
             if time.time() - last_log_time > LOG_INTERVAL_FAST:
-                logging.info(f"Waiting for {primary_file} (fast polling)...")
+                logging.info(f"Waiting for {product}/{filename} (fast polling)...")
                 last_log_time = time.time()
             time.sleep(FAST_SLEEP)
         elif elapsed < TOTAL_TIMEOUT:
-            logging.info(f"Waiting for {primary_file} (slow polling)...")
+            logging.info(f"Waiting for {product}/{filename} (slow polling)...")
             time.sleep(SLOW_SLEEP)
         else:
-            logging.warning(f"Timeout: {primary_file} not available.")
-            print(f"Timeout: slot {base_name} not available.")
+            logging.error(f"Timeout: {product}/{filename} not available.")
+            print(f"Timeout: {filename} not available for {product}.")
             break
 
 
+# -------------------------
+# ENTRY POINT
+# -------------------------
 if __name__ == "__main__":
-    main()
+    import sys
+
+    if len(sys.argv) < 2:
+        print("Usage: SERVER_download_torchiarolo_from_ftp.py <Product> [interval_minutes]")
+        sys.exit(1)
+
+    product = sys.argv[1]
+    interval = 5
+
+    for arg in sys.argv[2:]:
+        if arg.isdigit():
+            interval = int(arg)
+
+    main(product, interval)
