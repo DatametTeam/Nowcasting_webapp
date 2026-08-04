@@ -27,6 +27,7 @@ import MetricsView from './views/MetricsView.vue'
 import WR10View from './views/WR10View.vue'
 import WR10ExplorerView from './views/WR10ExplorerView.vue'
 import CagliariView from './views/CagliariView.vue'
+import TorchiaroloView from './views/TorchiaroloView.vue'
 import FssAssessmentView from './views/FssAssessmentView.vue'
 
 const routes = [
@@ -51,6 +52,11 @@ const routes = [
     path: '/cagliari',
     name: 'Cagliari X-band',
     component: CagliariView,
+  },
+  {
+    path: '/torchiarolo',
+    name: 'Torchiarolo',
+    component: TorchiaroloView,
   },
   {
     path: '/nowcasting',

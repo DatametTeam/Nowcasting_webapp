@@ -223,6 +223,7 @@ const ALL_TABS = [
   { key: 'wr10',        path: '/wr10',           label: 'WR10' },
   { key: 'wr10explorer',path: '/wr10-explorer',  label: 'WR10 Explorer' },
   { key: 'cagliari',   path: '/cagliari',        label: 'Cagliari X-band', lines: ['Cagliari', 'X-band'] },
+  { key: 'torchiarolo',path: '/torchiarolo',     label: 'Torchiarolo' },
   { key: 'explorer',   path: '/explorer',        label: 'Data Explorer',   lines: ['Data', 'Explorer'] },
   { key: 'comparison', path: '/comparison',      label: 'Model Comparison',lines: ['Model', 'Comparison'] },
   { key: 'metrics',    path: '/metrics',         label: 'Metrics Analysis',lines: ['Metrics', 'Analysis'] },

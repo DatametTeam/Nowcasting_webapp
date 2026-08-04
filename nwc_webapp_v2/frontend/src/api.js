@@ -221,6 +221,15 @@ export default {
   cagliariSamplePixel: ({ lat, lon, timestamp, products, ppiIdx = null }) =>
     get(`/cagliari/sample?lat=${lat}&lon=${lon}&timestamp=${encodeURIComponent(timestamp)}&products=${products.join(',')}${ppiIdx ? `&ppi_idx=${ppiIdx}` : ''}`),
 
+  // --- Torchiarolo (Puglia) radar composite ---
+  torchiaroloConfig: () => get('/torchiarolo/config'),
+  torchiaroloTimestamps: (product, lookbackMinutes) =>
+    get(`/torchiarolo/timestamps?product=${product}&lookback_minutes=${lookbackMinutes}`),
+  torchiaroloOverlayUrl: (timestamp, product) =>
+    `/api/render/overlay/torchiarolo/${encodeURIComponent(timestamp)}?product=${product}`,
+  torchiaroloSamplePixel: ({ lat, lon, timestamp, products }) =>
+    get(`/torchiarolo/sample?lat=${lat}&lon=${lon}&timestamp=${encodeURIComponent(timestamp)}&products=${products.join(',')}`),
+
   // --- WR10 Explorer (date-range, including PPI) ---
   wr10ExplorerTimestamps: (start, end, products = 'VMI,SRI,PPI') =>
     get(`/wr10/explorer/timestamps?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&products=${products}`),

@@ -40,6 +40,7 @@ from api.wind import router as wind_router, wind_ws_manager
 from api.lk import router as lk_router, lk_ws_manager
 from api.wr10 import router as wr10_router, wr10_ws_manager
 from api.cagliari import router as cagliari_router, cagliari_ws_manager
+from api.torchiarolo import router as torchiarolo_router, torchiarolo_ws_manager
 from api.fss import router as fss_router, fss_ws_manager
 from api.radar_status import router as radar_status_router, radar_status_ws_manager
 
@@ -88,6 +89,7 @@ app.include_router(wind_router)
 app.include_router(lk_router)
 app.include_router(wr10_router)
 app.include_router(cagliari_router)
+app.include_router(torchiarolo_router)
 app.include_router(fss_router)
 app.include_router(radar_status_router)
 
@@ -149,6 +151,7 @@ async def startup_event():
     ws_manager.set_event_loop(asyncio.get_running_loop())
     wr10_ws_manager.set_event_loop(asyncio.get_running_loop())
     cagliari_ws_manager.set_event_loop(asyncio.get_running_loop())
+    torchiarolo_ws_manager.set_event_loop(asyncio.get_running_loop())
     fss_ws_manager.set_event_loop(asyncio.get_running_loop())
     lk_ws_manager.set_event_loop(asyncio.get_running_loop())
     wind_ws_manager.set_event_loop(asyncio.get_running_loop())
@@ -182,6 +185,10 @@ async def startup_event():
         from services.cagliari import CagliariService
         CagliariService().start()
         print(f"  Cagliari watcher: auto-started")
+
+        from services.torchiarolo import TorchiaroloService
+        TorchiaroloService().start()
+        print(f"  Torchiarolo watcher: auto-started")
 
         from services.product_watcher import ProductWatcherService
         ProductWatcherService().start()

@@ -275,6 +275,134 @@ async def get_cagliari_overlay(
 
 
 # ==========================================================================
+# Torchiarolo (Puglia) composite — Transverse Mercator rendering
+#
+# Unlike Cagliari, this data is an ODIM composite on a tmerc grid, so it needs
+# the same tmerc → Web Mercator reprojection as the national mosaic (see
+# _get_warp_lookup below for why the destination grid is uniform in EPSG:3857
+# metres). It also stores uint8 counts with a gain/offset that must be applied.
+# ==========================================================================
+
+_torchiarolo_warp_lookup = None
+
+
+def _get_torchiarolo_warp_lookup():
+    """Precompute and cache nearest-neighbour indices for the Torchiarolo reprojection.
+
+    Same approach as _get_warp_lookup(), but the source grid parameters come
+    from the HDF5 files rather than cfg.yaml, and the destination bounds are
+    derived from the grid itself.
+
+    Returns:
+        (col_indices, line_indices, valid_mask, nlines_dst, ncols_dst)
+    """
+    global _torchiarolo_warp_lookup
+    if _torchiarolo_warp_lookup is not None:
+        return _torchiarolo_warp_lookup
+
+    from api.torchiarolo import _grid_geometry, get_overlay_bounds, get_grid_extent_m
+
+    geom = _grid_geometry()
+    (min_lat, min_lon), (max_lat, max_lon) = get_overlay_bounds()
+    half_x, half_y = get_grid_extent_m(geom)
+
+    source_proj = Proj(geom["projdef"])
+
+    # Output resolution: keep it square and close to the native pixel count.
+    n_dst = int(max(geom["ncols"], geom["nlines"]))
+
+    # EPSG:3857 uses the WGS84 equatorial radius
+    R = 6378137.0
+
+    x_min = R * np.radians(min_lon)
+    x_max = R * np.radians(max_lon)
+    y_min = R * np.log(np.tan(np.pi / 4 + np.radians(min_lat) / 2))
+    y_max = R * np.log(np.tan(np.pi / 4 + np.radians(max_lat) / 2))
+
+    dest_x_merc = np.linspace(x_min, x_max, n_dst)
+    dest_y_merc = np.linspace(y_max, y_min, n_dst)   # north (top) to south (bottom)
+    dest_xm_grid, dest_ym_grid = np.meshgrid(dest_x_merc, dest_y_merc)
+
+    # EPSG:3857 → EPSG:4326
+    dest_lon = np.degrees(dest_xm_grid / R)
+    dest_lat = np.degrees(2 * np.arctan(np.exp(dest_ym_grid / R)) - np.pi / 2)
+
+    # EPSG:4326 → source tmerc → source grid indices.
+    # Row 0 is the northernmost row, so the line index decreases as y increases.
+    dest_x_tmerc, dest_y_tmerc = source_proj(dest_lon, dest_lat)
+    col_indices = ((dest_x_tmerc + half_x) / geom["xscale"]).astype(int)
+    line_indices = ((half_y - dest_y_tmerc) / geom["yscale"]).astype(int)
+
+    valid_mask = (
+        (col_indices >= 0) & (col_indices < geom["ncols"]) &
+        (line_indices >= 0) & (line_indices < geom["nlines"])
+    )
+
+    _torchiarolo_warp_lookup = (col_indices, line_indices, valid_mask, n_dst, n_dst)
+    return _torchiarolo_warp_lookup
+
+
+def _render_torchiarolo_frame(file_path: Path, legend_name: str) -> bytes:
+    """Load a Torchiarolo HDF5 file, decode, reproject and return a PNG overlay."""
+    import h5py
+
+    from api.torchiarolo import fill_values, scaling
+
+    with h5py.File(file_path, "r") as f:
+        raw = f["dataset1/data1/data"][()]
+        what = dict(f["dataset1/data1/what"].attrs)
+
+    data = raw.astype(float)
+
+    # ODIM: nodata/undetect are raw counts, so mask them before applying gain.
+    for fv in fill_values(what):
+        if np.isfinite(fv):
+            data[raw == fv] = np.nan
+
+    gain, offset = scaling(what)
+    if gain != 1.0 or offset != 0.0:
+        data = data * gain + offset
+
+    col_idx, line_idx, valid, nlines_dst, ncols_dst = _get_torchiarolo_warp_lookup()
+    warped = np.full((nlines_dst, ncols_dst), np.nan, dtype=float)
+    warped[valid] = data[line_idx[valid], col_idx[valid]]
+
+    # transparent_zero: SRI and VIL encode "nothing" as a real 0.0 that would
+    # otherwise paint the whole coverage disc; VMI's sub-zero dBZ are
+    # noise-level returns. All four should be see-through below zero.
+    frame_cmap, frame_norm = _get_product_cmap_norm(legend_name)
+    return _frame_to_png_bytes(warped, frame_cmap, frame_norm, transparent_zero=True)
+
+
+@router.get("/overlay/torchiarolo/{timestamp}")
+async def get_torchiarolo_overlay(
+    timestamp: str,
+    product: str = Query("SRI", description="Torchiarolo product: SRI, VMI, VIL or ETM"),
+):
+    """Generate a Torchiarolo radar overlay (RGBA PNG) for the map."""
+    from api.torchiarolo import find_torchiarolo_file, _torchiarolo_cfg
+
+    try:
+        dt = datetime.fromisoformat(timestamp)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid datetime: {e}")
+
+    file_path = find_torchiarolo_file(product, dt)
+    if file_path is None:
+        raise HTTPException(status_code=404, detail=f"Torchiarolo file not found: {product} @ {timestamp}")
+
+    cfg = _torchiarolo_cfg()
+    legend_name = cfg.get("products", {}).get(product, {}).get("legend", "CZ")
+
+    try:
+        png_bytes = _render_torchiarolo_frame(file_path, legend_name)
+    except OSError as e:
+        raise HTTPException(status_code=404, detail=f"File not yet readable: {e}")
+
+    return Response(content=png_bytes, media_type="image/png", headers=_CACHE_HEADERS)
+
+
+# ==========================================================================
 # Cached helpers — loaded once, reused for every request
 # ==========================================================================
 

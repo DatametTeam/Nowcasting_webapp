@@ -13,12 +13,13 @@ server:
 
 # Tabs shown in the navigation bar.
 # Remove any entry to hide that tab from the UI.
-# Available values: realtime, wr10, wr10explorer, cagliari, nowcasting, explorer, comparison, metrics, assessment
+# Available values: realtime, wr10, wr10explorer, cagliari, torchiarolo, nowcasting, explorer, comparison, metrics, assessment
 enabled_tabs:
   - realtime
-  - wr10
-  - wr10explorer
-  - cagliari
+#  - wr10
+#  - wr10explorer
+#  - cagliari
+  - torchiarolo
   - nowcasting
   - explorer
   - comparison
@@ -218,6 +219,44 @@ cagliari:
       legend: "CZ"
       label: "PPI"
       unit: "dBZ"
+
+# Torchiarolo (Puglia) radar composite configuration
+#
+# Unlike Cagliari, the grid geometry here is NOT hardcoded: it is read at
+# startup from the newest available HDF5 file (where/projdef, where/xscale,
+# where/xsize) and cached. The values under 'fallback_grid' are only used when
+# no file is present yet — e.g. on a fresh install before the first download.
+torchiarolo:
+  # Data root: {mode}_data_root/{product}/
+  server_data_root: "/data/torchiarolo"
+  local_data_root: "data/torchiarolo"
+
+  # Used only if no HDF5 file is available to read the geometry from.
+  fallback_grid:
+    prj_lat: 40.5064
+    prj_lon: 18.0598
+    n_pixels: 400
+    xscale: 1000.0     # meters per pixel
+
+  # Map view
+  zoom: 8
+  products:
+    SRI:
+      legend: "R"
+      label: "Rain Rate"
+      unit: "mm/h"
+    VMI:
+      legend: "CZ"
+      label: "Max Reflectivity"
+      unit: "dBZ"
+    VIL:
+      legend: "VIL"
+      label: "Vert. Integrated Liquid"
+      unit: "kg/m²"
+    ETM:
+      legend: "ETM"
+      label: "Echo Top"
+      unit: "m"
 
 # Radar products for the Data Explorer tab.
 # 'folder' supports {data_root} which is resolved from the active paths section.
