@@ -243,19 +243,19 @@ torchiarolo:
   products:
     SRI:
       legend: "R"
-      label: "Rain Rate"
+      label: "SRI"
       unit: "mm/h"
     VMI:
       legend: "CZ"
-      label: "Max Reflectivity"
+      label: "VMI"
       unit: "dBZ"
     VIL:
       legend: "VIL"
-      label: "Vert. Integrated Liquid"
+      label: "VIL"
       unit: "kg/m²"
     ETM:
       legend: "ETM"
-      label: "Echo Top"
+      label: "ETM"
       unit: "m"
 
 # Radar products for the Data Explorer tab.

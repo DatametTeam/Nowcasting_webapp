@@ -432,8 +432,10 @@ const PRODUCTS             = [...TORCHIAROLO_PRODUCTS, ...MOSAIC_PRODUCTS]
 
 const MOSAIC_API_PRODUCT = { SRI_MOSAIC: 'SRI_adj', VMI_MOSAIC: 'VMI' }
 
+// Layers are labelled with the provider's product codes rather than expanded
+// names, matching how the products are referred to operationally.
 const PRODUCT_LABELS = {
-  SRI: 'Rain Rate', VMI: 'Reflectivity', VIL: 'Vert. Int. Liquid', ETM: 'Echo Top',
+  SRI: 'SRI', VMI: 'VMI', VIL: 'VIL', ETM: 'ETM',
   SRI_MOSAIC: 'SRI Mosaic', VMI_MOSAIC: 'VMI Mosaic',
 }
 
