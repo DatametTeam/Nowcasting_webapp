@@ -572,9 +572,12 @@ const { connected: wsConnected } = useTorchiaroloWs({
 // waiting for the next full reload.
 const MOSAIC_WATCHED = new Set(Object.values(MOSAIC_API_PRODUCT))
 
+// Note: useRealtimeWs calls this as onProductReady(product, timestamp) — the
+// product is a positional string, not the nested {data:{...}} payload the
+// Torchiarolo and Cagliari sockets send.
 useRealtimeWs({
-  onProductReady: (data) => {
-    if (!MOSAIC_WATCHED.has(data?.product)) return
+  onProductReady: (product) => {
+    if (!MOSAIC_WATCHED.has(product)) return
     if (isLoading.value) return
     reloadMosaics()
   },
