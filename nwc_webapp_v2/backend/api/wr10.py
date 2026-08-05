@@ -164,28 +164,117 @@ def find_ppi_file(dt: datetime, elevation: str, correction: str) -> Path | None:
 
 
 # ==========================================================================
-# Overlay bounds (computed once and cached)
+# Scan geometry — read from the data, not hardcoded
+#
+# WR10 is a mobile radar: it gets redeployed to a different site, and the scan
+# geometry changes between deployments too (the April 2026 archive contains
+# both nbins=800/rscale=90 and nbins=480/rscale=150 files, both covering
+# 72 km). Every file carries its own navigation, so read it rather than
+# trusting constants that go stale the moment the radar is moved:
+#   where/lat, where/lon        — site position
+#   dataset1/where/nrays,       — scan geometry
+#     nbins, rscale
+#
+# The cache is keyed on the newest filename, so a redeployment is picked up
+# automatically on the next file without needing a restart.
 # ==========================================================================
 
-_overlay_bounds: list | None = None
+_geometry: tuple[str, dict] | None = None   # (source filename, geometry)
+
+
+def read_geometry(file_path: Path) -> dict | None:
+    """Read site position and scan geometry from one WR10 HDF5 file."""
+    import h5py
+
+    try:
+        with h5py.File(file_path, "r") as f:
+            where = f["where"].attrs
+            dwhere = f["dataset1/where"].attrs
+            return {
+                "lat": float(where["lat"]),
+                "lon": float(where["lon"]),
+                "height": float(where.get("height", 0.0)),
+                "nrays": int(dwhere["nrays"]),
+                "nbins": int(dwhere["nbins"]),
+                "rscale": float(dwhere["rscale"]),
+                "from_file": True,
+            }
+    except (OSError, KeyError, ValueError) as e:
+        logger.warning("WR10: cannot read geometry from %s: %s", file_path, e)
+        return None
+
+
+def _fallback_geometry() -> dict:
+    """Geometry from cfg.yaml, used only when no data file can be read."""
+    cfg = _wr10_cfg()
+    return {
+        "lat": cfg.get("radar_lat", 39.18960189819336),
+        "lon": cfg.get("radar_lon", 9.15820026397705),
+        "height": 0.0,
+        "nrays": int(cfg.get("n_rays", 360)),
+        "nbins": int(cfg.get("n_bins", 480)),
+        "rscale": float(cfg.get("rscale", 150.0)),
+        "from_file": False,
+    }
+
+
+def _newest_file() -> Path | None:
+    """Return the newest WR10 file across all product folders, or None."""
+    newest: tuple[str, Path] | None = None
+    cfg = _wr10_cfg()
+    for product in cfg.get("products", {}):
+        folder = _get_product_folder(product)
+        if not folder.exists():
+            continue
+        try:
+            for fname in os.listdir(folder):
+                m = _FNAME_RE.match(fname)
+                if m and (newest is None or m.group(2) > newest[0]):
+                    newest = (m.group(2), folder / fname)
+        except OSError:
+            continue
+    return newest[1] if newest else None
+
+
+def grid_geometry() -> dict:
+    """Return the current WR10 geometry, re-reading it when new data arrives."""
+    global _geometry
+
+    path = _newest_file()
+    if path is None:
+        return _geometry[1] if _geometry else _fallback_geometry()
+
+    if _geometry is not None and _geometry[0] == path.name:
+        return _geometry[1]
+
+    geom = read_geometry(path)
+    if geom is None:
+        return _geometry[1] if _geometry else _fallback_geometry()
+
+    previous = _geometry[1] if _geometry else None
+    if previous and (previous["lat"], previous["lon"]) != (geom["lat"], geom["lon"]):
+        logger.warning(
+            "WR10 site moved: (%.5f, %.5f) → (%.5f, %.5f) — overlay will be re-projected",
+            previous["lat"], previous["lon"], geom["lat"], geom["lon"],
+        )
+    elif previous is None:
+        logger.info(
+            "WR10 geometry: site (%.5f, %.5f), %d rays × %d bins @ %.0f m",
+            geom["lat"], geom["lon"], geom["nrays"], geom["nbins"], geom["rscale"],
+        )
+
+    _geometry = (path.name, geom)
+    return geom
 
 
 def get_overlay_bounds() -> list:
     """Return [[lat_sw, lon_sw], [lat_ne, lon_ne]] for the WR10 coverage area."""
-    global _overlay_bounds
-    if _overlay_bounds is not None:
-        return _overlay_bounds
-    cfg = _wr10_cfg()
-    lat = cfg.get("radar_lat", 39.18960189819336)
-    lon = cfg.get("radar_lon", 9.15820026397705)
-    n_bins = cfg.get("n_bins", 480)
-    rscale = cfg.get("rscale", 150.0)
-    max_m = n_bins * rscale
-    proj = Proj(proj="aeqd", lat_0=lat, lon_0=lon, ellps="WGS84")
+    geom = grid_geometry()
+    max_m = geom["nbins"] * geom["rscale"]
+    proj = Proj(proj="aeqd", lat_0=geom["lat"], lon_0=geom["lon"], ellps="WGS84")
     lon_sw, lat_sw = proj(-max_m, -max_m, inverse=True)
     lon_ne, lat_ne = proj(+max_m, +max_m, inverse=True)
-    _overlay_bounds = [[lat_sw, lon_sw], [lat_ne, lon_ne]]
-    return _overlay_bounds
+    return [[lat_sw, lon_sw], [lat_ne, lon_ne]]
 
 
 # ==========================================================================
@@ -220,9 +309,10 @@ async def get_wr10_config():
     from nwc_webapp.rendering.colormaps import get_legend_data, build_legend_file_path
 
     cfg = _wr10_cfg()
+    geom = grid_geometry()
     bounds = get_overlay_bounds()
-    lat = cfg.get("radar_lat", 39.18960189819336)
-    lon = cfg.get("radar_lon", 9.15820026397705)
+    lat = geom["lat"]
+    lon = geom["lon"]
     products = {}
     for name, meta in cfg.get("products", {}).items():
         legend_name = meta.get("legend", "CZ")
@@ -252,6 +342,14 @@ async def get_wr10_config():
         "overlay_bounds": bounds,
         "center": [lat, lon],
         "zoom": 10,
+        "scan": {
+            "nrays": geom["nrays"],
+            "nbins": geom["nbins"],
+            "rscale": geom["rscale"],
+            "range_km": round(geom["nbins"] * geom["rscale"] / 1000.0),
+            "height": geom["height"],
+            "from_file": geom["from_file"],
+        },
         "products": products,
     }
 
@@ -306,7 +404,7 @@ async def sample_wr10_pixel(
     Sample WR10 polar radar values at a clicked (lat, lon) for the current frame.
 
     Converts lat/lon to azimuthal-equidistant metres relative to the radar
-    centre, then to (ray_idx, bin_idx) in the 360×480 polar grid.
+    centre, then to (ray_idx, bin_idx) in the polar grid.
     Returns physical values (gain/offset applied) or null for no-data pixels.
     """
     import math
@@ -317,11 +415,12 @@ async def sample_wr10_pixel(
         raise HTTPException(status_code=400, detail=f"Invalid datetime: {e}")
 
     cfg = _wr10_cfg()
-    radar_lat = cfg.get("radar_lat", 39.18960189819336)
-    radar_lon = cfg.get("radar_lon", 9.15820026397705)
-    n_rays    = cfg.get("n_rays",  360)
-    n_bins    = cfg.get("n_bins",  480)
-    rscale    = cfg.get("rscale",  150.0)
+    geom = grid_geometry()
+    radar_lat = geom["lat"]
+    radar_lon = geom["lon"]
+    n_rays    = geom["nrays"]
+    n_bins    = geom["nbins"]
+    rscale    = geom["rscale"]
     max_range_m = n_bins * rscale
 
     # lat/lon → metres (dx=East, dy=North) relative to radar centre

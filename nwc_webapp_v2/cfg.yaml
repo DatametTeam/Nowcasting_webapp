@@ -16,7 +16,7 @@ server:
 # Available values: realtime, wr10, wr10explorer, cagliari, torchiarolo, nowcasting, explorer, comparison, metrics, assessment
 enabled_tabs:
   - realtime
-#  - wr10
+  - wr10
 #  - wr10explorer
 #  - cagliari
   - torchiarolo

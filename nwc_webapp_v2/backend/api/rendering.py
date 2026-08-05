@@ -54,19 +54,22 @@ router = APIRouter(prefix="/api/render", tags=["rendering"])
 # WR10 polar → Cartesian → Web Mercator rendering
 # ==========================================================================
 
-# WR10 radar parameters (from HDF5 where/what attributes)
-_WR10_RADAR_LAT = 39.18960189819336
-_WR10_RADAR_LON = 9.15820026397705
-_WR10_N_RAYS = 360
-_WR10_N_BINS = 480
-_WR10_RSCALE = 150.0   # metres per range bin
-_WR10_MAX_RANGE_M = _WR10_N_BINS * _WR10_RSCALE   # 72 000 m
+# Site position and scan geometry are read per-file from the HDF5 attributes
+# (where/lat, where/lon, dataset1/where/nrays,nbins,rscale) — see
+# api/wr10.py:grid_geometry. They used to be constants here, which silently
+# produced a wrongly-scaled, wrongly-georeferenced image whenever the radar was
+# redeployed or changed range resolution.
 _WR10_IMG_SIZE = 600   # pixels in the output PNG (each side)
 
-_wr10_warp_lookup = None  # (ray_idx, bin_idx, valid_mask) — computed once
+# Warp lookups keyed on the scan geometry they were built for. WR10 is mobile
+# and its scan geometry varies between files, so a single cached table would go
+# stale the moment the radar is redeployed or switches range resolution. A few
+# entries are kept so alternating rscale values don't thrash the cache.
+_wr10_warp_lookups: dict = {}
+_WR10_LOOKUP_CACHE_MAX = 4
 
 
-def _get_wr10_warp_lookup():
+def _get_wr10_warp_lookup(geom):
     """
     Precompute and cache the polar→Cartesian→WebMercator lookup table.
 
@@ -76,21 +79,32 @@ def _get_wr10_warp_lookup():
       3. lat/lon → metres (dx, dy) in azimuthal-equidistant projection centred on the radar
       4. (dx, dy) → (azimuth, range) → polar (ray_idx, bin_idx)
 
+    geom: dict with lat, lon, nrays, nbins, rscale — read from the file being
+    rendered, so the table always matches the data it is applied to.
+
     Returns (ray_idx, bin_idx, valid_mask), all shape (_WR10_IMG_SIZE, _WR10_IMG_SIZE).
     """
-    global _wr10_warp_lookup
-    if _wr10_warp_lookup is not None:
-        return _wr10_warp_lookup
+    key = (geom["lat"], geom["lon"], geom["nrays"], geom["nbins"], geom["rscale"])
+    cached = _wr10_warp_lookups.get(key)
+    if cached is not None:
+        return cached
 
     from pyproj import Proj
+
+    radar_lat = geom["lat"]
+    radar_lon = geom["lon"]
+    n_rays = geom["nrays"]
+    n_bins = geom["nbins"]
+    rscale = geom["rscale"]
+    max_range_m = n_bins * rscale
 
     R = 6378137.0  # WGS84 equatorial radius (Web Mercator)
 
     # Coverage bounding box in Web Mercator, centred on the radar
-    proj_aeqd = Proj(proj="aeqd", lat_0=_WR10_RADAR_LAT, lon_0=_WR10_RADAR_LON, ellps="WGS84")
+    proj_aeqd = Proj(proj="aeqd", lat_0=radar_lat, lon_0=radar_lon, ellps="WGS84")
     # SW and NE corners of the ±max_range square in lat/lon
-    lon_sw, lat_sw = proj_aeqd(-_WR10_MAX_RANGE_M, -_WR10_MAX_RANGE_M, inverse=True)
-    lon_ne, lat_ne = proj_aeqd(+_WR10_MAX_RANGE_M, +_WR10_MAX_RANGE_M, inverse=True)
+    lon_sw, lat_sw = proj_aeqd(-max_range_m, -max_range_m, inverse=True)
+    lon_ne, lat_ne = proj_aeqd(+max_range_m, +max_range_m, inverse=True)
 
     # Web Mercator bounds
     x_sw = R * np.radians(lon_sw)
@@ -115,14 +129,16 @@ def _get_wr10_warp_lookup():
     azimuth_deg = np.degrees(np.arctan2(dx, dy)) % 360.0  # arctan2(East, North)
 
     # Map to integer polar indices
-    ray_idx = (azimuth_deg * _WR10_N_RAYS / 360.0).astype(int) % _WR10_N_RAYS
-    bin_idx = (range_m / _WR10_RSCALE).astype(int)
+    ray_idx = (azimuth_deg * n_rays / 360.0).astype(int) % n_rays
+    bin_idx = (range_m / rscale).astype(int)
 
     # Valid only within the radar's measurement range
-    valid = (range_m < _WR10_MAX_RANGE_M) & (bin_idx >= 0) & (bin_idx < _WR10_N_BINS)
+    valid = (range_m < max_range_m) & (bin_idx >= 0) & (bin_idx < n_bins)
 
-    _wr10_warp_lookup = (ray_idx, bin_idx, valid)
-    return _wr10_warp_lookup
+    if len(_wr10_warp_lookups) >= _WR10_LOOKUP_CACHE_MAX:
+        _wr10_warp_lookups.pop(next(iter(_wr10_warp_lookups)))
+    _wr10_warp_lookups[key] = (ray_idx, bin_idx, valid)
+    return _wr10_warp_lookups[key]
 
 
 def _render_wr10_frame(file_path: Path, legend_name: str) -> bytes:
@@ -138,6 +154,9 @@ def _render_wr10_frame(file_path: Path, legend_name: str) -> bytes:
     """
     import h5py
 
+    # Geometry comes from the file being rendered, not from a global constant:
+    # the radar is mobile and its range resolution varies between files, so the
+    # lookup table must match the array it is about to index.
     with h5py.File(file_path, "r") as f:
         raw = f["dataset1/data1/data"][()].astype(float)
         what = f["dataset1/data1/what"]
@@ -145,6 +164,15 @@ def _render_wr10_frame(file_path: Path, legend_name: str) -> bytes:
         offset = float(what.attrs.get("offset", -32.0))
         nodata = float(what.attrs.get("nodata", 0.0))
         undetect = float(what.attrs.get("undetect", 0.0))
+        where = f["where"].attrs
+        dwhere = f["dataset1/where"].attrs
+        geom = {
+            "lat": float(where["lat"]),
+            "lon": float(where["lon"]),
+            "nrays": int(dwhere["nrays"]),
+            "nbins": int(dwhere["nbins"]),
+            "rscale": float(dwhere["rscale"]),
+        }
 
     # Convert to physical values; mark no-data/undetect as NaN
     no_signal = (raw == nodata) | (raw == undetect)
@@ -152,7 +180,7 @@ def _render_wr10_frame(file_path: Path, legend_name: str) -> bytes:
     physical[no_signal] = np.nan
 
     # Polar → Web Mercator (nearest-neighbour lookup)
-    ray_idx, bin_idx, valid = _get_wr10_warp_lookup()
+    ray_idx, bin_idx, valid = _get_wr10_warp_lookup(geom)
     warped = np.full((_WR10_IMG_SIZE, _WR10_IMG_SIZE), np.nan, dtype=float)
     warped[valid] = physical[ray_idx[valid], bin_idx[valid]]
 
@@ -197,7 +225,8 @@ async def get_wr10_overlay(
         legend_name = cfg.get("products", {}).get(product, {}).get("legend", "CZ")
 
     try:
-        _get_wr10_warp_lookup()
+        # The lookup table is built inside _render_wr10_frame now, from the
+        # geometry of the file itself — there is nothing to pre-warm here.
         png_bytes = _render_wr10_frame(file_path, legend_name)
     except OSError as e:
         raise HTTPException(
