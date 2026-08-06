@@ -15,9 +15,13 @@ FTP_URL = "ftp://ftp.protezionecivile.it/cagliari/hdf5/"
 
 DEST_BASE = "/data/cagliari_xband"
 
-TOTAL_TIMEOUT = 600       # 10 minutes max wait
+# TOTAL_TIMEOUT must stay below the 5-minute cron interval, or a run that finds
+# nothing is still alive when the next one starts and they accumulate. That
+# matters most while the radar is offline: every run then polls for its whole
+# budget, so the poll is also spaced out rather than hitting the FTP each second.
+TOTAL_TIMEOUT = 240       # 4 minutes max wait
 FAST_PHASE_SECONDS = 150  # first 2.5 min: poll aggressively
-FAST_SLEEP = 1
+FAST_SLEEP = 3
 SLOW_SLEEP = 30
 LOG_INTERVAL_FAST = 30
 
@@ -109,7 +113,7 @@ def _subfolder(prefix):
 def curl_list(prefix):
     """List files in the FTP subdirectory for the given product prefix."""
     url = f"{FTP_URL}{_subfolder(prefix)}"
-    cmd = ["curl", "-s", "--list-only", "--ftp-pasv", "--disable-epsv",
+    cmd = ["curl", "-s", "--list-only", "--ftp-pasv", "--disable-epsv", "--connect-timeout", "15", "--max-time", "30",
            "-u", f"{USERNAME}:{PASSWORD}", url]
     result = subprocess.run(cmd, capture_output=True, text=True)
     return result.stdout
@@ -117,7 +121,7 @@ def curl_list(prefix):
 
 def download_file(prefix, filename, local_path):
     url = f"{FTP_URL}{_subfolder(prefix)}{filename}"
-    cmd = ["curl", "-s", "--ftp-pasv", "--disable-epsv", "-u", f"{USERNAME}:{PASSWORD}",
+    cmd = ["curl", "-s", "--ftp-pasv", "--disable-epsv", "--connect-timeout", "15", "--max-time", "60", "-u", f"{USERNAME}:{PASSWORD}",
            "-o", local_path, url]
     return subprocess.run(cmd).returncode == 0
 
