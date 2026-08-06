@@ -79,7 +79,7 @@ output:
 
 # ── Backend notification ──────────────────────────────────────────────────────
 notify:
-  url: "http://localhost:8001/api/lk/notify"
+  url: "http://localhost:8000/api/lk/notify"
   timeout_s: 5             # HTTP timeout for the notify POST
 
 # ── Polling (used by run_lk.sh) ──────────────────────────────────────────────

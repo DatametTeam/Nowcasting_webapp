@@ -27,7 +27,7 @@ TXT_EXTENSIONS = ["txt"]
 # After a successful download, POST to this URL to notify the webapp via WebSocket.
 # Key = product name (matches FTP folder name).
 NOTIFY_URLS = {
-    "SITES": "http://localhost:8001/api/radar-status/notify",
+    "SITES": "http://localhost:8000/api/radar-status/notify",
 }
 
 

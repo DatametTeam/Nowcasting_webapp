@@ -16,7 +16,7 @@ PYTHON="/home/ubuntu/miniconda3/envs/protezionecivile/bin/python"
 SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 CONFIG="$SCRIPT_DIR/fss_config.yaml"
 MAIN_CFG="$SCRIPT_DIR/../../nwc_webapp_v2/cfg.yaml"
-NOTIFY_URL="http://localhost:8001/api/fss/notify"
+NOTIFY_URL="http://localhost:8000/api/fss/notify"
 
 MAX_WAIT=180    # seconds to poll before giving up
 POLL_INTERVAL=10
