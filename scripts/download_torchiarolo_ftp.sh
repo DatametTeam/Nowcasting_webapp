@@ -2,6 +2,8 @@
 #
 # Cron wrapper for the Torchiarolo (Puglia) composite downloader.
 # One product per invocation: ETM, SRI, VIL or VMI.
+#
+# Usage: download_torchiarolo_ftp.sh <Product> [interval_minutes]
 
 echo "==== CRON RUN $(date -u) TORCHIAROLO PRODUCT=$1 ===="
 
@@ -13,8 +15,11 @@ fi
 PRODUCT="$1"
 INTERVAL="$2"
 
+# Resolve the Python script relative to this wrapper — see download_product_ftp.sh
+SCRIPT_DIR="$(dirname "$(realpath "$0")")"
+SCRIPT="$SCRIPT_DIR/SERVER_download_torchiarolo_from_ftp.py"
+
 PYTHON="/home/ubuntu/miniconda3/envs/protezionecivile/bin/python"
-SCRIPT="/home/ubuntu/projects/Nowcasting_webapp/scripts/SERVER_download_torchiarolo_from_ftp.py"
 
 LOG_DIR="/data/torchiarolo"
 mkdir -p "$LOG_DIR"

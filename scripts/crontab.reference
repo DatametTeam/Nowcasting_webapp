@@ -1,0 +1,57 @@
+# Reference crontab for the meteo-app server.
+#
+# Install with:  crontab scripts/crontab.reference
+# Inspect with:  crontab -l
+#
+# Every entry runs from this repository checkout. The wrappers resolve their
+# Python scripts relative to themselves, so a `git pull` updates the code that
+# cron actually runs — no copying to /home/ubuntu/projects/scripts or
+# /home/ubuntu/Downloads, which is how several jobs previously drifted onto
+# stale copies (and missed the --disable-epsv fix during the FTP outage).
+#
+# All download jobs target a specific 5-minute slot rather than "whatever file
+# is newest", and all filenames/slots are UTC.
+
+REPO=/home/ubuntu/projects/Nowcasting_webapp
+
+# ---------------------------------------------------------------------------
+# National PRD products (mosaic + ancillary)
+# ---------------------------------------------------------------------------
+*/5 * * * * $REPO/scripts/download_product_ftp.sh SRI_adj
+*/5 * * * * $REPO/scripts/download_product_ftp.sh VMI
+*/5 * * * * $REPO/scripts/download_product_ftp.sh ETM
+*/5 * * * * $REPO/scripts/download_product_ftp.sh VIL
+*/5 * * * * $REPO/scripts/download_product_ftp.sh IR_108 TIFF
+
+# AMV shapefiles are published every 20 minutes, not every 5
+5-59/20 * * * * $REPO/scripts/download_product_ftp.sh AMV SHP
+
+# Radar site availability
+*/5 * * * * $REPO/scripts/download_product_ftp.sh SITES TXT
+
+# ---------------------------------------------------------------------------
+# Local radars
+# ---------------------------------------------------------------------------
+# Torchiarolo (Puglia) — one entry per product: they are published
+# independently, so each job polls its own directory for its own file.
+*/5 * * * * $REPO/scripts/download_torchiarolo_ftp.sh SRI
+*/5 * * * * $REPO/scripts/download_torchiarolo_ftp.sh VMI
+*/5 * * * * $REPO/scripts/download_torchiarolo_ftp.sh ETM
+*/5 * * * * $REPO/scripts/download_torchiarolo_ftp.sh VIL
+
+# Cagliari X-band — one run fetches all products for the slot
+*/5 * * * * $REPO/scripts/download_cagliari_ftp.sh
+
+# WR10 mobile radar
+*/6 * * * * $REPO/scripts/download_wr10_ftp.sh
+
+# ---------------------------------------------------------------------------
+# Derived products
+# ---------------------------------------------------------------------------
+*/5 * * * * $REPO/scripts/FSS_computation/run_fss.sh >> /home/ubuntu/logs/fss_compute.log 2>&1
+*/5 * * * * $REPO/scripts/LK_computation/run_lk.sh  >> /home/ubuntu/logs/lk_compute.log 2>&1
+
+# ---------------------------------------------------------------------------
+# Housekeeping
+# ---------------------------------------------------------------------------
+0 0 * * * $REPO/scripts/cleanup_old_predictions.sh >> /home/ubuntu/logs/cleanup_predictions.log 2>&1
