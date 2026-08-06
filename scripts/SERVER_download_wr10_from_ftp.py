@@ -38,7 +38,7 @@ def dest_dir(product, elev):
 
 
 def curl_list():
-    cmd = ["curl", "-s", "--list-only", "--ftp-pasv",
+    cmd = ["curl", "-s", "--list-only", "--ftp-pasv", "--disable-epsv",
            "-u", f"{USERNAME}:{PASSWORD}", FTP_URL]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
@@ -48,7 +48,7 @@ def curl_list():
 
 
 def download_file(filename, local_path):
-    cmd = ["curl", "-s", "--ftp-pasv", "-u", f"{USERNAME}:{PASSWORD}",
+    cmd = ["curl", "-s", "--ftp-pasv", "--disable-epsv", "-u", f"{USERNAME}:{PASSWORD}",
            "-o", local_path, f"{FTP_URL}{filename}"]
     return subprocess.run(cmd).returncode == 0
 

@@ -109,7 +109,7 @@ def _subfolder(prefix):
 def curl_list(prefix):
     """List files in the FTP subdirectory for the given product prefix."""
     url = f"{FTP_URL}{_subfolder(prefix)}"
-    cmd = ["curl", "-s", "--list-only", "--ftp-pasv",
+    cmd = ["curl", "-s", "--list-only", "--ftp-pasv", "--disable-epsv",
            "-u", f"{USERNAME}:{PASSWORD}", url]
     result = subprocess.run(cmd, capture_output=True, text=True)
     return result.stdout
@@ -117,7 +117,7 @@ def curl_list(prefix):
 
 def download_file(prefix, filename, local_path):
     url = f"{FTP_URL}{_subfolder(prefix)}{filename}"
-    cmd = ["curl", "-s", "--ftp-pasv", "-u", f"{USERNAME}:{PASSWORD}",
+    cmd = ["curl", "-s", "--ftp-pasv", "--disable-epsv", "-u", f"{USERNAME}:{PASSWORD}",
            "-o", local_path, url]
     return subprocess.run(cmd).returncode == 0
 

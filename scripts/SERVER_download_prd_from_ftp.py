@@ -46,7 +46,7 @@ def curl_list_files(server_url):
     # --ftp-pasv: passive mode required by the server firewall
     # --list-only: returns plain filenames instead of full directory listing
     cmd = [
-        "curl", "-s", "--list-only", "--ftp-pasv",
+        "curl", "-s", "--list-only", "--ftp-pasv", "--disable-epsv",
         "-u", f"{USERNAME}:{PASSWORD}",
         server_url,
     ]
@@ -64,7 +64,7 @@ def expected_slot(interval_minutes):
 
 def download_file(server_url, filename, dest_path):
     cmd = [
-        "curl", "-s", "--ftp-pasv", "-u", f"{USERNAME}:{PASSWORD}",
+        "curl", "-s", "--ftp-pasv", "--disable-epsv", "-u", f"{USERNAME}:{PASSWORD}",
         "-o", dest_path, f"{server_url}{filename}",
     ]
     return subprocess.run(cmd).returncode == 0

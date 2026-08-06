@@ -31,7 +31,11 @@ FTP_BASE = "ftp://ftp.protezionecivile.it/PUGLIA/"
 
 DEST_BASE = "/data/torchiarolo"
 
-TOTAL_TIMEOUT = 600       # 10 minutes max wait
+# Must stay below the 5-minute cron interval: a longer budget means a stalled
+# run is still alive when the next one starts, so failures pile up runs (and
+# FTP connections) instead of replacing them. That is what turned an FTP
+# outage into 8 concurrent pollers hammering an already-struggling server.
+TOTAL_TIMEOUT = 240       # 4 minutes max wait
 FAST_PHASE_SECONDS = 150  # first 2.5 min: poll aggressively
 FAST_SLEEP = 1
 SLOW_SLEEP = 30
@@ -57,17 +61,27 @@ def setup_logger(log_path):
 
 
 def curl_list_files(server_url):
+    """Return (listing_text, ok).
+
+    'ok' distinguishes an FTP failure from a successful listing that simply
+    does not contain our file yet. Without it the two look identical — an
+    outage reads exactly like "data not published", which is how an EPSV
+    failure once went unnoticed for hours.
+    """
     # --ftp-pasv: passive mode required by the server firewall
+    # --disable-epsv: the server can stop answering EPSV entirely; because it
+    #   hangs rather than returning an error, curl never falls back to PASV on
+    #   its own and every transfer times out. Force plain PASV.
     # --list-only: returns plain filenames instead of full directory listing
     cmd = [
-        "curl", "-s", "--list-only", "--ftp-pasv",
+        "curl", "-s", "--list-only", "--ftp-pasv", "--disable-epsv",
         "--connect-timeout", str(CONNECT_TIMEOUT),
         "--max-time", str(LIST_TIMEOUT),
         "-u", f"{USERNAME}:{PASSWORD}",
         server_url,
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
-    return result.stdout
+    return result.stdout, result.returncode == 0
 
 
 def expected_slot(interval_minutes):
@@ -87,7 +101,7 @@ def download_file(server_url, filename, dest_path):
     # sees a half-written file.
     tmp_path = f"{dest_path}.part"
     cmd = [
-        "curl", "-s", "--ftp-pasv",
+        "curl", "-s", "--ftp-pasv", "--disable-epsv",
         "--connect-timeout", str(CONNECT_TIMEOUT),
         "--max-time", str(DOWNLOAD_TIMEOUT),
         "-u", f"{USERNAME}:{PASSWORD}",
@@ -129,7 +143,8 @@ def main(product, interval=5):
 
     while True:
         elapsed = time.time() - start_time
-        raw = curl_list_files(server_url)
+        raw, listing_ok = curl_list_files(server_url)
+        reason = "waiting" if listing_ok else "FTP LISTING FAILED"
 
         if filename in raw:
             if download_file(server_url, filename, local_path):
@@ -142,15 +157,22 @@ def main(product, interval=5):
 
         if elapsed < FAST_PHASE_SECONDS:
             if time.time() - last_log_time > LOG_INTERVAL_FAST:
-                logging.info(f"Waiting for {product}/{filename} (fast polling)...")
+                logging.info(f"{reason}: {product}/{filename} (fast polling)...")
                 last_log_time = time.time()
             time.sleep(FAST_SLEEP)
         elif elapsed < TOTAL_TIMEOUT:
-            logging.info(f"Waiting for {product}/{filename} (slow polling)...")
+            logging.info(f"{reason}: {product}/{filename} (slow polling)...")
             time.sleep(SLOW_SLEEP)
         else:
-            logging.error(f"Timeout: {product}/{filename} not available.")
-            print(f"Timeout: {filename} not available for {product}.")
+            if listing_ok:
+                logging.error(f"Timeout: {product}/{filename} not available.")
+                print(f"Timeout: {filename} not available for {product}.")
+            else:
+                logging.error(
+                    f"Timeout: {product}/{filename} — FTP listing kept failing, "
+                    f"the server may be unreachable rather than the data missing."
+                )
+                print(f"Timeout: {filename} for {product} (FTP unreachable).")
             break
 
 
