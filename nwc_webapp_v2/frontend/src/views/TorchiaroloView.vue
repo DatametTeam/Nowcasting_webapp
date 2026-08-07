@@ -908,8 +908,9 @@ onMounted(async () => {
 
   isLoading.value = false
   await loadData()
-  const [cLat, cLon] = radarCenter.value
-  radarMap.value?.addFixedMarker(cLat, cLon, 'active', 'Torchiarolo — radar site')
+  // No addFixedMarker here: TORCHIAROLO is one of the national sites in
+  // RadarMap's RADARS list, so the marker is already drawn. Adding a fixed one
+  // would stack a second icon on the same spot.
   _scheduleNextPoll()
 })
 

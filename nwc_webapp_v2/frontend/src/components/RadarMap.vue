@@ -139,6 +139,8 @@ const RADARS = [
   ['SAGITTARIA', 45.69, 12.79],
   ['SERANO', 42.8659, 12.8002],
   ['SETTEPANI', 44.247, 8.199],
+  // Position read from the Torchiarolo HDF5 (where/projdef: +lat_0 / +lon_0)
+  ['TORCHIAROLO', 40.5064, 18.0598],
   ['XBAND1', 40.883, 14.286],
   ['XBAND2', 38.07, 15.65],
   ['XBAND3', 41.139, 16.76],
