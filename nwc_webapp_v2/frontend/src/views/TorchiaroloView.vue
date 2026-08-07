@@ -200,8 +200,9 @@
               </span>
             </div>
 
-            <!-- Follow Live toggle -->
+            <!-- Follow Live toggle — meaningless while pinned to the archive -->
             <button
+              v-if="!isArchive"
               @click="followLive = !followLive"
               class="w-full py-1.5 rounded text-xs font-semibold transition-colors border"
               :class="followLive
@@ -220,6 +221,47 @@
             >
               Jump to Latest
             </button>
+          </div>
+
+          <!-- Time anchor: live, or pinned to a past UTC datetime -->
+          <div class="space-y-2">
+            <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Time Anchor</h3>
+            <div class="grid grid-cols-2 gap-1">
+              <button
+                @click="applyArchiveEnd('')"
+                :disabled="isLoading"
+                class="py-1.5 rounded text-xs font-semibold transition-colors border disabled:cursor-not-allowed"
+                :class="!isArchive
+                  ? 'bg-blue-600 border-blue-500 text-white'
+                  : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'"
+              >
+                Live
+              </button>
+              <button
+                @click="applyArchiveEnd(archiveEnd || defaultArchiveEnd())"
+                :disabled="isLoading"
+                class="py-1.5 rounded text-xs font-semibold transition-colors border disabled:cursor-not-allowed"
+                :class="isArchive
+                  ? 'bg-amber-600 border-amber-500 text-white'
+                  : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'"
+              >
+                Archive
+              </button>
+            </div>
+            <div v-if="isArchive" class="space-y-1">
+              <input
+                type="datetime-local"
+                :value="archiveEnd"
+                @change="applyArchiveEnd($event.target.value)"
+                :disabled="isLoading"
+                class="w-full px-2 py-1.5 rounded text-xs bg-gray-800 border border-gray-700
+                       text-gray-200 disabled:cursor-not-allowed"
+              />
+              <p class="text-[10px] text-gray-500 leading-snug">
+                UTC. Window ends here and extends back by the lookback below.
+                Auto-refresh is paused.
+              </p>
+            </div>
           </div>
 
           <!-- Lookback selector -->
@@ -488,6 +530,21 @@ const isLoaded   = ref(false)
 // ---- Lookback ----
 const lookbackHours = ref(settings.defaultLookback ?? 1)
 
+// ---- Archive anchor ----
+//
+// Live mode anchors the lookback window at "now" and keeps itself current via
+// the WS push and the 5-minute poll. Archive mode pins the window to a chosen
+// UTC datetime so past events can be reviewed against the mosaic; while pinned
+// we suppress both refresh paths, otherwise a newly arrived file would drag the
+// timeline back to the present mid-inspection.
+const archiveEnd = ref('')                                  // 'YYYY-MM-DDTHH:MM', UTC
+const isArchive  = computed(() => archiveEnd.value !== '')
+
+/** Upper bound of the loaded window: the archive anchor, or now in live mode. */
+function windowEnd() {
+  return isArchive.value ? new Date(`${archiveEnd.value}:00Z`) : new Date()
+}
+
 // ---- Motion field layer (AMV / LK) ----
 const _motionCurrentTs = computed(() => (timestamps.value[frameIndex.value] ?? '').slice(0, 16))
 const { motionMode, motionLoading, activeMotionTs, lkDisplayMode, lkArrowOpacity,
@@ -563,7 +620,7 @@ const hourTicks = computed(() => {
 // Torchiarolo drives the timeline: a new file there rebuilds everything.
 const { connected: wsConnected } = useTorchiaroloWs({
   onTorchiaroloUpdate: () => {
-    if (!isLoading.value) loadData()
+    if (!isLoading.value && !isArchive.value) loadData()
   },
 })
 
@@ -578,7 +635,7 @@ const MOSAIC_WATCHED = new Set(Object.values(MOSAIC_API_PRODUCT))
 useRealtimeWs({
   onProductReady: (product) => {
     if (!MOSAIC_WATCHED.has(product)) return
-    if (isLoading.value) return
+    if (isLoading.value || isArchive.value) return
     reloadMosaics()
   },
 })
@@ -592,7 +649,7 @@ function _scheduleNextPoll() {
   const msToNextMark = (5 * 60 * 1000) - ((now.getMinutes() % 5) * 60 + now.getSeconds()) * 1000 - now.getMilliseconds()
   const delay = msToNextMark + 15_000
   _pollTimer = setTimeout(async () => {
-    await loadData()
+    if (!isArchive.value) await loadData()
     _scheduleNextPoll()
   }, delay)
 }
@@ -610,11 +667,11 @@ const MOSAIC_EXTRA_MIN = 15
 
 async function fetchMosaicUrls(sortedTs) {
   const lookbackMinutes = lookbackHours.value * 60
-  const now = new Date()
-  const mosaicStart = new Date(now - (lookbackMinutes + MOSAIC_EXTRA_MIN) * 60 * 1000)
+  const end = windowEnd()
+  const mosaicStart = new Date(end - (lookbackMinutes + MOSAIC_EXTRA_MIN) * 60 * 1000)
   mosaicStart.setMinutes(Math.floor(mosaicStart.getMinutes() / 5) * 5, 0, 0)
   const startISO = mosaicStart.toISOString().slice(0, 16)
-  const endISO   = now.toISOString().slice(0, 16)
+  const endISO   = end.toISOString().slice(0, 16)
 
   const results = await Promise.all(
     MOSAIC_PRODUCTS.map(product =>
@@ -661,7 +718,7 @@ async function loadData() {
 
     const torchiaroloResults = await Promise.all(
       TORCHIAROLO_PRODUCTS.map(product =>
-        api.torchiaroloTimestamps(product, lookbackMinutes).catch(err => {
+        api.torchiaroloTimestamps(product, lookbackMinutes, archiveEnd.value || null).catch(err => {
           console.error(`[TorchiaroloView] timestamps failed for ${product}:`, err)
           return { timestamps: [], total: 0 }
         })
@@ -751,6 +808,25 @@ async function setLookback(hours) {
   lookbackHours.value = hours
   stopAnimation()
   await loadData()
+}
+
+/** Pin the window to a past UTC datetime, or clear the pin and return to live. */
+async function applyArchiveEnd(value) {
+  if (isLoading.value) return
+  if (value === archiveEnd.value && isLoaded.value) return
+  archiveEnd.value = value
+  stopAnimation()
+  // Land on the newest frame of whichever window we just selected — in archive
+  // mode that is the anchor datetime itself, which is what the user asked for.
+  followLive.value = true
+  await loadData()
+}
+
+/** Default the picker to a round hour a little behind now, so it opens on real data. */
+function defaultArchiveEnd() {
+  const d = new Date(Date.now() - 60 * 60 * 1000)
+  d.setUTCMinutes(0, 0, 0)
+  return d.toISOString().slice(0, 16)
 }
 
 function onSliderInput(e) {

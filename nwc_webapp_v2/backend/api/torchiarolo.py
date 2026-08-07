@@ -408,8 +408,18 @@ async def get_torchiarolo_config():
 async def get_torchiarolo_timestamps(
     product: str = Query("SRI", description="Product name: SRI, VMI, VIL or ETM"),
     lookback_minutes: int = Query(60, description="Lookback window in minutes"),
+    end: str | None = Query(
+        None,
+        description="Anchor the window at this UTC datetime (ISO) instead of now — "
+                    "used to browse past events. Files are never pruned, so any "
+                    "date since the downloader started is reachable.",
+    ),
 ):
-    """List available Torchiarolo timestamps for a product within the lookback window."""
+    """List available Torchiarolo timestamps for a product within the lookback window.
+
+    The window is ``[anchor - lookback_minutes, anchor]``, where the anchor is
+    ``end`` when supplied and the current UTC time otherwise.
+    """
     cfg = _torchiarolo_cfg()
     valid_products = list(cfg.get("products", {}).keys()) or ["SRI", "VMI", "VIL", "ETM"]
     if product not in valid_products:
@@ -418,17 +428,30 @@ async def get_torchiarolo_timestamps(
             detail=f"Unknown product: {product}. Available: {valid_products}",
         )
 
+    # Validate the anchor before the folder check, so a malformed datetime is
+    # always reported rather than masked by an empty result on a missing folder.
+    if end is None:
+        # Live mode: no upper bound needed, filenames cannot be in the future.
+        anchor = datetime.utcnow()
+        newest = None
+    else:
+        try:
+            anchor = datetime.fromisoformat(end)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid end datetime: {e}")
+        newest = anchor
+
     folder = _get_product_folder(product)
     if not folder.exists():
         return {"product": product, "timestamps": [], "total": 0}
 
-    cutoff = datetime.utcnow() - timedelta(minutes=lookback_minutes + 6)
+    cutoff = anchor - timedelta(minutes=lookback_minutes + 6)
 
     found: list[datetime] = []
     try:
         for fname in os.listdir(folder):
             dt = parse_torchiarolo_filename(fname)
-            if dt is not None and dt >= cutoff:
+            if dt is not None and dt >= cutoff and (newest is None or dt <= newest):
                 found.append(dt)
     except OSError as e:
         logger.warning("Cannot list Torchiarolo folder %s: %s", folder, e)

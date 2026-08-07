@@ -223,8 +223,11 @@ export default {
 
   // --- Torchiarolo (Puglia) radar composite ---
   torchiaroloConfig: () => get('/torchiarolo/config'),
-  torchiaroloTimestamps: (product, lookbackMinutes) =>
-    get(`/torchiarolo/timestamps?product=${product}&lookback_minutes=${lookbackMinutes}`),
+  // `end` anchors the lookback window at a past UTC datetime (archive mode);
+  // omit it to anchor at the current time.
+  torchiaroloTimestamps: (product, lookbackMinutes, end = null) =>
+    get(`/torchiarolo/timestamps?product=${product}&lookback_minutes=${lookbackMinutes}`
+        + (end ? `&end=${encodeURIComponent(end)}` : '')),
   torchiaroloOverlayUrl: (timestamp, product) =>
     `/api/render/overlay/torchiarolo/${encodeURIComponent(timestamp)}?product=${product}`,
   torchiaroloSamplePixel: ({ lat, lon, timestamp, products }) =>
