@@ -462,6 +462,7 @@ import { useSettingsStore } from '../stores/settings.js'
 import { useConfigStore } from '../stores/config.js'
 import { useTorchiaroloWs } from '../composables/useTorchiaroloWs.js'
 import { useRealtimeWs } from '../composables/useRealtimeWs.js'
+import { useRadarStatusWs } from '../composables/useRadarStatusWs.js'
 import { useMotionLayer } from '../composables/useMotionLayer.js'
 import api from '../api.js'
 
@@ -526,6 +527,10 @@ const gridInfo      = ref(null)
 const timestamps = ref([])
 const frameIndex = ref(0)
 const isLoaded   = ref(false)
+
+// Per-timestamp list of radar sites that were active, keyed by 'YYYY-MM-DDTHH:MM'.
+// Feeds the marker colouring on the map (green = active, red = inactive).
+const radarStatuses = ref({})
 
 // ---- Lookback ----
 const lookbackHours = ref(settings.defaultLookback ?? 1)
@@ -640,6 +645,17 @@ useRealtimeWs({
   },
 })
 
+// A new status file lands independently of the radar products, so refresh the
+// marker colours on its own push instead of waiting for the next full reload.
+useRadarStatusWs({
+  onRadarStatusUpdated: async () => {
+    if (!isLoaded.value || timestamps.value.length === 0) return
+    Object.assign(radarStatuses.value, await fetchRadarStatuses(timestamps.value))
+    const ts = statusKey(timestamps.value[frameIndex.value])
+    radarMap.value?.updateRadarStatus(ts ? (radarStatuses.value[ts] ?? null) : null)
+  },
+})
+
 // ---- 5-minute clock-aligned poll ----
 let _pollTimer = null
 
@@ -708,6 +724,29 @@ async function reloadMosaics() {
   }
 }
 
+// ---- Radar availability status ----
+//
+// Status files list the radar sites that were active at each 5-min slot; the
+// map colours the national site markers from them (green = active, red = down,
+// gray = no status file for that frame).
+
+/** Normalise a frame timestamp to the 'YYYY-MM-DDTHH:MM' key used by the status API. */
+function statusKey(ts) {
+  return ts ? ts.slice(0, 16) : ''
+}
+
+/** Fetch the status of every radar site across the loaded window. */
+async function fetchRadarStatuses(sortedTs) {
+  if (sortedTs.length === 0) return {}
+  const start = statusKey(sortedTs[0])
+  const end   = statusKey(sortedTs[sortedTs.length - 1])
+  const result = await api.radarStatusRange(start, end).catch(err => {
+    console.error('[TorchiaroloView] radar status fetch failed:', err)
+    return { statuses: {} }
+  })
+  return result.statuses ?? {}
+}
+
 // ---- Core load ----
 async function loadData() {
   isLoading.value = true
@@ -736,6 +775,7 @@ async function loadData() {
     }
 
     loadError.value = ''
+    radarStatuses.value = await fetchRadarStatuses(sortedTs)
     const prevLen      = timestamps.value.length
     const prevFraction = prevLen > 1 ? frameIndex.value / (prevLen - 1) : 1
 
@@ -786,6 +826,8 @@ function goToFrame(idx) {
       : 0
   }
   radarMap.value.showAllAtFrame(idx, opacities)
+  const ts = statusKey(timestamps.value[idx])
+  radarMap.value.updateRadarStatus(ts ? (radarStatuses.value[ts] ?? null) : null)
 }
 
 function goToLatest() {
