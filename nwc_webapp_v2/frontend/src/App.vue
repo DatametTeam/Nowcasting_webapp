@@ -208,12 +208,13 @@ import { useRoute } from 'vue-router'
 import { useConfigStore } from './stores/config.js'
 import { useSettingsStore } from './stores/settings.js'
 import api from './api.js'
+import { BASE_LAYER_NAMES } from './basemaps.js'
 
 const route = useRoute()
 const configStore = useConfigStore()
 const settings = useSettingsStore()
 
-const BASE_LAYERS = ['Dark', 'OpenStreetMap', 'Satellite', 'Terrain']
+const BASE_LAYERS = BASE_LAYER_NAMES
 
 const settingsOpen = ref(false)
 

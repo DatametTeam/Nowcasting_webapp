@@ -28,6 +28,8 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import 'leaflet.sync'
+import { useSettingsStore } from '../stores/settings.js'
+import { createBaseLayers, DARK_BASE_LAYERS, DEFAULT_BASE_LAYER } from '../basemaps.js'
 
 const RADAR_BOUNDS = [[35.0623, 4.51987], [47.5730, 20.4801]]
 const OVERLAY_OPACITY = 1.0
@@ -42,6 +44,7 @@ const props = defineProps({
 
 const mapEl = ref(null)
 let map = null
+const settings = useSettingsStore()
 
 // Array of Leaflet ImageOverlay layers — one per preloaded frame.
 // Null slots mean the URL was missing or failed to load.
@@ -61,11 +64,10 @@ onMounted(() => {
     fadeAnimation: false,
   })
 
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    attribution: '',
-    subdomains: 'abcd',
-    maxZoom: 20,
-  }).addTo(map)
+  // Comparison panels always use a dark base map: the user's choice if it is
+  // one of the dark ones, the default dark map otherwise
+  const baseName = DARK_BASE_LAYERS.has(settings.baseLayer) ? settings.baseLayer : DEFAULT_BASE_LAYER
+  createBaseLayers(map)[baseName].addTo(map)
 })
 
 onUnmounted(() => {

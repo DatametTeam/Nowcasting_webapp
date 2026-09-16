@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
+import { resolveBaseLayerName } from '../basemaps.js'
 
 const STORAGE_KEY = 'nwc_settings'
 
@@ -9,7 +10,8 @@ export const useSettingsStore = defineStore('settings', () => {
     catch { return {} }
   })()
 
-  const baseLayer       = ref(saved.baseLayer       ?? 'Dark')
+  // resolveBaseLayerName also migrates the old 'Dark' (CARTO) value
+  const baseLayer       = ref(resolveBaseLayerName(saved.baseLayer))
   const showColorbars   = ref(saved.showColorbars   ?? true)
   const timeZone        = ref(saved.timeZone        ?? 'local')  // 'local' | 'utc'
   const defaultLookback = ref(saved.defaultLookback ?? 1)        // hours

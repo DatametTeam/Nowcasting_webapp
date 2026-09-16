@@ -42,6 +42,7 @@ import 'leaflet-velocity'
 import { GeoSearchControl, OpenStreetMapProvider } from 'leaflet-geosearch'
 import 'leaflet-geosearch/dist/geosearch.css'
 import { useSettingsStore } from '../stores/settings.js'
+import { createBaseLayers, DARK_BASE_LAYERS, resolveBaseLayerName } from '../basemaps.js'
 
 const props = defineProps({
   center: { type: Array, default: () => [42.0, 12.5] },
@@ -151,27 +152,6 @@ const RADARS = [
   ['FLERO', 45.4814, 10.1768],
 ]
 
-// Base map tile layers
-const BASE_MAPS = {
-  'Dark': L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-    subdomains: 'abcd',
-    maxZoom: 20,
-  }),
-  'OpenStreetMap': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    maxZoom: 19,
-  }),
-  'Satellite': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-    attribution: '&copy; <a href="https://www.esri.com/">Esri</a>',
-    maxZoom: 18,
-  }),
-  'Terrain': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
-    maxZoom: 17,
-  }),
-}
-
 onMounted(() => {
   map = L.map(mapContainer.value, {
     center: props.center,
@@ -181,29 +161,33 @@ onMounted(() => {
     zoomAnimation: true,
   })
 
-  // Use the saved setting (falls back to Dark if key not found)
-  const initialLayer = BASE_MAPS[settings.baseLayer] ?? BASE_MAPS['Dark']
-  initialLayer.addTo(map)
-  activeBaseLayer = initialLayer
+  // One fresh set of base layers per map (layers can't be shared across maps)
+  const baseMaps = createBaseLayers(map)
 
-  L.control.layers(BASE_MAPS, null, {
+  // dark-basemap class drives colorbar/overlay CSS
+  const applyDarkClass = (name) => {
+    mapContainer.value?.classList.toggle('dark-basemap', DARK_BASE_LAYERS.has(name))
+  }
+
+  // Use the saved setting (falls back to the default if the key is unknown)
+  const initialName = resolveBaseLayerName(settings.baseLayer)
+  baseMaps[initialName].addTo(map)
+  activeBaseLayer = baseMaps[initialName]
+  applyDarkClass(initialName)
+
+  L.control.layers(baseMaps, null, {
     position: 'topleft',
     collapsed: true,
   }).addTo(map)
 
   // Sync when user switches base layer in Settings modal
   watch(() => settings.baseLayer, (name) => {
-    const next = BASE_MAPS[name]
+    const next = baseMaps[name]
     if (!next || !map) return
     if (activeBaseLayer) map.removeLayer(activeBaseLayer)
     next.addTo(map)
     activeBaseLayer = next
-    // dark-basemap class drives colorbar/overlay CSS
-    if (name === 'Dark') {
-      mapContainer.value?.classList.add('dark-basemap')
-    } else {
-      mapContainer.value?.classList.remove('dark-basemap')
-    }
+    applyDarkClass(name)
   })
 
   // Place search bar — uses OpenStreetMap's free Nominatim geocoder
@@ -231,11 +215,6 @@ onMounted(() => {
       .addTo(map)
   }
 
-  const DARK_LAYERS = new Set(['Dark', 'Satellite'])
-  if (DARK_LAYERS.has(settings.baseLayer)) {
-    mapContainer.value.classList.add('dark-basemap')
-  }
-
   // Click → emit (lat, lon) so the parent view can fetch pixel values and
   // display a popup. Skip clicks on existing popups, controls, or markers.
   map.on('click', (e) => {
@@ -243,11 +222,8 @@ onMounted(() => {
   })
 
   map.on('baselayerchange', (e) => {
-    if (DARK_LAYERS.has(e.name)) {
-      mapContainer.value.classList.add('dark-basemap')
-    } else {
-      mapContainer.value.classList.remove('dark-basemap')
-    }
+    activeBaseLayer = e.layer
+    applyDarkClass(e.name)
   })
 })
 
