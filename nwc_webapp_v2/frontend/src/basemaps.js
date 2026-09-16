@@ -10,11 +10,11 @@ import L from 'leaflet'
 export const DEFAULT_BASE_LAYER = 'Esri Dark'
 
 // Order here is the order shown in the Settings modal and the layer control
-export const BASE_LAYER_NAMES = ['Esri Dark', 'Stadia Dark', 'OpenStreetMap', 'Satellite', 'Terrain']
+export const BASE_LAYER_NAMES = ['Esri Dark', 'Stadia Dark', 'Stamen Toner Dark', 'OpenStreetMap', 'Satellite', 'Terrain']
 
 // Base maps with a dark background: the map container gets the
 // `dark-basemap` class, which switches icons/overlays to their light variants
-export const DARK_BASE_LAYERS = new Set(['Esri Dark', 'Stadia Dark', 'Satellite'])
+export const DARK_BASE_LAYERS = new Set(['Esri Dark', 'Stadia Dark', 'Stamen Toner Dark', 'Satellite'])
 
 // Pane for label layers, above the radar overlays (overlayPane = 400) but
 // below markers (600), so city names stay readable over precipitation
@@ -57,6 +57,10 @@ export function createBaseLayers(map) {
     ]),
     'Stadia Dark': L.tileLayer(`https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png${STADIA_KEY_PARAM}`, {
       attribution: '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a> &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 20,
+    }),
+    'Stamen Toner Dark': L.tileLayer(`https://tiles.stadiamaps.com/tiles/stamen_toner_dark/{z}/{x}/{y}{r}.png${STADIA_KEY_PARAM}`, {
+      attribution: '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a> &copy; <a href="https://stamen.com/">Stamen Design</a> &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       maxZoom: 20,
     }),
     'OpenStreetMap': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
