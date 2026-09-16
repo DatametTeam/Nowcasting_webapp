@@ -67,7 +67,7 @@ onMounted(() => {
   // Comparison panels always use a dark base map: the user's choice if it is
   // one of the dark ones, the default dark map otherwise
   const baseName = DARK_BASE_LAYERS.has(settings.baseLayer) ? settings.baseLayer : DEFAULT_BASE_LAYER
-  createBaseLayers(map)[baseName].addTo(map)
+  createBaseLayers()[baseName].addTo(map)
 })
 
 onUnmounted(() => {

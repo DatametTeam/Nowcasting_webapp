@@ -10,7 +10,7 @@ export const useSettingsStore = defineStore('settings', () => {
     catch { return {} }
   })()
 
-  // resolveBaseLayerName also migrates the old 'Dark' (CARTO) value
+  // resolveBaseLayerName also migrates retired base map names to the default
   const baseLayer       = ref(resolveBaseLayerName(saved.baseLayer))
   const showColorbars   = ref(saved.showColorbars   ?? true)
   const timeZone        = ref(saved.timeZone        ?? 'local')  // 'local' | 'utc'

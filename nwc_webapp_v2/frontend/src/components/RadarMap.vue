@@ -162,7 +162,7 @@ onMounted(() => {
   })
 
   // One fresh set of base layers per map (layers can't be shared across maps)
-  const baseMaps = createBaseLayers(map)
+  const baseMaps = createBaseLayers()
 
   // dark-basemap class drives colorbar/overlay CSS
   const applyDarkClass = (name) => {
