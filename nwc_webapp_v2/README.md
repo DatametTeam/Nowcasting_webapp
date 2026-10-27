@@ -90,10 +90,12 @@ npm run build     # outputs optimized HTML/JS/CSS to backend/static/
 
 ```bash
 cd nwc_webapp_v2/backend
-uvicorn main:app --port 8000
+uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
 FastAPI serves both the API and the built frontend SPA from a single port. Open http://localhost:8000 in your browser.
+
+`--host 0.0.0.0` is required for anyone other than the server itself to reach the webapp: without it uvicorn listens on `127.0.0.1` only and remote browsers get "connection refused". Don't use `--reload` in production.
 
 The backend automatically detects the environment:
 - **HPC**: Uses real PBS job submission + radar data from `/davinci-1/`

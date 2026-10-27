@@ -17,6 +17,10 @@ To run:
     cd nwc_webapp_v2/backend
     uvicorn main:app --reload --port 8000
 
+On the server, bind to all interfaces so other machines can reach it
+(without --host uvicorn listens on 127.0.0.1 only):
+    uvicorn main:app --host 0.0.0.0 --port 8000
+
 Then open http://localhost:8000 in your browser.
 FastAPI also auto-generates API docs at http://localhost:8000/docs (very useful!)
 """

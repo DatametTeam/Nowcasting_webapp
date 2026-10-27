@@ -55,8 +55,9 @@ npm install
 npm run build
 
 # 5. Start the server (must be in backend/ directory)
+# --host 0.0.0.0 is required for remote access (default is 127.0.0.1 only)
 cd ../backend
-uvicorn main:app --port 8000
+uvicorn main:app --host 0.0.0.0 --port 8000
 
 # Open http://localhost:8000
 # API docs at http://localhost:8000/docs
